@@ -10,11 +10,11 @@ A first-person gothic arena roguelite built in Rust. Fight through a ruined ceme
 
 ## Gameplay trailer
 
-[![Watch the Gravewake gameplay trailer](docs/media/gameplay-preview.gif)](docs/media/gravewake-trailer.mp4)
+https://github.com/user-attachments/assets/62d76819-113a-4027-846c-11784dbf16fa
 
-[Watch / download the full 42-second trailer](docs/media/gravewake-trailer.mp4) · [Screenshot gallery](#inside-mournhollow) · [Build and play](#build-and-play)
+[Watch / download the full 42-second trailer](https://github.com/nearbycoder/gravewake/raw/refs/heads/main/docs/media/gravewake-trailer.mp4) · [Screenshot gallery](#inside-mournhollow) · [Build and play](#build-and-play)
 
-The preview above is an eight-second gameplay excerpt; click it for the full 42-second trailer with in-game sound. Captured from the native game. The trailer edits together staged gameplay encounters, actual pack interactions, reloads, physics, and armory views. No reference-game footage or prerendered combat is used.
+The 42-second trailer above was captured from the native game with in-game sound. The trailer edits together staged gameplay encounters, actual pack interactions, reloads, physics, and armory views. No reference-game footage or prerendered combat is used.
 
 ## Answer the bell
 

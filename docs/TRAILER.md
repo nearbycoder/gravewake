@@ -13,9 +13,12 @@ there is no external soundtrack or reference-game footage.
 
 `media/gravewake-trailer.mp4` is the full-quality 1280 × 720 H.264/AAC export.
 `media/trailer-manifest.json` records every source, in-point and duration.
-The README uses an eight-second animated preview linked to the full-quality
-video. The edit also produces a smaller attachment-ready copy under `captures/`.
-The repository retains a static poster as an alternative cover.
+The README embeds a smaller copy of the same edit using GitHub’s native video
+player. The full-quality original, an eight-second animated excerpt and a static
+poster are retained in the repository. The attachment was uploaded to this
+repository using the endpoint implemented by GitHub CLI’s attachment uploader.
+
+Inline player: https://github.com/user-attachments/assets/62d76819-113a-4027-846c-11784dbf16fa
 
 ## Reproduce
 
