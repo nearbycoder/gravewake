@@ -1,0 +1,97 @@
+{
+  "source": "../blender/weathered-armory.blend",
+  "blender": "4.5.3 LTS",
+  "materials": [
+    "pitted iron",
+    "oxidized brass",
+    "splintered walnut",
+    "oil-soaked leather"
+  ],
+  "mesh_format": "DVM1: count u32, then (rig u32, position xyz, normal xyz, material f32, UV xy) little-endian",
+  "models": [
+    {
+      "name": "iron-pistol",
+      "triangles": 4988,
+      "objects": 50,
+      "groups": [
+        0,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "double-barrel",
+      "triangles": 7820,
+      "objects": 54,
+      "groups": [
+        0,
+        1,
+        4
+      ]
+    },
+    {
+      "name": "cleaver",
+      "triangles": 1940,
+      "objects": 15,
+      "groups": [
+        0
+      ]
+    },
+    {
+      "name": "grave-revolver",
+      "triangles": 5968,
+      "objects": 62,
+      "groups": [
+        0,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "slug-pump",
+      "triangles": 8794,
+      "objects": 44,
+      "groups": [
+        0,
+        2,
+        4,
+        6
+      ]
+    },
+    {
+      "name": "repeater",
+      "triangles": 6356,
+      "objects": 38,
+      "groups": [
+        0,
+        2,
+        4,
+        7
+      ]
+    },
+    {
+      "name": "longrifle",
+      "triangles": 7532,
+      "objects": 44,
+      "groups": [
+        0,
+        2,
+        4
+      ]
+    }
+  ],
+  "atlas_size": [
+    1024,
+    1024
+  ],
+  "groups": {
+    "0": "fixed frame",
+    "1": "break action barrels",
+    "2": "bolt or toggle",
+    "3": "detachable magazine",
+    "4": "hammer",
+    "5": "revolver cylinder",
+    "6": "pump slide",
+    "7": "operating lever"
+  }
+}

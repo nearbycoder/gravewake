@@ -1,0 +1,268 @@
+{
+  "format": "ENV1",
+  "coordinate_system": "Y-up",
+  "assets": [
+    {
+      "name": "chapel-facade",
+      "triangles": 17836,
+      "bounds": [
+        [
+          -8.975000381469727,
+          0.0,
+          -0.800000011920929
+        ],
+        [
+          9.14828872680664,
+          12.205223083496094,
+          0.7400000095367432
+        ]
+      ],
+      "collision": {
+        "boxes": [
+          [
+            -9,
+            -3,
+            -0.7,
+            0.7
+          ],
+          [
+            3,
+            9,
+            -0.7,
+            0.7
+          ]
+        ],
+        "note": "Six metre central doorway stays open at ground level."
+      },
+      "bytes": 2568392
+    },
+    {
+      "name": "chapel-wall",
+      "triangles": 15092,
+      "bounds": [
+        [
+          -11.0,
+          0.0,
+          -0.7749999761581421
+        ],
+        [
+          11.0,
+          7.449999809265137,
+          0.7749999761581421
+        ]
+      ],
+      "collision": {
+        "boxes": [
+          [
+            -11,
+            11,
+            -0.75,
+            0.75
+          ]
+        ],
+        "note": "Continuous stone sill is 1.4m high; windows are not ground passages."
+      },
+      "bytes": 2173256
+    },
+    {
+      "name": "cloister-bay",
+      "triangles": 5848,
+      "bounds": [
+        [
+          -4.079999923706055,
+          0.0,
+          -0.9300000071525574
+        ],
+        [
+          4.369489669799805,
+          8.414999961853027,
+          0.9300000071525574
+        ]
+      ],
+      "collision": {
+        "boxes": [
+          [
+            -4.05,
+            -2.55,
+            -0.82,
+            0.82
+          ],
+          [
+            2.55,
+            4.05,
+            -0.82,
+            0.82
+          ]
+        ],
+        "note": "5.1m wide collision passage."
+      },
+      "bytes": 842120
+    },
+    {
+      "name": "bell-tower",
+      "triangles": 18600,
+      "bounds": [
+        [
+          -3.4000000953674316,
+          0.0,
+          -3.4000000953674316
+        ],
+        [
+          3.4000000953674316,
+          20.100000381469727,
+          3.4000000953674316
+        ]
+      ],
+      "collision": {
+        "boxes": [
+          [
+            -3.4,
+            3.4,
+            -3.4,
+            3.4
+          ]
+        ],
+        "note": "Solid tower footing; belfry is decorative above 8.5m."
+      },
+      "bytes": 2678408
+    },
+    {
+      "name": "memorial-fountain",
+      "triangles": 1340,
+      "bounds": [
+        [
+          -2.799999952316284,
+          0.0,
+          -2.799999952316284
+        ],
+        [
+          2.799999952316284,
+          2.180000066757202,
+          2.799999952316284
+        ]
+      ],
+      "collision": {
+        "circle_radius": 2.8,
+        "note": "Dry basin is a low central cover obstacle, not a traversal floor."
+      },
+      "bytes": 192968
+    },
+    {
+      "name": "ruin-wall",
+      "triangles": 2480,
+      "bounds": [
+        [
+          -3.0970370769500732,
+          0.012500000186264515,
+          -0.6225051283836365
+        ],
+        [
+          2.987499952316284,
+          3.5999999046325684,
+          0.5903655290603638
+        ]
+      ],
+      "collision": {
+        "boxes": [
+          [
+            -3.05,
+            3.05,
+            -0.67,
+            0.67
+          ]
+        ],
+        "note": "Continuous ground cover wall."
+      },
+      "bytes": 357128
+    },
+    {
+      "name": "rubble",
+      "triangles": 716,
+      "bounds": [
+        [
+          -1.3868086338043213,
+          0.0,
+          -0.5651130080223083
+        ],
+        [
+          1.0508325099945068,
+          0.8048191070556641,
+          1.2519049644470215
+        ]
+      ],
+      "collision": {
+        "note": "Scattered ankle-height visual debris. No required nav collider."
+      },
+      "bytes": 103112
+    },
+    {
+      "name": "funerary-urn",
+      "triangles": 604,
+      "bounds": [
+        [
+          -0.6584654450416565,
+          0.0,
+          -0.5600000023841858
+        ],
+        [
+          0.6584654450416565,
+          1.8700000047683716,
+          0.5600000023841858
+        ]
+      ],
+      "collision": {
+        "circle_radius": 0.62
+      },
+      "bytes": 86984
+    },
+    {
+      "name": "cemetery-obelisk",
+      "triangles": 300,
+      "bounds": [
+        [
+          -0.824999988079071,
+          0.0,
+          -0.824999988079071
+        ],
+        [
+          0.824999988079071,
+          4.349999904632568,
+          0.824999988079071
+        ]
+      ],
+      "collision": {
+        "circle_radius": 1.17
+      },
+      "bytes": 43208
+    },
+    {
+      "name": "curtain-wall",
+      "triangles": 7528,
+      "bounds": [
+        [
+          -11.010000228881836,
+          0.0,
+          -0.699999988079071
+        ],
+        [
+          11.010000228881836,
+          4.599999904632568,
+          0.699999988079071
+        ]
+      ],
+      "collision": {
+        "boxes": [
+          [
+            -11,
+            11,
+            -0.7,
+            0.7
+          ]
+        ],
+        "height": 4.6,
+        "note": "Solid continuous masonry matched to collision rectangles. No windows or passages."
+      },
+      "bytes": 1084040
+    }
+  ]
+}

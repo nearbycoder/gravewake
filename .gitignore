@@ -1,0 +1,23 @@
+/target/
+/dist/
+/captures/
+*.log
+.DS_Store
+
+/reference/audio/
+/reference/images/
+/reference/videos/
+/reference/legacy-branding/
+/reference/INSTRUCTIONS.md
+
+# Local credentials and editor state never belong in the public source tree.
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+
+*.blend1
+
+.venv*/
+__pycache__/

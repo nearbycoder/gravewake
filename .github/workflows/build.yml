@@ -1,0 +1,15 @@
+name: macOS build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Test gameplay and assets
+        run: cargo +stable test --locked
+      - name: Build native release
+        run: cargo +stable build --release --locked

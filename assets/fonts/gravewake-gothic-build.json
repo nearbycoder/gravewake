@@ -1,0 +1,12 @@
+{
+  "family": "Gravewake Gothic",
+  "source": "PirataOne-Regular.ttf",
+  "output": "GravewakeGothic-Regular.ttf",
+  "sha256": "21167e2f81d332031d2c3f4887d169fccf3fad6d4a5357099ff0c87b1cebba10",
+  "unicode_characters": 386,
+  "title_outlines_and_metrics_preserved": true,
+  "tabular_digit_advance": 480,
+  "units_per_em": 1000,
+  "license": "SIL OFL 1.1",
+  "system_installation_required": false
+}

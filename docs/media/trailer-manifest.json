@@ -1,0 +1,95 @@
+{
+  "fps": 30,
+  "frame_size": [
+    1280,
+    720
+  ],
+  "source": "Native Gravewake Metal renderer; staged disposable review runs",
+  "audio": "In-game audio only; no external music",
+  "shots": [
+    {
+      "source": "captures/trailer-edit/opening.png",
+      "in_seconds": 0,
+      "duration_seconds": 2.7,
+      "description": "Identity",
+      "still": true
+    },
+    {
+      "source": "captures/survival-review.mp4",
+      "in_seconds": 1.1,
+      "duration_seconds": 7.0,
+      "description": "Mixed-enemy combat and automatic powers",
+      "still": false
+    },
+    {
+      "source": "captures/motion-review.mp4",
+      "in_seconds": 7.0,
+      "duration_seconds": 4.8,
+      "description": "Shotgun fire and mechanical reload",
+      "still": false
+    },
+    {
+      "source": "captures/anatomy-review.mp4",
+      "in_seconds": 0.35,
+      "duration_seconds": 3.3,
+      "description": "Head hit and physical remains",
+      "still": false
+    },
+    {
+      "source": "captures/anatomy-review.mp4",
+      "in_seconds": 16.35,
+      "duration_seconds": 3.3,
+      "description": "Heavy impact and mesh fracture",
+      "still": false
+    },
+    {
+      "source": "captures/trailer-edit/arsenal.png",
+      "in_seconds": 0,
+      "duration_seconds": 1.5,
+      "description": "Arsenal chapter",
+      "still": true
+    },
+    {
+      "source": "docs/media/melee.jpg",
+      "in_seconds": 0,
+      "duration_seconds": 1.7,
+      "description": "Butcher Cleaver",
+      "still": true
+    },
+    {
+      "source": "docs/media/occult.jpg",
+      "in_seconds": 0,
+      "duration_seconds": 1.7,
+      "description": "Ember Staff",
+      "still": true
+    },
+    {
+      "source": "docs/media/shotgun.jpg",
+      "in_seconds": 0,
+      "duration_seconds": 1.7,
+      "description": "Double shotgun",
+      "still": true
+    },
+    {
+      "source": "captures/motion-review.mp4",
+      "in_seconds": 0.0,
+      "duration_seconds": 6.55,
+      "description": "Pack tear, reveal and equip through actual UI",
+      "still": false
+    },
+    {
+      "source": "captures/survival-review.mp4",
+      "in_seconds": 11.7,
+      "duration_seconds": 4.4,
+      "description": "Soul collection and power selection",
+      "still": false
+    },
+    {
+      "source": "captures/trailer-edit/ending.png",
+      "in_seconds": 0,
+      "duration_seconds": 3.0,
+      "description": "End card",
+      "still": true
+    }
+  ]
+}
