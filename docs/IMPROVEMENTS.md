@@ -247,5 +247,9 @@ Notes from verification:
   segfaults on Wayland while unwinding, because `exiting` is skipped. Normal
   exits are clean. A panic hook that releases the window would close this gap.
 
+Not verified this round: no macOS build or run of these changes (the
+new gilrs dependency uses IOKit there; macOS CI should catch compile
+problems once pushed); Windows; X11; NVIDIA.
+
 Deferred to later rounds: everything ranked #6 onward. Release artifacts (#6)
 remain an owner decision, including Developer ID notarization for macOS.

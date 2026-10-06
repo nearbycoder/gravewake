@@ -47,7 +47,7 @@ The 42-second trailer above was captured from the native game with in-game sound
 
 ## Build and play
 
-**Supported: native macOS and Linux.** macOS is tested on Apple Silicon with Metal. Linux is tested on one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland; X11, NVIDIA and other distributions have not been tested. This is a playable development build, not a finished commercial release. Windows and browser builds have not been validated. Play with keyboard and mouse or a controller; controller support has so far been verified only with simulated input, not a physical controller.
+**Supported: native macOS and Linux.** macOS is tested on Apple Silicon with Metal. Linux is tested on one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland; X11, NVIDIA and other distributions have not been tested. The latest changes (Linux support, controller support, new settings and combat feedback) were built and tested on that Linux machine only; the macOS build has not been re-verified since they landed. This is a playable development build, not a finished commercial release. Windows and browser builds have not been validated. Play with keyboard and mouse or a controller; controller support has so far been verified only with simulated input, not a physical controller.
 
 ### Requirements
 
