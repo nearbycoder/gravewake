@@ -60,6 +60,8 @@ pub struct Survival {
     pub storm_cd: f32,
     pub halo_cd: f32,
     pub frost_cd: f32,
+    /// Species still to come in the current shuffled pass through the pool.
+    pub bag: Vec<usize>,
 }
 impl Default for Survival {
     fn default() -> Self {
@@ -78,6 +80,7 @@ impl Default for Survival {
             storm_cd: 1.,
             halo_cd: 0.,
             frost_cd: 3.,
+            bag: vec![],
         }
     }
 }
@@ -105,6 +108,7 @@ impl Game {
         self.run.survival.wave_clock = 0.;
         self.run.survival.spawn_timer = 4.;
         self.run.survival.orbs.clear();
+        self.run.survival.bag.clear();
         for _ in 0..8 {
             self.spawn_reinforcement();
         }
@@ -121,10 +125,20 @@ impl Game {
             3 => &[0, 1, 2, 4, 5, 6, 7, 8],
             _ => &[0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11],
         };
+        // Each pass through the pool brings every species once, in a seeded
+        // random order, so a wave's mix matches the old round-robin.
         let kind = if wave % 4 == 0 && n == 0 {
             3
         } else {
-            pool[(n as usize + wave as usize * 3) % pool.len()]
+            if self.run.survival.bag.is_empty() {
+                let mut bag = pool.to_vec();
+                for i in (1..bag.len()).rev() {
+                    let j = ((self.rand() * (i + 1) as f32) as usize).min(i);
+                    bag.swap(i, j);
+                }
+                self.run.survival.bag = bag;
+            }
+            self.run.survival.bag.pop().unwrap()
         };
         let angle = self.rand() * std::f32::consts::TAU;
         let distance = 14. + self.rand() * 6.;

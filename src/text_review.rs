@@ -3,7 +3,7 @@
 use crate::{
     game::{
         Card, DAMAGE_MARK_LIFE, DamageMark, Enemy, Floater, Game, HIT_MARKER_LIFE, HitKind,
-        HitMarker, Mode,
+        HitMarker, Mode, Records,
     },
     weapons::WeaponKind,
 };
@@ -12,6 +12,7 @@ use glam::Vec3;
 #[derive(Clone, Copy)]
 enum Screen {
     Title(bool),
+    TitleRecords,
     Hud(u8),
     Shop(bool),
     Pack,
@@ -55,6 +56,7 @@ impl Review {
         let mut screens = vec![
             ("title-new".into(), Screen::Title(false)),
             ("title-continue".into(), Screen::Title(true)),
+            ("title-records".into(), Screen::TitleRecords),
             ("hud-new-run".into(), Screen::Hud(0)),
             ("hud-all-powers-boss".into(), Screen::Hud(1)),
             ("hud-reloading".into(), Screen::Hud(2)),
@@ -256,6 +258,17 @@ impl Review {
                 game.mode = Mode::Title;
                 game.has_save = saved;
             }
+            Screen::TitleRecords => {
+                game.mode = Mode::Title;
+                game.has_save = true;
+                game.records = Records {
+                    runs: 14,
+                    deepest: 19,
+                    most_souls: 1834,
+                    victories: 2,
+                    fastest_victory: Some(1694.),
+                };
+            }
             Screen::Hud(kind) => {
                 game.mode = Mode::Arena;
                 game.run.survival.remaining = 180;
@@ -384,7 +397,14 @@ impl Review {
                 game.has_save = true;
                 game.confirm_new_run = true;
             }
-            Screen::Ending(win) => game.mode = if win { Mode::Victory } else { Mode::Dead },
+            Screen::Ending(win) => {
+                game.mode = if win { Mode::Victory } else { Mode::Dead };
+                game.run_records = if win {
+                    vec!["MOST SOULS", "FASTEST VICTORY"]
+                } else {
+                    vec!["DEEPEST DESCENT", "MOST SOULS"]
+                };
+            }
         }
     }
 }

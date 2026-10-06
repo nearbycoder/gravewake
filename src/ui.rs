@@ -829,6 +829,27 @@ fn title(c: &Canvas, g: &mut Game) {
     if c.button("quit_title", 98., 789., 355., 41., "QUIT GAME", false) {
         g.quit_requested = true;
     }
+    let r = g.records;
+    if r.runs > 0 {
+        let fastest = r.fastest_victory.map_or("NONE YET".into(), |t| {
+            format!("{:02}:{:02}", t as u32 / 60, t as u32 % 60)
+        });
+        c.text(
+            98.,
+            856.,
+            format!(
+                "DEEPEST DESCENT {:02}  /  MOST SOULS {}  /  FASTEST VICTORY {fastest}  /  {} {}",
+                r.deepest,
+                r.most_souls,
+                r.runs,
+                if r.runs == 1 { "RUN" } else { "RUNS" }
+            ),
+            13.,
+            MUTED,
+            false,
+            Align2::LEFT_CENTER,
+        );
+    }
 }
 fn house(c: &Canvas, g: &mut Game) {
     backdrop(c, true);
@@ -2566,6 +2587,15 @@ fn ending(c: &Canvas, g: &mut Game) {
         15.,
         MUTED,
     );
+    if !g.run_records.is_empty() {
+        c.center(
+            720.,
+            538.,
+            format!("NEW RECORD  /  {}", g.run_records.join("  /  ")),
+            14.,
+            GOLD,
+        );
+    }
     if win
         && c.button(
             "endless",

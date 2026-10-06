@@ -182,7 +182,7 @@ Every defeated enemy drops a green soul orb; stronger enemies are worth more exp
 
 Leveling freezes combat and offers three distinct engraved power folios. Click one or press **1 / 2 / 3**. Ten powers each have five ranks: weapon damage, attack recovery, pickup radius, maximum health, healing on pickup, automatic lightning, orbiting blades, frost pulses, retaliatory thorns, and movement speed. Multiple earned levels queue separate choices. Fully ranked powers leave the pool; after all fifty ranks, further levels restore health and grant armor. These powers persist for the run, independently of weapon-card upgrades.
 
-Reinforcements arrive in batches, with new enemy types introduced over the opening four descents. Waves contain 19–74 enemies before summons; no more than 48 living enemies can crowd the arena. Ranged attacks travel as dodgeable projectiles. Dives, blasts, summons and blinks have visible warnings. Ground creatures and low flyers separate and navigate shared obstacle footprints; the higher aerial poses retain their flight animation. After descent twelve, **The Tithe Never Ends** continues the build with stronger waves (reinforcement quota capped at 180).
+Reinforcements arrive in batches, with new enemy types introduced over the opening four descents. Each descent draws from its pool through a seeded shuffle bag: every pass brings each species once in a random order, so a wave keeps the same mix of creatures as before, but the order and pairings change from run to run. Tithekeeper descents still open with the boss. Waves contain 19–74 enemies before summons; no more than 48 living enemies can crowd the arena. Ranged attacks travel as dodgeable projectiles. Dives, blasts, summons and blinks have visible warnings. Ground creatures and low flyers separate and navigate shared obstacle footprints; the higher aerial poses retain their flight animation. After descent twelve, **The Tithe Never Ends** continues the build with stronger waves (reinforcement quota capped at 180).
 
 `cargo test` covers all twelve species, twelve-descent combat progression, soul drops without duplication, collection and final-wave vacuum, saved/queued choices, caps and legacy defaults, automatic powers, ranged warnings, summon bounds, and existing weapons/anatomy/physics. `./scripts/capture-survival.sh` produces `captures/survival-review.mp4` from the native Metal renderer, visits all twelve bestiary entries, renders a 48-enemy stress scene, then records combat, soul collection and power choices through real UI handlers. The capture uses a disposable fourth-descent showcase with three initial automatic powers and never writes the player's save.
 
@@ -197,6 +197,12 @@ Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance
 `src/gamepad.rs` polls controllers through gilrs (evdev/udev on Linux, IOKit on macOS) and maps them in pure functions that tests can drive without hardware. In the arena, sticks have radial deadzones, and the look stick uses a squared response; its turn rate follows the Aim sensitivity slider and invert-look setting. Menus use a virtual cursor that sends ordinary egui pointer events, so every screen (shop, packs, the Binding, Armory, journal) works without a separate navigation layer; moving the mouse hands control back to it. The most recently used controller drives the game, connections and disconnections show a notice, and a missing or inaccessible device leaves keyboard and mouse play unchanged. Linux builds need `libudev`.
 
 `cargo run --release -- --smoke --gamepad` runs the normal smoke test but tears, reveals, selects and equips the pack by steering the controller cursor with synthetic stick input and pressing A. No physical controller has been tested yet.
+
+## Records
+
+`records.json`, beside the run save, keeps lifetime bests: runs started, deepest descent entered (endless descents count), most souls in one run, victories and the fastest victory. After the first run, the title shows them under the menu, and the ending screen lists any record the run set. Practice and diagnostic modes never change records.
+
+![Records on the title screen](docs/media/improvements/round2/title-records.jpg)
 
 ## Positional audio
 
@@ -214,7 +220,7 @@ Your own weapon hits flash a marker around the reticle: ivory for a body hit, go
 
 HUD numbers and labels have dedicated opaque dark surfaces, with armor separate from the ornamental vitality plate. Card text is printed in dark ink on a neutral parchment field independent of rarity. Folios soften their background engraving behind reading areas. Every control uses Gravewake Gothic, including compact labels and numbers; long card names and prose wrap using measured font widths. Generic labels and paragraphs have an 18-design-unit floor, with a minimum of 13.5 logical points after window scaling. The title glyph shapes and spacing are preserved exactly.
 
-`cargo run --release -- --text-review` captures the actual native UI in 78 screenshots across 75 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
+`cargo run --release -- --text-review` captures the actual native UI in 79 screenshots across 76 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, title records, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
 
 ## Blender creature and cemetery overhaul
 

@@ -328,6 +328,45 @@ impl Preferences {
             .map(Self::sanitized)
     }
 }
+/// Lifetime bests, stored in records.json beside the run save.
+#[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Records {
+    pub runs: u32,
+    /// Deepest descent entered, including endless descents.
+    pub deepest: u32,
+    pub most_souls: u32,
+    pub victories: u32,
+    /// Fastest twelve-descent victory, in seconds of run time.
+    pub fastest_victory: Option<f32>,
+}
+impl Records {
+    /// Fold a run's progress in and return the names of records it beat.
+    pub fn record(
+        &mut self,
+        wave: u32,
+        souls: u32,
+        victory_time: Option<f32>,
+    ) -> Vec<&'static str> {
+        let mut beaten = vec![];
+        if wave > self.deepest {
+            self.deepest = wave;
+            beaten.push("DEEPEST DESCENT");
+        }
+        if souls > self.most_souls {
+            self.most_souls = souls;
+            beaten.push("MOST SOULS");
+        }
+        if let Some(time) = victory_time {
+            self.victories += 1;
+            if self.fastest_victory.is_none_or(|best| time < best) {
+                self.fastest_victory = Some(time);
+                beaten.push("FASTEST VICTORY");
+            }
+        }
+        beaten
+    }
+}
 #[derive(Serialize, Deserialize)]
 struct Save {
     version: u32,
@@ -369,6 +408,9 @@ pub struct Game {
     pub sound_events: Vec<&'static str>,
     pub spawned_bodies: Vec<BodyEvent>,
     pub physics_impacts: Vec<anatomy::PhysicsImpact>,
+    pub records: Records,
+    /// Records this run has set so far, shown on the ending screen.
+    pub run_records: Vec<&'static str>,
     pub prefs: Preferences,
     pub shader_intensity: f32,
     pub vsync: bool,
@@ -428,6 +470,15 @@ impl Game {
             sound_events: vec![],
             spawned_bodies: vec![],
             physics_impacts: vec![],
+            records: if save_enabled {
+                std::fs::read(Self::load_path("records.json"))
+                    .ok()
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or_default()
+            } else {
+                Records::default()
+            },
+            run_records: vec![],
             prefs: if save_enabled {
                 std::fs::read(Self::load_path("settings.json"))
                     .ok()
@@ -583,6 +634,7 @@ impl Game {
         }
     }
     pub fn resume_save(&mut self) {
+        self.run_records.clear();
         match std::fs::read(Self::load_path("run.json"))
             .ok()
             .and_then(|b| serde_json::from_slice::<Save>(&b).ok())
@@ -637,6 +689,39 @@ impl Game {
             Run::default().seed
         };
         self.new_run_with_seed(seed);
+        self.records.runs += 1;
+        self.run_records.clear();
+        self.track_records(None);
+    }
+    // Fold the current run into lifetime records; practice never counts.
+    fn track_records(&mut self, victory_time: Option<f32>) {
+        if self.practice_backup.is_some() {
+            return;
+        }
+        for name in self
+            .records
+            .record(self.run.wave, self.run.kills, victory_time)
+        {
+            if !self.run_records.contains(&name) {
+                self.run_records.push(name);
+            }
+        }
+        self.save_records();
+    }
+    fn save_records(&self) {
+        if self.save_enabled {
+            if let Err(e) = self.write_records(&Self::save_path().with_file_name("records.json")) {
+                eprintln!("Could not save records: {e}");
+            }
+        }
+    }
+    fn write_records(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        let data = serde_json::to_vec_pretty(&self.records)?;
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, data)?;
+        std::fs::rename(temporary, path)?;
+        Ok(())
     }
     fn new_run_with_seed(&mut self, seed: u64) {
         self.run = Run {
@@ -1511,6 +1596,7 @@ impl Game {
         if self.run.hp <= 0. {
             self.run.hp = 0.;
             self.mode = Mode::Dead;
+            self.track_records(None);
             self.save();
         } else if self.run.survival.pending > 0 {
             self.offer_power();
@@ -1529,7 +1615,9 @@ impl Game {
         }
         if self.run.wave == crate::survival::DESCENTS && !self.run.survival.endless {
             self.mode = Mode::Victory;
+            self.track_records(Some(self.run.time));
         } else {
+            self.track_records(None);
             let reward = 85 + self.run.wave * 5;
             self.run.gold += reward;
             self.run.hp = (self.run.hp + 25.).min(self.max_hp());
@@ -1553,6 +1641,7 @@ impl Game {
     pub fn next_wave(&mut self) {
         self.run.wave += 1;
         self.start_wave();
+        self.track_records(None);
     }
     pub fn spend(&mut self, cost: u32) -> bool {
         if self.run.gold < cost {
@@ -2418,6 +2507,105 @@ mod tests {
             let dps = card(kind, 0, [0; 3]).sustained_dps();
             assert!(dps.is_finite() && dps > 0., "{kind:?}");
         }
+    }
+    #[test]
+    fn shuffled_waves_keep_each_species_share_but_vary_the_order() {
+        let order = |seed: u64, wave: u32, count: usize| {
+            let mut g = Game::new(false);
+            g.new_run_with_seed(seed);
+            g.run.wave = wave;
+            g.run.enemies.clear();
+            g.run.survival.bag.clear();
+            g.run.survival.spawned = 0;
+            g.run.survival.remaining = 200;
+            for _ in 0..count {
+                g.spawn_reinforcement();
+            }
+            g.run.enemies.iter().map(|e| e.kind).collect::<Vec<_>>()
+        };
+        // Two full passes through descent 3's eight-species pool.
+        let kinds = order(7, 3, 16);
+        for species in [0, 1, 2, 4, 5, 6, 7, 8] {
+            assert_eq!(
+                kinds.iter().filter(|k| **k == species).count(),
+                2,
+                "{species}"
+            );
+        }
+        assert_eq!(order(7, 3, 16), kinds, "one seed repeats its order");
+        let others: Vec<_> = (8..12).map(|seed| order(seed, 3, 16)).collect();
+        assert!(others.iter().any(|o| *o != kinds), "seeds vary the order");
+        // Tithekeeper descents still open with the boss.
+        assert_eq!(order(7, 4, 1), vec![3]);
+        assert_eq!(order(99, 8, 1), vec![3]);
+    }
+    #[test]
+    fn records_track_runs_depth_souls_and_victories() {
+        let mut r = Records::default();
+        assert_eq!(r.record(3, 40, None), vec!["DEEPEST DESCENT", "MOST SOULS"]);
+        assert!(r.record(2, 10, None).is_empty());
+        assert_eq!(
+            r.record(12, 300, Some(1500.)),
+            vec!["DEEPEST DESCENT", "MOST SOULS", "FASTEST VICTORY"]
+        );
+        assert!(r.record(12, 200, Some(1600.)).is_empty());
+        assert_eq!(r.victories, 2);
+        assert_eq!(r.fastest_victory, Some(1500.));
+        let json = serde_json::to_vec(&r).unwrap();
+        assert_eq!(serde_json::from_slice::<Records>(&json).unwrap(), r);
+        let partial: Records = serde_json::from_slice(br#"{"deepest":4}"#).unwrap();
+        assert_eq!(
+            (partial.deepest, partial.runs, partial.fastest_victory),
+            (4, 0, None)
+        );
+
+        // Through the game: a run, two descents, then death.
+        let mut g = Game::new(false);
+        g.new_run();
+        assert_eq!((g.records.runs, g.records.deepest), (1, 1));
+        g.run.kills = 25;
+        g.mode = Mode::Shop;
+        g.next_wave();
+        assert_eq!(g.records.deepest, 2);
+        g.run.hp = -1.;
+        g.mode = Mode::Arena;
+        g.update(0.01);
+        assert_eq!(g.mode, Mode::Dead);
+        assert_eq!(g.records.most_souls, 25);
+        assert!(
+            g.run_records.contains(&"DEEPEST DESCENT") && g.run_records.contains(&"MOST SOULS")
+        );
+        // A second, shallower run sets nothing new.
+        g.new_run();
+        assert_eq!(g.records.runs, 2);
+        assert!(g.run_records.is_empty());
+        // Victory on the twelfth descent records the time.
+        g.run.wave = crate::survival::DESCENTS;
+        g.run.time = 1234.;
+        g.run.enemies.clear();
+        g.run.survival.remaining = 0;
+        g.run.survival.orbs.clear();
+        g.complete_wave();
+        assert_eq!(g.mode, Mode::Victory);
+        assert_eq!(
+            (g.records.victories, g.records.fastest_victory),
+            (1, Some(1234.))
+        );
+        assert!(g.run_records.contains(&"FASTEST VICTORY"));
+        // Records are written atomically and read back.
+        let directory = quit_save_test_directory("records");
+        let path = directory.join("records.json");
+        g.write_records(&path).unwrap();
+        let stored: Records = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored, g.records);
+        assert!(!path.with_extension("tmp").exists());
+        std::fs::remove_dir_all(directory).unwrap();
+        // Practice never counts.
+        let before = g.records;
+        g.practice_backup = Some(g.run.clone());
+        g.run.wave = 40;
+        g.next_wave();
+        assert_eq!(g.records, before);
     }
     #[test]
     fn special_attack_warnings_emit_a_positional_cue() {
