@@ -2854,6 +2854,15 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             Some("%"),
         ),
         (
+            2,
+            "Music volume",
+            "music_volume",
+            &mut prefs.music_volume,
+            0.,
+            1.,
+            Some("%"),
+        ),
+        (
             3,
             "Field of view",
             "fov",
@@ -2881,11 +2890,11 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         }
     }
     for (id, x, y, label, on) in [
-        ("invert_y", 392., 560., "INVERT LOOK", g.prefs.invert_y),
+        ("invert_y", 392., JOURNAL_TOGGLES_Y, "INVERT LOOK", g.prefs.invert_y),
         (
             "reduce_flashes",
             734.,
-            560.,
+            JOURNAL_TOGGLES_Y,
             "REDUCE FLASHES",
             g.prefs.reduce_flashes,
         ),
@@ -2902,7 +2911,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "field_tips",
         392.,
-        648.,
+        JOURNAL_TOGGLES_Y + 88.,
         310.,
         35.,
         if tips {
@@ -2917,7 +2926,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "vsync",
         392.,
-        604.,
+        JOURNAL_TOGGLES_Y + 44.,
         310.,
         35.,
         if g.vsync {
@@ -2933,7 +2942,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "fpscounter",
         734.,
-        604.,
+        JOURNAL_TOGGLES_Y + 44.,
         310.,
         35.,
         if g.show_fps {
@@ -3022,3 +3031,6 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
 }
 /// Top row of the Preferences page sliders; the Hollowlight slider is row 4.
 pub const JOURNAL_SLIDER_Y: f32 = 312.;
+/// Top of the Preferences page switches: invert and flashes, then the
+/// presentation row (VSync, FPS), then field tips, 44 apart.
+pub const JOURNAL_TOGGLES_Y: f32 = 560.;

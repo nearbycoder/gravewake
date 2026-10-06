@@ -12,6 +12,7 @@ mod gamepad;
 mod guns;
 mod model_review;
 mod motion;
+mod music;
 mod perf;
 mod renderer;
 mod scene;
@@ -1013,11 +1014,18 @@ impl App {
             review.observe(&self.bones);
         }
         let simulation_ms = simulation_start.elapsed().as_secs_f64() * 1000.;
-        self.audio.volume(if self.smoke || self.review {
-            0.
-        } else {
-            self.game.prefs.volume
-        });
+        let scripted = self.smoke || self.review;
+        self.audio.volume(if scripted { 0. } else { self.game.prefs.volume });
+        let prefs = self.game.prefs;
+        self.audio.music(
+            music::targets(&self.game),
+            if scripted {
+                0.
+            } else {
+                // Music sits under effects; Sound volume scales both.
+                prefs.music_volume * prefs.volume * 1.5
+            },
+        );
         let (listener, yaw) = (self.game.run.pos, self.game.run.yaw);
         for (event, source) in self.game.world_sounds.drain(..) {
             let gains = audio::spatial(listener, yaw, source);
@@ -1212,7 +1220,7 @@ impl App {
             };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + 725. * scale,
+                r.min.y + (ui::JOURNAL_TOGGLES_Y + 44. + 17.5) * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1574,6 +1582,7 @@ fn main() {
             )
             .unwrap();
         }
+        music::export("captures/audio").unwrap();
         return;
     }
     if smoke || review {

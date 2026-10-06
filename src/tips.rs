@@ -13,14 +13,6 @@ pub enum Tip {
     Bolt,
 }
 impl Tip {
-    pub const ALL: [Tip; 6] = [
-        Tip::Move,
-        Tip::Reload,
-        Tip::Souls,
-        Tip::Hurt,
-        Tip::Collector,
-        Tip::Bolt,
-    ];
     fn bit(self) -> u32 {
         1 << self as u32
     }

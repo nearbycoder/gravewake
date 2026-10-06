@@ -286,6 +286,8 @@ pub struct Floater {
 pub struct Preferences {
     pub sensitivity: f32,
     pub volume: f32,
+    /// Music level, relative to `volume`.
+    pub music_volume: f32,
     /// Vertical field of view in degrees.
     pub fov: f32,
     pub invert_y: bool,
@@ -315,6 +317,7 @@ impl Default for Preferences {
         Self {
             sensitivity: 0.0025,
             volume: 0.4,
+            music_volume: 0.5,
             fov: 70.,
             invert_y: false,
             reduce_flashes: false,
@@ -339,6 +342,7 @@ impl Preferences {
         Self {
             sensitivity: clean(self.sensitivity, Self::SENSITIVITY_RANGE, d.sensitivity),
             volume: clean(self.volume, (0., 1.), d.volume),
+            music_volume: clean(self.music_volume, (0., 1.), d.music_volume),
             fov: clean(self.fov, Self::FOV_RANGE, d.fov),
             invert_y: self.invert_y,
             reduce_flashes: self.reduce_flashes,

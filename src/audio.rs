@@ -40,6 +40,7 @@ pub const EVENTS: &[&str] = &[
 pub struct Audio {
     stream: Option<(OutputStream, OutputStreamHandle)>,
     ambience: Option<Sink>,
+    music: crate::music::Music,
     bank: HashMap<&'static str, Vec<Vec<f32>>>,
     variation: Cell<usize>,
 }
@@ -67,9 +68,11 @@ impl Audio {
             .iter()
             .map(|&e| (e, (0..4).map(|v| synthesize(e, v)).collect()))
             .collect();
+        let music = crate::music::Music::new(stream.as_ref().map(|(_, h)| h));
         Self {
             stream,
             ambience,
+            music,
             bank,
             variation: Cell::new(0),
         }
@@ -78,6 +81,10 @@ impl Audio {
         if let Some(s) = &self.ambience {
             s.set_volume(v * 0.3);
         }
+    }
+    /// Steer the score: layer gains (calm, pressure, boss) and overall level.
+    pub fn music(&self, layers: [f32; 3], master: f32) {
+        self.music.set(layers, master);
     }
     pub fn play(&self, event: &str, volume: f32) {
         let Some((_, handle)) = &self.stream else {
@@ -319,6 +326,10 @@ fn designed(event: &str, variant: u32) -> Vec<f32> {
     stereo
 }
 pub fn write_wav(path: &str, samples: &[f32]) -> std::io::Result<()> {
+    write_wav_at(path, samples, RATE)
+}
+/// Write interleaved stereo samples as 16-bit PCM at `rate`.
+pub fn write_wav_at(path: &str, samples: &[f32], rate: u32) -> std::io::Result<()> {
     use std::io::Write;
     let mut f = std::fs::File::create(path)?;
     let bytes = (samples.len() * 2) as u32;
@@ -328,8 +339,8 @@ pub fn write_wav(path: &str, samples: &[f32]) -> std::io::Result<()> {
     f.write_all(&16u32.to_le_bytes())?;
     f.write_all(&1u16.to_le_bytes())?;
     f.write_all(&2u16.to_le_bytes())?;
-    f.write_all(&RATE.to_le_bytes())?;
-    f.write_all(&(RATE * 4).to_le_bytes())?;
+    f.write_all(&rate.to_le_bytes())?;
+    f.write_all(&(rate * 4).to_le_bytes())?;
     f.write_all(&4u16.to_le_bytes())?;
     f.write_all(&16u16.to_le_bytes())?;
     f.write_all(b"data")?;

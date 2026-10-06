@@ -206,6 +206,16 @@ Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance
 
 ![Records on the title screen](docs/media/improvements/round2/title-records.jpg)
 
+## Adaptive music
+
+`src/music.rs` renders a 32-second loop in D minor (Dm, B♭, Gm, A at 60 BPM) in three synchronized stereo layers: **calm** (organ and choir pads, a low pedal and a distant bell), **pressure** (a heartbeat drum and a bowed eighth-note ostinato) and **boss** (a root-and-tritone drone, a semitone choir cluster and war drums). Everything is synthesized at start-up on a background thread (about 1.1–1.5 s on the Linux test machine), so the window isn't delayed; the music fades in once it's ready. The tail of each layer is folded back onto its start, so pads, the bell and echoes carry across the loop seam without a click.
+
+One rodio source plays all three layers from the same position and crossfades their gains with a 2.5-second time constant, so the layers never drift apart. The title, the Collector, the Binding, the Armory and victory are calm. In the arena, the pressure layer follows the number of living enemies (full at 16) and low vitality (rising below 50%), and the boss layer plays while the Tithekeeper is alive. **Music volume** in Settings & Controls is saved in `settings.json` and is scaled by Sound volume. Smoke and review runs keep the music silent.
+
+`--export-audio` also writes `captures/audio/music-{calm,pressure,boss}.wav` and a 64-second `music-adaptive-mix.wav` that moves from calm through a rising crowd to the boss. This is an original, sparse synthesized score, not recorded music. It was checked with spectrograms and level measurements only, not by ear.
+
+![Spectrograms of the three layers and the adaptive mix](docs/media/improvements/round3/music-spectrograms.jpg)
+
 ## Field tips
 
 `src/tips.rs` shows six first-run notes, each the first time its moment comes: movement, sprint and dodge when the first run starts; reload and melee when the magazine falls to a third; souls when the first soul drops; damage arcs the first time you're hurt; the Collector, packs and the Binding on the first shop visit; and Ember Bolt once a chalice is bound. Arena notes sit in a panel below the reticle, clear of the crowd, the top-centre stack and the vitality plate, and last 10 seconds. The Collector's note sits over the dealer's robe for 40 seconds or until you leave the shop. Notes that come due together wait their turn. Each note uses the current key labels. The opening control reminder now uses the same panel and gives way to the first note.
