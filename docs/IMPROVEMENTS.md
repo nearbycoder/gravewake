@@ -390,3 +390,119 @@ Deferred, with reasons:
   Windows (#12) and the browser build (#15).
 - Owner decisions: release downloads and tag workflows, macOS signing and
   notarization, and licences.
+
+## Round 3 scope
+
+Round 2 was merged and pushed on 2026-10-06. This round takes four items. Two
+are the deferred player-facing work that matters most in the first hour:
+controls that fit the player's keyboard, and a first run that explains itself.
+One adds the missing music. One builds a tool to catch the unexplained startup
+stall. Instanced ragdolls (#10) stay deferred for the reason given in round 2.
+
+### A. Key rebinding (backlog #11)
+
+Keys are hard-coded `KeyCode`s, and labels always read WASD, even on AZERTY
+keyboards where the physical keys are Z Q S D.
+
+Acceptance criteria:
+- Forward, back, left, right, sprint, dodge, reload, melee and Ember Bolt can
+  each be bound to a key or to the right, middle, back or forward mouse button.
+  Firing stays on the left mouse button. Escape, F6, F7, F8 and F11 stay
+  reserved, and the journal says so if you try them.
+- The Hunter's Journal gets a Preferences page and a Controls page. On the
+  Controls page you click an action, press the new key, and the binding is
+  saved to `settings.json`. A key already used by another action swaps with it.
+  Escape (or controller B) cancels, and **Restore default keys** resets every
+  binding.
+- Key labels follow the player's layout: a binding shows the character the key
+  produced when it was bound or last pressed. Every in-game prompt (the opening
+  banner, tips and the journal) uses the current labels.
+- Older `settings.json` files without bindings load with the defaults.
+  Controller mapping is unchanged.
+
+Verification: unit tests for the swap rule, reserved keys, the default
+round-trip, and loading a legacy or corrupt bindings file. Text-review captures
+of both journal pages and the waiting-for-key state at 1440×900 and 960×600. A
+real launch with a temporary `HOME`: rebind a key with synthetic input
+(`ydotool` or `wtype`, if they work here), quit, relaunch, and check
+`settings.json` and the journal. If synthetic keyboard input isn't possible,
+the report will say the live rebinding wasn't exercised by hand.
+
+### B. First-run field tips (rest of backlog #7)
+
+The only guidance is a seven-second banner across the top-centre HUD stack.
+Souls, level-ups, the Collector, the Binding and the chalice are explained only
+by incidental notices.
+
+Acceptance criteria:
+- A short sequence of contextual tips, each shown once: moving, sprinting and
+  dodging at the start of the first run; reloading and melee the first time the
+  magazine runs low; souls when the first soul drops; damage arcs the first time
+  you're hurt; the Collector, packs and the Binding on the first shop visit; and
+  Ember Bolt when a chalice is bound.
+- Tips appear in a panel in the lower part of the screen, clear of the reticle,
+  the top-centre stack and the vitality plate. They use the current key labels
+  and queue rather than overlap. The opening banner moves into the same place
+  and is replaced by the first tip.
+- Seen tips are saved in `settings.json`. A **Field tips** toggle in the
+  journal turns them off, and turning it back on shows them all again. Review,
+  smoke and practice modes never record tips as seen.
+
+Verification: unit tests that each trigger queues its tip once, that the seen
+state persists and resets with the toggle, and that no tip is recorded when
+saving is disabled. Text-review captures of the movement tip and the shop tip
+at both sizes.
+
+### C. Startup-stall watchdog (round 1 and 2 open issue)
+
+About 5 of roughly 60 `--smoke --gamepad` launches have stalled before the
+first frame, and no stack has been captured: Yama blocks attaching to a running
+process, and runs under gdb didn't stall.
+
+Acceptance criteria:
+- In smoke, review and benchmark modes only, a watchdog thread records
+  start-up milestones (window, renderer, first frame and later frames). If no
+  progress is made for 120 seconds, it prints the last milestone and aborts, so
+  systemd-coredump keeps a core with every thread's stack. Normal play never
+  starts the watchdog.
+- A script runs repeated `--smoke` and `--smoke --gamepad` launches with logs
+  under `captures/stall/`, and it collects the `coredumpctl` stack of any stall.
+
+Verification: a temporary injected stall (not committed) must produce the abort,
+the milestone message and a readable core with stacks. Then run the loop for as
+many launches as time allows. If a stall is caught, its stack is analysed and
+either fixed (if the fix is small and clear) or documented. If none is caught,
+the report says how many launches ran.
+
+### D. Adaptive music (backlog #13)
+
+There is no music, only a synthesized drone and wind loop.
+
+Acceptance criteria:
+- A sparse synthesized score in three synchronized layers: a calm layer (low
+  organ and choir pads with a distant bell) for the title and the Collector, a
+  pressure layer (a heartbeat drum and a bowed ostinato) that rises with the
+  number of living enemies and with low health, and a boss layer while the
+  Tithekeeper is alive. Layers crossfade over a few seconds and never restart
+  mid-phrase.
+- A separate **Music volume** slider is saved in `settings.json`. At zero no
+  music is mixed. Smoke and review runs keep music silent unless a review
+  records audio.
+- The sound bank stays embedded and generated at start-up, with no new files
+  or dependencies. Start-up time grows by no more than about 150 ms here.
+
+Verification: unit tests that the layers are finite, bounded, loop without a
+click at the seam and stay synchronized, and that the mix targets follow the
+game state. An `--export-audio` render of each layer and a one-minute mix, with
+spectrogram images. The start-up timing is measured. **No human listening test
+is possible here**, so whether it sounds good is an owner decision, and the
+report will say so.
+
+### Deferred this round
+
+- Instanced ragdoll sections (#10): unchanged reason from round 2.
+- Windows validation (#12): a Windows CI job could go red with nothing here to
+  test it on.
+- Elite modifiers (rest of #8): balance needs playtests.
+- The browser build (#15), HUD scale, release downloads, macOS signing and
+  licences (owner decisions).
