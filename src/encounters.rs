@@ -177,6 +177,16 @@ pub const ROSTER: [Species; 12] = [
 pub fn species(k: usize) -> &'static Species {
     &ROSTER[k.min(ROSTER.len() - 1)]
 }
+/// The wind-up sound that accompanies each special attack's visible warning.
+pub fn warning_cue(kind: usize) -> &'static str {
+    match kind {
+        3 | 7 => "warn_slam",
+        4 | 9 => "warn_dive",
+        10 => "warn_summon",
+        11 => "warn_blink",
+        _ => "warn_cast",
+    }
+}
 pub fn flying(k: usize) -> bool {
     matches!(k, 2 | 4 | 8 | 9)
 }
@@ -229,6 +239,7 @@ impl Game {
         let mut damage = 0.;
         // Where each hit this update came from, for the HUD's damage arcs.
         let mut sources = vec![];
+        let mut sounds = vec![];
         let mut summons = vec![];
         for (index, e) in self.run.enemies.iter_mut().enumerate() {
             if e.hp <= 0. {
@@ -296,6 +307,7 @@ impl Game {
                             }
                         }
                         3 | 7 => {
+                            sounds.push(("impact", e.ai.target));
                             let radius = if e.kind == 3 { 4.2 } else { 3.2 };
                             let blast_origin =
                                 e.ai.target + Vec3::Y * if e.kind == 3 { 0.3 } else { 1.1 };
@@ -354,6 +366,7 @@ impl Game {
                 }
             {
                 e.ai.warning = if e.kind == 7 { 1.1 } else { 0.85 };
+                sounds.push((warning_cue(e.kind), e.pos + Vec3::Y));
                 e.ai.target = match e.kind {
                     3 | 7 => Vec3::new(e.pos.x, 0., e.pos.z),
                     11 => world_layout::resolve_position(
@@ -421,6 +434,7 @@ impl Game {
             {
                 e.attack = 1.3 * (1. + e.anatomy.arms() as f32 * 0.6);
                 sources.push(e.pos);
+                sounds.push(("swing", e.pos + Vec3::Y));
                 damage += (if e.kind == 3 {
                     22.
                 } else if e.kind == 5 {
@@ -435,6 +449,7 @@ impl Game {
                 e.hp -= self.run.survival.ranks[8] as f32 * 12.;
             }
         }
+        self.world_sounds.extend(sounds);
         for pos in summons {
             self.run.enemies.push(Enemy::spawn(
                 0,

@@ -116,7 +116,7 @@ The tarball contains the self-contained executable, a desktop entry, an icon and
 | Start | Pause |
 | Menus | Left stick (or D-pad) moves a cursor, A selects, B or Start goes back |
 
-Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, flash reduction, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Losing focus pauses combat and releases the pointer.
+Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, flash reduction, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Enemy wind-ups, blasts and swings are positioned in stereo, and each special attack has a distinct warning sound. Losing focus pauses combat and releases the pointer.
 
 Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** (macOS) and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
 

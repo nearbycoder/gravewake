@@ -196,6 +196,12 @@ Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance
 
 `cargo run --release -- --smoke --gamepad` runs the normal smoke test but tears, reveals, selects and equips the pack by steering the controller cursor with synthetic stick input and pressing A. No physical controller has been tested yet.
 
+## Positional audio
+
+Enemy sounds come from where they happen. Special-attack wind-ups, blasts and melee swings are panned with equal power by bearing relative to your view, attenuated with distance, and slightly softened behind you, so a threat out of sight can still be heard and located. Each special attack has its own wind-up cue, starting with its visible warning: a rising intake before caster bolts, a low growl before slams and plague bursts, a falling screech before dives, a hollow bell before a Bone Shepherd summons, and a reversed whoosh before a Tithe Reaper blinks. Your own weapons, pickups and interface sounds stay centred. The cues are synthesized like the other designed sounds; `--export-audio` writes them to `captures/audio/`.
+
+![Spectrograms of the five wind-up cues](docs/media/improvements/round2/warning-cue-spectrograms.jpg)
+
 ## Combat feedback
 
 Your own weapon hits flash a marker around the reticle: ivory for a body hit, gold for a headshot, and a larger red mark with a short tick for a kill. Pellets and splash that land together show the strongest result and tick once. Automatic powers do not trigger markers. When you take damage, a red arc around the reticle points toward each source (the striking enemy, a blast's caster, or the direction a projectile came from) and fades over 1.2 seconds; up to four arcs show at once. **Reduce flashes** in Settings & Controls softens the full-screen hurt vignette and muzzle lighting to 35%.

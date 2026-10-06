@@ -343,6 +343,8 @@ pub struct Game {
     pub shot_age: f32,
     pub look_sway: Vec2,
     pub motion_speed: f32,
+    /// Sounds emitted in the world, played with panning and distance.
+    pub world_sounds: Vec<(&'static str, Vec3)>,
     pub hurt: f32,
     pub hit_marker: Option<HitMarker>,
     pub damage_marks: Vec<DamageMark>,
@@ -401,6 +403,7 @@ impl Game {
             shot_age: 10.,
             look_sway: Vec2::ZERO,
             motion_speed: 0.,
+            world_sounds: vec![],
             hurt: 0.,
             hit_marker: None,
             damage_marks: vec![],
@@ -2367,6 +2370,34 @@ mod tests {
         g.reset_effects();
         g.damage_enemy(0, 20., -Vec3::Y);
         assert_eq!(kind(&g), None);
+    }
+    #[test]
+    fn special_attack_warnings_emit_a_positional_cue() {
+        for (kind, cue) in [
+            (2, "warn_cast"),
+            (7, "warn_slam"),
+            (4, "warn_dive"),
+            (10, "warn_summon"),
+            (11, "warn_blink"),
+        ] {
+            let mut g = Game::new(false);
+            g.new_run();
+            g.run.pos = Vec3::new(0., 1.65, 0.);
+            // Reapers only blink from beyond four metres; vessels burst within five.
+            let z = if kind == 11 { -7. } else { -3. };
+            let mut e = crate::game::Enemy::spawn(kind, Vec3::new(2., 0., z), 1, 0.);
+            e.ai.cooldown = 0.;
+            let start = e.pos;
+            g.run.enemies = vec![e];
+            g.world_sounds.clear();
+            g.tick_enemies(0.01);
+            assert!(g.run.enemies[0].ai.warning > 0., "{kind} began its warning");
+            let (event, pos) = g.world_sounds[0];
+            assert_eq!(event, cue, "kind {kind}");
+            // The cue sounds where the wind-up began, even if the enemy then moves.
+            let gap = pos.distance(start + Vec3::Y);
+            assert!(gap < 0.2, "kind {kind} cue {gap} m from the enemy");
+        }
     }
     #[test]
     fn damage_arcs_point_toward_their_source_and_merge() {

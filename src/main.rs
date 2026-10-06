@@ -999,6 +999,23 @@ impl App {
         } else {
             self.game.prefs.volume
         });
+        let (listener, yaw) = (self.game.run.pos, self.game.run.yaw);
+        for (event, source) in self.game.world_sounds.drain(..) {
+            let gains = audio::spatial(listener, yaw, source);
+            if self.review || self.anatomy_review || self.survival_review {
+                let offset = (self.frames as usize - 1) * (audio::RATE as usize / 60) * 2;
+                let sound = audio::synthesize(event, self.frames % 4);
+                for (i, value) in sound.iter().enumerate() {
+                    let gain = if i % 2 == 0 { gains.0 } else { gains.1 };
+                    if let Some(s) = self.review_audio.get_mut(offset + i) {
+                        *s += value * 0.8 * gain;
+                    }
+                }
+            }
+            if !self.smoke && !self.review {
+                self.audio.play_at(event, self.game.prefs.volume, gains);
+            }
+        }
         for event in self.game.sound_events.drain(..) {
             if self.review || self.anatomy_review || self.survival_review {
                 let offset = (self.frames as usize - 1) * (audio::RATE as usize / 60) * 2;

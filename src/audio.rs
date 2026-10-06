@@ -31,6 +31,11 @@ pub const EVENTS: &[&str] = &[
     "card_deal",
     "card_flip",
     "card_take",
+    "warn_cast",
+    "warn_slam",
+    "warn_dive",
+    "warn_summon",
+    "warn_blink",
 ];
 pub struct Audio {
     stream: Option<(OutputStream, OutputStreamHandle)>,
@@ -88,6 +93,42 @@ impl Audio {
                 .amplify(volume);
         let _ = handle.play_raw(source);
     }
+    /// Play a world sound with per-channel gains from `spatial`.
+    pub fn play_at(&self, event: &str, volume: f32, (left, right): (f32, f32)) {
+        let Some((_, handle)) = &self.stream else {
+            return;
+        };
+        let Some(variants) = self.bank.get(event) else {
+            return;
+        };
+        let v = self.variation.get();
+        self.variation.set(v.wrapping_add(1));
+        let mut samples = variants[v % variants.len()].clone();
+        for frame in samples.chunks_exact_mut(2) {
+            frame[0] *= left;
+            frame[1] *= right;
+        }
+        let source = rodio::buffer::SamplesBuffer::new(2, RATE, samples).amplify(volume);
+        let _ = handle.play_raw(source);
+    }
+}
+/// Left/right gains for a sound at `source` heard from `listener` facing
+/// `yaw`: equal-power panning by relative bearing, distance attenuation, and
+/// slight softening behind the listener. A source straight ahead at close
+/// range plays at the same level as an unpanned sound.
+pub fn spatial(listener: glam::Vec3, yaw: f32, source: glam::Vec3) -> (f32, f32) {
+    let flat = (source - listener) * glam::Vec3::new(1., 0., 1.);
+    let distance = flat.length();
+    let gain = (1.4 / (1. + distance / 5.)).clamp(0.12, 1.);
+    if distance < 0.05 {
+        return (gain, gain);
+    }
+    let relative = flat.x.atan2(-flat.z) - yaw;
+    let (side, front) = relative.sin_cos();
+    let behind = 1. - 0.25 * (-front).max(0.);
+    let angle = (side + 1.) * std::f32::consts::FRAC_PI_4;
+    let level = gain * behind * std::f32::consts::SQRT_2;
+    ((angle.cos() * level).min(1.), (angle.sin() * level).min(1.))
 }
 fn random(seed: &mut u32) -> f32 {
     *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -193,6 +234,27 @@ fn designed(event: &str, variant: u32) -> Vec<f32> {
             ((tau * (125. * t + 950. * t * t)).sin() * 0.18 + mid * 0.25) * decay(t, 0., 8.)
         } else if event == "hurt" {
             (low * 1.7 + (tau * 47. * t).sin() * 0.24) * decay(t, 0., 16.)
+        } else if event == "warn_cast" {
+            // A rising, shimmering intake before a bolt is loosed.
+            let rise = (tau * (240. * t + 520. * t * t)).sin() * 0.16
+                + (tau * (480. * t + 1040. * t * t)).sin() * 0.06;
+            (rise + high * 0.05) * crate::motion::window(0., 0.25, 0.38, 0.47, t)
+        } else if event == "warn_slam" {
+            // A low swelling growl before a slam or plague burst.
+            ((tau * (46. + 18. * t) * t).sin() * 0.32 + low * 2.4 + mid * 0.12)
+                * crate::motion::window(0., 0.3, 0.38, 0.48, t)
+        } else if event == "warn_dive" {
+            // A descending screech from a diving flyer.
+            ((tau * (1500. * t - 1100. * t * t)).sin() * 0.12 + high * 0.05)
+                * crate::motion::window(0., 0.05, 0.3, 0.45, t)
+        } else if event == "warn_summon" {
+            // Two hollow bell partials as a shepherd calls the dead.
+            ((tau * 330. * t).sin() * 0.16 + (tau * 494. * t).sin() * 0.1) * decay(t, 0., 6.)
+                + low * 0.4 * decay(t, 0., 10.)
+        } else if event == "warn_blink" {
+            // A reversed whoosh that snaps shut as the reaper vanishes.
+            mid * 0.5 * crate::motion::window(0., 0.32, 0.36, 0.4, t)
+                + high * 0.2 * decay(t, 0.36, 90.)
         } else if event == "deny" {
             (tau * 100. * t).sin() * decay(t, 0., 18.) * 0.14
         } else {
@@ -290,5 +352,31 @@ mod tests {
         }
         assert_ne!(synthesize("shotgun", 0), synthesize("shotgun", 1));
         assert_ne!(synthesize("shotgun", 0), synthesize("shot", 0));
+    }
+    #[test]
+    fn world_sounds_pan_by_bearing_and_fade_with_distance() {
+        use glam::Vec3;
+        let ear = Vec3::new(0., 1.65, 0.);
+        let close = |x: f32, z: f32| spatial(ear, 0., Vec3::new(x, 1., z));
+        // Facing -Z: ahead is centred at the unpanned level.
+        let (l, r) = close(0., -2.);
+        assert!((l - r).abs() < 1e-5 && (l - 1.).abs() < 1e-5, "{l} {r}");
+        let (l, r) = close(2., 0.);
+        assert!(r > 0.95 && l < 0.05, "right {l} {r}");
+        let (l, r) = close(-2., 0.);
+        assert!(l > 0.95 && r < 0.05, "left {l} {r}");
+        let (l, r) = close(0., 2.);
+        assert!(
+            (l - r).abs() < 1e-5 && l < 0.8,
+            "behind is centred and softer {l}"
+        );
+        // Turning toward a source centres it.
+        let (l, r) = spatial(ear, std::f32::consts::FRAC_PI_2, Vec3::new(2., 1., 0.));
+        assert!((l - r).abs() < 1e-5);
+        let near = close(0., -3.).0;
+        let mid = close(0., -15.).0;
+        let far = close(0., -60.).0;
+        assert!(near > mid && mid > far && far >= 0.12 * std::f32::consts::FRAC_1_SQRT_2 * 1.4);
+        assert_eq!(spatial(ear, 0., ear), (1., 1.));
     }
 }
