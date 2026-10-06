@@ -206,7 +206,7 @@ Your own weapon hits flash a marker around the reticle: ivory for a body hit, go
 
 HUD numbers and labels have dedicated opaque dark surfaces, with armor separate from the ornamental vitality plate. Card text is printed in dark ink on a neutral parchment field independent of rarity. Folios soften their background engraving behind reading areas. Every control uses Gravewake Gothic, including compact labels and numbers; long card names and prose wrap using measured font widths. Generic labels and paragraphs have an 18-design-unit floor, with a minimum of 13.5 logical points after window scaling. The title glyph shapes and spacing are preserved exactly.
 
-`cargo run --release -- --text-review` captures the actual native UI in 77 screenshots across 74 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
+`cargo run --release -- --text-review` captures the actual native UI in 78 screenshots across 75 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
 
 ## Blender creature and cemetery overhaul
 

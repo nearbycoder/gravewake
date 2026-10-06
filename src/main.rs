@@ -1486,7 +1486,18 @@ fn main() {
     }
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-    event_loop
-        .run_app(&mut App::new(smoke, review))
-        .expect("run application");
+    let mut app = App::new(smoke, review);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        event_loop.run_app(&mut app)
+    }));
+    match result {
+        Ok(result) => result.expect("run application"),
+        Err(panic) => {
+            // Unwinding has already closed the display connection, and dropping
+            // the window-bound egui clipboard now would segfault on Wayland.
+            // Leak the app so the original panic is the process's exit status.
+            std::mem::forget(app);
+            std::panic::resume_unwind(panic);
+        }
+    }
 }

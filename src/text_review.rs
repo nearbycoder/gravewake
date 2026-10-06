@@ -61,6 +61,7 @@ impl Review {
             ("hud-melee-endless".into(), Screen::Hud(3)),
             ("hud-kill-and-damage-arcs".into(), Screen::Hud(4)),
             ("hud-headshot-reduced-flashes".into(), Screen::Hud(5)),
+            ("hud-field-of-view-90".into(), Screen::Hud(6)),
             ("collector".into(), Screen::Shop(false)),
             ("collector-chalice-bound".into(), Screen::Shop(true)),
             ("pack".into(), Screen::Pack),
@@ -288,7 +289,11 @@ impl Review {
                     game.reload = 1.;
                     game.run.hp = 8.;
                 }
-                if kind >= 4 {
+                if kind == 6 {
+                    game.run.time = 30.;
+                    game.prefs.fov = 90.;
+                }
+                if (4..=5).contains(&kind) {
                     // Past the opening banner, with combat feedback frozen.
                     game.run.time = 30.;
                     game.hurt = 0.3;
