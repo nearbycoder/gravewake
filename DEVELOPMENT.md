@@ -25,7 +25,7 @@ The smoke run launches the actual Metal renderer, shoots through a fixed eight-e
 
 ## The loop
 
-Start with a common Worn Iron pistol. Survive twelve descents through Mournhollow. Between descents, The Collector restores 25 vitality and pays 90–140 gold. Spend it on random weapons, a visible weapon offer, a Hollow Chalice, armor, or Armory Packs. Pack prices increase by 15 gold per purchase and reset at the next shop.
+Start with a common Worn Iron pistol. Survive twelve descents through Mournhollow. Each new run draws its own random seed, so spawn positions, Collector draws and pack contents differ between runs; a saved run keeps its seed. Tests, the smoke run and review captures use a fixed seed so they stay reproducible. Between descents, The Collector restores 25 vitality and pays 90–140 gold. Spend it on random weapons, a visible weapon offer, a Hollow Chalice, armor, or Armory Packs. Pack prices increase by 15 gold per purchase and reset at the next shop.
 
 Packs contain three cards. Turn them over individually or reveal all, select one, then take and equip it. Common, uncommon, rare, and legendary cards have different power and treatments. All cards use the standard finish. The armory contains 33 weapons across sidearms, scatterguns, longarms, ordnance, occult implements and melee. See [the complete armory](ARMORY.md) for all 30 additions and their mechanics.
 

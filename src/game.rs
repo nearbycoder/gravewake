@@ -4,6 +4,20 @@ use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+// A well-mixed seed from the clock and a per-process counter (SplitMix64).
+fn fresh_seed() -> u64 {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut z =
+        nanos ^ (u64::from(std::process::id()) << 32) ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 const SAVE_FILES: [&str; 3] = ["run.json", "graphics.json", "performance.json"];
 
 // Where saves live, plus older locations to import from, in priority order.
@@ -568,7 +582,20 @@ impl Game {
         self.spell_cd = 0.;
     }
     pub fn new_run(&mut self) {
-        self.run = Run::default();
+        // Player runs get their own seed; tests, smoke and reviews disable
+        // saving and keep the fixed default seed so they stay reproducible.
+        let seed = if self.save_enabled {
+            fresh_seed()
+        } else {
+            Run::default().seed
+        };
+        self.new_run_with_seed(seed);
+    }
+    fn new_run_with_seed(&mut self, seed: u64) {
+        self.run = Run {
+            seed,
+            ..Run::default()
+        };
         self.reset_effects();
         self.start_wave();
     }
@@ -1643,6 +1670,33 @@ mod tests {
         assert_eq!(std::fs::read(new.join("graphics.json")).unwrap(), b"0.8");
         assert_eq!(std::fs::read(old.join("run.json")).unwrap(), saved);
         std::fs::remove_dir_all(support).unwrap();
+    }
+    #[test]
+    fn player_runs_are_seeded_freshly_while_diagnostics_stay_fixed() {
+        // Opening state that the seed controls: spawn positions and a pack roll.
+        let opening = |g: &mut Game| {
+            let spawns: Vec<_> = g.run.enemies.iter().map(|e| e.pos.to_array()).collect();
+            let card = g.roll_card();
+            (spawns, card.kind, card.rarity)
+        };
+        let mut fixed = Game::new(false);
+        fixed.new_run();
+        let first = opening(&mut fixed);
+        fixed.new_run();
+        assert_eq!(opening(&mut fixed), first);
+
+        // Use the player seed source without enabling real save writes.
+        let mut player = Game::new(false);
+        let mut seeds = std::collections::HashSet::new();
+        let mut openings = vec![];
+        for _ in 0..4 {
+            let seed = fresh_seed();
+            seeds.insert(seed);
+            player.new_run_with_seed(seed);
+            openings.push(opening(&mut player));
+        }
+        assert_eq!(seeds.len(), 4);
+        assert!(openings.windows(2).all(|w| w[0].0 != w[1].0));
     }
     #[test]
     fn preferences_roundtrip_and_tolerate_old_or_bad_values() {
