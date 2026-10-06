@@ -208,3 +208,44 @@ during the audit, so real button presses could not be verified.
 3. **Gamepad dependency.** `gilrs` adds a `libudev` runtime dependency on
    Linux. The alternative is reading evdev directly, which is more code for
    the same result.
+
+**Resolved for this round (orchestrator, 2026-10-06):** Linux may be listed
+as supported, with a note that it was tested on one CachyOS machine with an
+AMD Radeon 8060S. `gilrs` and its `libudev` dependency are acceptable. Release
+artifacts and tag workflows (#6) are out of scope this round.
+
+## Round 1 results
+
+All five scoped items shipped on the `improvements` branch. Native checks ran
+on the CachyOS / Radeon 8060S / KDE Wayland machine described above.
+
+| Item | Verification |
+| --- | --- |
+| A. Linux support | `--smoke`, `--benchmark` and a real window close (sent via a KWin script) exit with status 0 and leave no core dump. KWin reports the window class `gravewake`. Legacy settings migrated from `~/Library/Application Support/Gravewake` into `~/.local/share/gravewake` under a temporary `HOME`. `scripts/package-linux.sh` built a tarball whose extracted binary passed `--smoke` outside the repo, and whose `install.sh` / `--uninstall` were exercised under a temporary `HOME`. Unit tests cover path resolution and migration priority. The Ubuntu CI job has not run, because nothing was pushed. |
+| B. Preferences | Unit tests cover round-trip, partial files and clamping. Custom values survived a real launch and quit. The shader review still drives the moved journal controls through egui, and the journal was captured at 1440×900 and 960×600 (`docs/media/improvements/journal-preferences*.jpg`). The FOV change was not checked visually in a live arena: no review fixture exercises a non-default FOV. |
+| C. Fresh seed | A unit test shows fixed-seed openings repeat while fresh-seed openings and seeds differ. Smoke and reviews still use the fixed seed. |
+| D. Combat feedback | Unit tests check arc bearings in all four quadrants and under rotation, merging and the four-arc cap, a real enemy strike, and markers from bullet, projectile, melee-weapon and bash hits (not powers), with one kill tick per volley. Two new text-review fixtures were captured natively (`docs/media/improvements/hud-*.jpg`). |
+| E. Gamepad | Unit tests cover deadzones, arena mapping, cursor movement, clamping, clicks and back, and steering. `--smoke --gamepad` tears, reveals, selects and equips the pack via the virtual cursor and the A button (`docs/media/improvements/gamepad-cursor-pack.jpg`). gilrs initialised without errors in a normal launch. **No physical controller was tested.** The attached 8BitDo receiver exposed no joystick device, so real sticks, triggers, hot-plugging and macOS IOKit input are unverified. |
+
+Final state: 94 unit tests pass. `--smoke`, `--smoke --gamepad`,
+`--shader-review` and `--text-review` (normal and `--review-small`) pass.
+
+Notes from verification:
+- Two of about 17 `--smoke --gamepad` runs stalled during heavy machine load
+  (load average 30–48): one at a 600 s timeout and one at 400 s. Both stalled
+  after renderer start-up and before the first frame was captured, which is
+  before any controller-specific code runs, and smoke mode does not create a
+  gilrs context. Ten back-to-back re-runs passed, and a stall never recurred,
+  so no stack was captured. In the same window, a small-window text review
+  segfaulted after 61 captures in the Wayland clipboard worker, with no panic,
+  while KWin logged "failed to read client connection" for a client. It passed
+  when re-run. I suspect compositor or desktop contention on the shared
+  machine, but the root cause is not established.
+- The final binary's `--benchmark` exited with status 0 and no core dump:
+  259, 242 and 93 FPS for the three optimized scenes, under shared load.
+- A panic inside the event loop (only seen when a smoke assertion failed) still
+  segfaults on Wayland while unwinding, because `exiting` is skipped. Normal
+  exits are clean. A panic hook that releases the window would close this gap.
+
+Deferred to later rounds: everything ranked #6 onward. Release artifacts (#6)
+remain an owner decision, including Developer ID notarization for macOS.
