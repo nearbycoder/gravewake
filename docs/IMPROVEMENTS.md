@@ -506,3 +506,54 @@ report will say so.
 - Elite modifiers (rest of #8): balance needs playtests.
 - The browser build (#15), HUD scale, release downloads, macOS signing and
   licences (owner decisions).
+
+## Round 3 results
+
+All four scoped items shipped on `improvements-3`. Native checks ran on the
+same CachyOS / Radeon 8060S / KDE Wayland machine. Every native run used a
+throwaway `XDG_DATA_HOME`. `~/.local/share/gravewake` didn't exist before or
+after the round.
+
+| Item | Verification |
+| --- | --- |
+| C. Stall watchdog (`b7ae034`) | A temporary injected stall (not committed) with a 15 s limit aborted with status 134. It printed `no progress for 15 s after "renderer ready" (frame 0)`, and `coredumpctl` kept a core whose stacks showed the main thread asleep inside `run_app`. A unit test covers the limit and the report. `scripts/stall-hunt.sh` then ran **242 smoke launches** (121 plain, 121 controller). **No stall occurred**, so its cause is still unknown, but the watchdog is in place for the next one. The hunt did catch a different flaky failure: 3 of the first 61 controller runs failed the pack step. See the note below. |
+| A. Key rebinding (`42d8310`) | Unit tests cover swaps, reserved and unknown inputs, layout-aware labels, round-trips, partial files, damaged entries (which reset only the bindings), and the journal's waiting state. Text-review captures cover both journal pages, the waiting state, an AZERTY swap at 1440×900 and 960×600, and the longest labels on the HUD (`round3/controls-*.jpg`, `round3/hud-rebound-mouse-keys.jpg`). In a real launch, a seeded `settings.json` (AZERTY glyphs, melee on the right mouse button) loaded, was written back unchanged on quit, and the window closed with status 0. **Pressing keys in the live game wasn't exercised**: no synthetic keyboard tool is installed, and kernel-level input on this shared desktop could reach another session's window. The review fixtures call the same `Game::bind` path that real key events use. |
+| B. Field tips (`177ac95`) | Unit tests: each tip appears once at its moment, later tips queue, the Collector tip waits for the shop and the bolt tip for the arena, the switch hides tips and replays them, the seen state persists, and smoke, review and practice runs never record tips. Captures of the movement tip, the bolt tip under a notice (960×600) and the Collector tip (`round3/hud-tip-*.jpg`, `round3/collector-tip.jpg`). **The triggers weren't seen in a live hand-played run**: starting a run needs a click that couldn't be sent to the real window. |
+| D. Adaptive music (`8c50901`) | Unit tests: the layers are finite, bounded, stereo, equally long and audible. The loop seam is no larger than the music's own 99th-percentile sample step, and with the tail fold disabled the test fails (0.068 vs 0.020). The mix follows the title, the crowd, low vitality, the boss and the shop, and the crossfade has no jumps. Spectrograms of each layer and a 64 s adaptive mix show the chord changes every 8 s and the drum figures (`round3/music-spectrograms.jpg`). In a live launch, the game's own PipeWire stream was recorded on the title: the music faded in after about 3 s and played at about −32 dBFS RMS at default volume. Rendering takes 1.1–1.5 s on a background thread, so the window isn't delayed. **No one has listened to it.** Whether it sounds good is for the owner to judge. |
+
+Also fixed this round:
+- **Controller smoke flakiness.** Desktop pointer motion over the window
+  (when it opens under the mouse, or when other windows move) reset the
+  controller's virtual cursor mid-click in scripted runs. Scripted runs now
+  ignore desktop pointer motion and log it once. In the second hunt (120
+  launches, 60 controller), every run logged such motion and none failed. In
+  the first hunt, before the fix, 3 of 61 controller runs failed. That supports
+  the fix, but with failures this rare it doesn't prove it.
+- The pause screen said "CMD + Q / QUIT" on Linux. Only macOS shows it now.
+- The shader review's journal clicks follow the moved controls through shared
+  layout constants.
+
+Final state: 114 unit tests pass. `--smoke`, `--smoke --gamepad`,
+`--text-review` (normal and `--review-small`, 86 captures across 83 fixtures),
+`--shader-review`, `--armory-review`, `--survival-review`, `--world-review` and
+`--benchmark` pass with status 0. Benchmark under shared load: 110, 106 and
+80 FPS for the optimized 12-enemy, 48-enemy and corpse scenes (round 2: 124,
+118 and 72).
+
+Not verified: macOS (the music thread and rodio source are platform-neutral,
+and CI builds and tests there after the push), Windows, X11 and NVIDIA. Also
+unverified: a listening test, live key presses, and live tip triggers.
+
+Deferred, with reasons:
+- Instanced ragdoll sections (#10): it still needs a new GPU path. Measure it
+  with GPU timestamps first.
+- Windows validation (#12): nothing here to test on.
+- Elite modifiers (rest of #8): balance needs playtests.
+- Controller remapping: bindings cover keyboard and mouse only.
+- Key labels on non-QWERTY layouts: a key shows the layout's own character
+  only after it has been pressed once (winit has no layout query), so an
+  untouched AZERTY Q position reads "Q" until it's pressed.
+- Browser build (#15) and HUD scale.
+- Owner decisions: release downloads and tag workflows, macOS signing and
+  notarization, licences, and whether the synthesized score fits the game or
+  should be replaced by composed music.
