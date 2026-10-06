@@ -293,6 +293,10 @@ pub struct Preferences {
     pub reduce_flashes: bool,
     #[serde(deserialize_with = "lenient")]
     pub bindings: Bindings,
+    /// Show first-run field tips.
+    pub field_tips: bool,
+    /// One bit per `tips::Tip` already shown.
+    pub tips_seen: u32,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -315,6 +319,8 @@ impl Default for Preferences {
             invert_y: false,
             reduce_flashes: false,
             bindings: Bindings::default(),
+            field_tips: true,
+            tips_seen: 0,
         }
     }
 }
@@ -337,9 +343,11 @@ impl Preferences {
             invert_y: self.invert_y,
             reduce_flashes: self.reduce_flashes,
             bindings: self.bindings,
+            field_tips: self.field_tips,
+            tips_seen: self.tips_seen,
         }
     }
-    fn from_json(bytes: &[u8]) -> Option<Self> {
+    pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
         serde_json::from_slice::<Self>(bytes)
             .ok()
             .map(Self::sanitized)
@@ -422,6 +430,11 @@ pub struct Game {
     pub elapsed: f32,
     pub notice: String,
     pub notice_time: f32,
+    /// The field tip on screen, and tips waiting their turn.
+    pub tip: Option<crate::tips::ActiveTip>,
+    pub tip_queue: Vec<crate::tips::Tip>,
+    /// Field tips run only in real play, never in smoke or review runs.
+    pub tips_enabled: bool,
     pub sound_events: Vec<&'static str>,
     pub spawned_bodies: Vec<BodyEvent>,
     pub physics_impacts: Vec<anatomy::PhysicsImpact>,
@@ -490,6 +503,9 @@ impl Game {
             elapsed: 0.,
             notice: String::new(),
             notice_time: 0.,
+            tip: None,
+            tip_queue: vec![],
+            tips_enabled: save_enabled,
             sound_events: vec![],
             spawned_bodies: vec![],
             physics_impacts: vec![],
@@ -1542,6 +1558,7 @@ impl Game {
     pub fn update(&mut self, dt: f32) {
         self.elapsed += dt;
         self.notice_time = (self.notice_time - dt).max(0.);
+        self.update_tips(dt);
         if self.mode != Mode::Arena {
             return;
         }

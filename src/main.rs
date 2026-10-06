@@ -17,6 +17,7 @@ mod renderer;
 mod scene;
 mod survival;
 mod text_review;
+mod tips;
 mod ui;
 mod watchdog;
 mod weapon_assets;

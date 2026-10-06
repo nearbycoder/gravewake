@@ -14,7 +14,8 @@ enum Screen {
     Title(bool),
     TitleRecords,
     Hud(u8),
-    Shop(bool),
+    /// The Collector, with the chalice bound, or with the first-visit tip.
+    Shop(bool, bool),
     Pack,
     Binding(u8),
     Armory(usize, usize),
@@ -66,8 +67,11 @@ impl Review {
             ("hud-headshot-reduced-flashes".into(), Screen::Hud(5)),
             ("hud-field-of-view-90".into(), Screen::Hud(6)),
             ("hud-rebound-mouse-keys".into(), Screen::Hud(7)),
-            ("collector".into(), Screen::Shop(false)),
-            ("collector-chalice-bound".into(), Screen::Shop(true)),
+            ("hud-tip-move".into(), Screen::Hud(8)),
+            ("hud-tip-bolt-with-notice".into(), Screen::Hud(9)),
+            ("collector".into(), Screen::Shop(false, false)),
+            ("collector-chalice-bound".into(), Screen::Shop(true, false)),
+            ("collector-tip".into(), Screen::Shop(false, true)),
             ("pack".into(), Screen::Pack),
             ("binding-available-tooltip".into(), Screen::Binding(0)),
             ("binding-locked-tooltip".into(), Screen::Binding(1)),
@@ -311,6 +315,19 @@ impl Review {
                     game.run.time = 30.;
                     game.prefs.fov = 90.;
                 }
+                if kind >= 8 {
+                    // The first tip of a first run, and a later tip with a
+                    // notice above it.
+                    use crate::tips::{ActiveTip, Tip};
+                    let tip = if kind == 8 { Tip::Move } else { Tip::Bolt };
+                    game.tip = Some(ActiveTip { tip, life: 5. });
+                    game.run.time = if kind == 8 { 0.5 } else { 30. };
+                    if kind == 9 {
+                        game.run.chalice = true;
+                        game.notice = "THE HOLLOW CHALICE ANSWERS".into();
+                        game.notice_time = 2.;
+                    }
+                }
                 if kind == 7 {
                     // The longest labels: mouse buttons, an arrow-key layout
                     // and a bound chalice, during the opening banner.
@@ -357,9 +374,15 @@ impl Review {
                     game.run.wave = 123;
                 }
             }
-            Screen::Shop(bound) => {
+            Screen::Shop(bound, tip) => {
                 game.mode = Mode::Shop;
                 game.run.chalice = bound;
+                if tip {
+                    game.tip = Some(crate::tips::ActiveTip {
+                        tip: crate::tips::Tip::Collector,
+                        life: 20.,
+                    });
+                }
                 game.run.offer = game.run.weapon.clone();
                 game.run.draws = 12;
                 game.run.pack_buys = 8;

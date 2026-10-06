@@ -1008,6 +1008,10 @@ fn house(c: &Canvas, g: &mut Game) {
         g.open_pack();
     }
     deck(c, g);
+    // Over the Collector's robe, between the title and the purse.
+    if let Some(active) = g.tip.filter(|t| t.tip.in_shop()) {
+        field_tip(c, &active.tip.text(g), 14., 600., active.alpha());
+    }
 }
 fn deck(c: &Canvas, g: &mut Game) {
     let y = c.h - 135.;
@@ -2410,13 +2414,17 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             );
         }
     }
-    if g.run.time < 7. {
-        let help_y = status_y + if boss.is_some() { 75. } else { 0. };
-        c.hud_panel(338., help_y, 764., 35.);
+    // Field tips and the opening reminder share one panel below the reticle,
+    // clear of the crowd, the top-centre stack and the vitality plate.
+    if let Some(active) = g.tip.filter(|t| !t.tip.in_shop()) {
+        field_tip(c, &active.tip.text(g), c.h - TIP_FROM_BOTTOM, 640., active.alpha());
+    } else if g.run.time < 7. {
         let keys = &g.prefs.bindings;
+        let y = c.h - TIP_FROM_BOTTOM;
+        c.hud_panel(338., y + 20., 764., 35.);
         c.center(
             720.,
-            help_y + 17.,
+            y + 37.,
             format!(
                 "{} Move  /  Mouse Fire  /  {} Reload  /  {} Melee  /  Esc Pause",
                 keys.movement_label(),
@@ -2427,6 +2435,37 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             IVORY,
         );
     }
+}
+/// Distance from the bottom of the screen to the top of the arena tip panel.
+const TIP_FROM_BOTTOM: f32 = 272.;
+/// A field tip: a small heading over one to three centred lines.
+fn field_tip(c: &Canvas, text: &str, y: f32, width: f32, alpha: f32) {
+    let x = 720. - width / 2.;
+    let galley = c.p.layout_job({
+        let mut job = egui::text::LayoutJob::simple(
+            text.into(),
+            TypeRole::Reading.font((18. * c.s).max(13.5)),
+            IVORY,
+            (width - 48.) * c.s,
+        );
+        job.halign = egui::Align::Center;
+        job
+    });
+    let height = galley.size().y / c.s + 46.;
+    c.inset(x, y, width, height, HUD_SURFACE.gamma_multiply(alpha));
+    c.border(x, y, width, height, GOLD.gamma_multiply(0.75 * alpha));
+    c.diamond(720., y, 5., GOLD.gamma_multiply(alpha));
+    c.center(720., y + 17., "FIELD NOTE", 13., GOLD.gamma_multiply(alpha));
+    // Centred paragraphs are anchored at their centre line.
+    c.paragraph(
+        720.,
+        y + 32.,
+        text,
+        width - 48.,
+        18.,
+        IVORY.gamma_multiply(alpha),
+        true,
+    );
 }
 fn pause(c: &Canvas, g: &mut Game) {
     c.fill(-100., 0., 1640., c.h, C::from_black_alpha(165));
@@ -2669,10 +2708,14 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     Mode::Arena | Mode::Shop | Mode::Tree | Mode::Pack | Mode::Paused | Mode::Title
                 )
             {
-                let y = if g.mode == Mode::Arena {
-                    c.h * 0.72
-                } else {
+                let tip_panel =
+                    g.tip.is_some_and(|t| !t.tip.in_shop()) || g.run.time < 7.;
+                let y = if g.mode != Mode::Arena {
                     128.
+                } else if tip_panel {
+                    c.h - TIP_FROM_BOTTOM - 40.
+                } else {
+                    c.h * 0.72
                 };
                 let alpha = (g.notice_time.min(1.) * 245.) as u8;
                 c.fill(
@@ -2854,6 +2897,22 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
                 _ => g.prefs.reduce_flashes = !on,
             }
         }
+    }
+    let tips = g.prefs.field_tips;
+    if c.button(
+        "field_tips",
+        392.,
+        648.,
+        310.,
+        35.,
+        if tips {
+            "FIELD TIPS ON"
+        } else {
+            "FIELD TIPS OFF"
+        },
+        false,
+    ) {
+        g.set_field_tips(!tips);
     }
     if c.button(
         "vsync",

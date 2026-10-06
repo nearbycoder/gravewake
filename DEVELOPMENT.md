@@ -206,6 +206,12 @@ Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance
 
 ![Records on the title screen](docs/media/improvements/round2/title-records.jpg)
 
+## Field tips
+
+`src/tips.rs` shows six first-run notes, each the first time its moment comes: movement, sprint and dodge when the first run starts; reload and melee when the magazine falls to a third; souls when the first soul drops; damage arcs the first time you're hurt; the Collector, packs and the Binding on the first shop visit; and Ember Bolt once a chalice is bound. Arena notes sit in a panel below the reticle, clear of the crowd, the top-centre stack and the vitality plate, and last 10 seconds. The Collector's note sits over the dealer's robe for 40 seconds or until you leave the shop. Notes that come due together wait their turn. Each note uses the current key labels. The opening control reminder now uses the same panel and gives way to the first note.
+
+Seen notes are recorded as bits in `settings.json` (`tips_seen`). **Field tips** in Settings & Controls turns them off, and turning it back on clears the record so every note shows again. Smoke, review and practice runs never show notes or record them.
+
 ## Positional audio
 
 Enemy sounds come from where they happen. Special-attack wind-ups, blasts and melee swings are panned with equal power by bearing relative to your view, attenuated with distance, and slightly softened behind you, so a threat out of sight can still be heard and located. Each special attack has its own wind-up cue, starting with its visible warning: a rising intake before caster bolts, a low growl before slams and plague bursts, a falling screech before dives, a hollow bell before a Bone Shepherd summons, and a reversed whoosh before a Tithe Reaper blinks. Your own weapons, pickups and interface sounds stay centred. The cues are synthesized like the other designed sounds; `--export-audio` writes them to `captures/audio/`.
