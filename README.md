@@ -47,13 +47,14 @@ The 42-second trailer above was captured from the native game with in-game sound
 
 ## Build and play
 
-**Current target: native macOS.** Tested on Apple Silicon with Metal. This is a playable development build, not a finished commercial release. Windows, Linux and browser builds have not been validated. Keyboard and mouse are required.
+**Supported: native macOS and Linux.** macOS is tested on Apple Silicon with Metal. Linux is tested on one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland; X11, NVIDIA and other distributions have not been tested. This is a playable development build, not a finished commercial release. Windows and browser builds have not been validated. Keyboard and mouse are required.
 
 ### Requirements
 
-- macOS with a Metal-capable GPU. The app bundle declares macOS 13 or later; current validation was performed on Apple Silicon.
-- [Rust and Cargo via rustup](https://rust-lang.org/install.html), using the current stable toolchain. The project uses Rust 2024; the published snapshot was tested with Rust 1.99.
-- Apple’s Command Line Tools (`xcode-select --install`) for the linker and macOS SDK.
+- macOS with a Metal-capable GPU (the app bundle declares macOS 13 or later), or Linux with a Vulkan driver and Wayland or X11.
+- [Rust and Cargo via rustup](https://rust-lang.org/install.html), using the current stable toolchain. The project uses Rust 2024; the published snapshot was tested with Rust 1.99 on macOS and 1.96.1 on Linux.
+- macOS: Apple’s Command Line Tools (`xcode-select --install`) for the linker and macOS SDK.
+- Linux: a C toolchain, `pkg-config` and the ALSA development headers (Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev`; Arch: `sudo pacman -S base-devel alsa-lib`).
 
 ### Run from source
 
@@ -74,6 +75,16 @@ open dist/Gravewake.app
 
 After packaging, open `dist/Gravewake.app` or double-click `Play Gravewake.command`. The bundle is locally ad-hoc signed, not Developer ID notarized. Re-run the packaging script after changing source or assets; the launcher reuses an existing bundle.
 
+### Build a Linux package
+
+```sh
+./scripts/package-linux.sh
+tar -xzf dist/gravewake-linux-x86_64.tar.gz -C ~/Games
+~/Games/gravewake-linux-x86_64/install.sh   # optional: adds Gravewake to your application menu
+```
+
+The tarball contains the self-contained executable, a desktop entry, an icon and the font and audio notices. `install.sh` installs for the current user under `~/.local`; `install.sh --uninstall` removes it and keeps saves. The executable requires the glibc version it was built against (or newer); the bundled `README.txt` records it. No prebuilt downloads are published yet.
+
 ## Controls
 
 | Input | Action |
@@ -92,11 +103,18 @@ After packaging, open `dist/Gravewake.app` or double-click `Play Gravewake.comma
 
 Change mouse sensitivity, volume, lighting intensity and presentation settings in **Settings & Controls**. Losing focus pauses combat and releases the pointer.
 
-Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
+Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** (macOS) and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
 
 ## Saves
 
-Progress lives in `~/Library/Application Support/Gravewake/run.json`; graphics and performance preferences live alongside it. Quitting, pausing, purchases and completed descents save progress. A new run replaces the active run after confirmation. Diagnostic capture modes use disposable state and do not overwrite player saves.
+Progress lives in `run.json`; graphics and performance preferences live alongside it:
+
+| Platform | Folder |
+| --- | --- |
+| macOS | `~/Library/Application Support/Gravewake/` |
+| Linux | `$XDG_DATA_HOME/gravewake/` (normally `~/.local/share/gravewake/`) |
+
+Linux builds before this change stored files under `~/Library/Application Support/Gravewake/`; they are copied to the new folder on first launch, never overwriting newer files. Quitting, pausing, purchases and completed descents save progress. A new run replaces the active run after confirmation. Diagnostic capture modes use disposable state and do not overwrite player saves.
 
 ## Under the hood
 

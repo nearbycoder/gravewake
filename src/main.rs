@@ -1133,6 +1133,12 @@ impl ApplicationHandler for App {
         self.game.save_graphics();
         self.game.save_performance();
         self.game.save();
+        // Release the egui clipboard, GPU surface and window while the
+        // display connection is still alive. Wayland's clipboard worker
+        // otherwise destroys its proxies after the connection closes.
+        self.egui_state = None;
+        self.renderer = None;
+        self.window = None;
     }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -1154,7 +1160,8 @@ impl ApplicationHandler for App {
                                 LogicalSize::new(1440., 900.)
                             },
                         )
-                        .with_min_inner_size(LogicalSize::new(960., 600.)),
+                        .with_min_inner_size(LogicalSize::new(960., 600.))
+                        .with_app_identity(),
                 )
                 .expect("create window"),
         );
@@ -1299,6 +1306,21 @@ impl ApplicationHandler for App {
                 w.request_redraw();
             }
         }
+    }
+}
+trait AppIdentity {
+    fn with_app_identity(self) -> Self;
+}
+impl AppIdentity for winit::window::WindowAttributes {
+    // Wayland app_id and X11 WM_CLASS; desktops match it to gravewake.desktop.
+    #[cfg(target_os = "linux")]
+    fn with_app_identity(self) -> Self {
+        use winit::platform::wayland::WindowAttributesExtWayland;
+        self.with_name("gravewake", "gravewake")
+    }
+    #[cfg(not(target_os = "linux"))]
+    fn with_app_identity(self) -> Self {
+        self
     }
 }
 fn main() {

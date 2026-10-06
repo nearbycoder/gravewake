@@ -1,4 +1,4 @@
-name: macOS build
+name: Build
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
@@ -7,6 +7,18 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Test gameplay and assets
+        run: cargo +stable test --locked
+      - name: Build native release
+        run: cargo +stable build --release --locked
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libudev-dev
       - name: Install stable Rust
         run: rustup toolchain install stable --profile minimal
       - name: Test gameplay and assets

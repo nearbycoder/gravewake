@@ -4,21 +4,59 @@ use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+const SAVE_FILES: [&str; 3] = ["run.json", "graphics.json", "performance.json"];
+
+// Where saves live, plus older locations to import from, in priority order.
+// macOS keeps its Application Support folder. Linux and other Unix systems use
+// the XDG data directory; builds before Linux support wrote to the macOS path.
+pub(crate) fn save_dirs(
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> (PathBuf, Vec<PathBuf>) {
+    let home = var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mac_support = home.join("Library/Application Support");
+    if cfg!(target_os = "macos") {
+        (
+            mac_support.join("Gravewake"),
+            vec![mac_support.join("Dark Veil")],
+        )
+    } else if cfg!(windows) {
+        let appdata = var("APPDATA").map(PathBuf::from).unwrap_or(home);
+        (appdata.join("Gravewake"), vec![])
+    } else {
+        let data = var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| home.join(".local/share"));
+        (
+            data.join("gravewake"),
+            vec![mac_support.join("Gravewake"), mac_support.join("Dark Veil")],
+        )
+    }
+}
+
 // Copy each legacy file once. Publishing with a hard link is atomic and cannot
 // replace a newer Gravewake file, even if two game instances start together.
-fn migrate_legacy_saves(support: &Path) -> std::io::Result<()> {
-    let destination = support.join("Gravewake");
-    for name in ["run.json", "graphics.json", "performance.json"] {
+fn migrate_legacy_saves(destination: &Path, legacy: &[PathBuf]) -> std::io::Result<()> {
+    for name in SAVE_FILES {
         let target = destination.join(name);
         if target.exists() {
             continue;
         }
-        let bytes = match std::fs::read(support.join("Dark Veil").join(name)) {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e),
-        };
-        std::fs::create_dir_all(&destination)?;
+        let mut found = None;
+        for source in legacy {
+            match std::fs::read(source.join(name)) {
+                Ok(bytes) => {
+                    found = Some(bytes);
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        let Some(bytes) = found else { continue };
+        std::fs::create_dir_all(destination)?;
         let temporary = destination.join(format!("{name}.migration-{}.tmp", std::process::id()));
         std::fs::write(&temporary, bytes)?;
         let result = std::fs::hard_link(&temporary, &target);
@@ -250,7 +288,8 @@ pub struct Game {
 impl Game {
     pub fn new(save_enabled: bool) -> Self {
         if save_enabled {
-            if let Err(e) = migrate_legacy_saves(&Self::support_path()) {
+            let (destination, legacy) = Self::dirs();
+            if let Err(e) = migrate_legacy_saves(&destination, &legacy) {
                 eprintln!("Could not migrate legacy saves; original files are preserved: {e}");
             }
         }
@@ -321,22 +360,20 @@ impl Game {
             navigation: world_layout::Navigation::default(),
         }
     }
+    fn dirs() -> (PathBuf, Vec<PathBuf>) {
+        save_dirs(|name| std::env::var_os(name))
+    }
     pub fn save_path() -> PathBuf {
-        Self::support_path().join("Gravewake/run.json")
+        Self::dirs().0.join("run.json")
     }
-    fn support_path() -> PathBuf {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("Library/Application Support")
-    }
+    // Fall back to an older location if migration could not copy the file.
     fn load_path(name: &str) -> PathBuf {
-        let current = Self::save_path().with_file_name(name);
-        if current.exists() {
-            current
-        } else {
-            Self::support_path().join("Dark Veil").join(name)
-        }
+        let (current, legacy) = Self::dirs();
+        std::iter::once(current)
+            .chain(legacy)
+            .map(|dir| dir.join(name))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| Self::save_path().with_file_name(name))
     }
     fn performance_settings() -> (bool, bool) {
         std::fs::read(Self::load_path("performance.json"))
@@ -1498,7 +1535,7 @@ mod tests {
         let old = support.join("Dark Veil");
         let new = support.join("Gravewake");
         // Fresh installs should not create unnecessary directories.
-        migrate_legacy_saves(&support).unwrap();
+        migrate_legacy_saves(&new, std::slice::from_ref(&old)).unwrap();
         assert!(!new.exists());
         std::fs::create_dir_all(&old).unwrap();
         let game = Game::new(false);
@@ -1515,7 +1552,7 @@ mod tests {
         ] {
             std::fs::write(old.join(name), bytes).unwrap();
         }
-        migrate_legacy_saves(&support).unwrap();
+        migrate_legacy_saves(&new, std::slice::from_ref(&old)).unwrap();
         for name in ["run.json", "graphics.json", "performance.json"] {
             assert_eq!(
                 std::fs::read(old.join(name)).unwrap(),
@@ -1528,13 +1565,79 @@ mod tests {
         assert_eq!(restored.mode, Mode::Arena);
         std::fs::write(new.join("run.json"), b"newer progress").unwrap();
         std::fs::write(new.join("graphics.json"), b"0.8").unwrap();
-        migrate_legacy_saves(&support).unwrap();
+        migrate_legacy_saves(&new, std::slice::from_ref(&old)).unwrap();
         assert_eq!(
             std::fs::read(new.join("run.json")).unwrap(),
             b"newer progress"
         );
         assert_eq!(std::fs::read(new.join("graphics.json")).unwrap(), b"0.8");
         assert_eq!(std::fs::read(old.join("run.json")).unwrap(), saved);
+        std::fs::remove_dir_all(support).unwrap();
+    }
+    #[test]
+    fn save_directories_follow_platform_conventions() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| std::ffi::OsString::from(v))
+            }
+        };
+        let (current, legacy) = save_dirs(env(&[("HOME", "/home/hunter")]));
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                current,
+                Path::new("/home/hunter/Library/Application Support/Gravewake")
+            );
+            assert_eq!(
+                legacy,
+                [Path::new(
+                    "/home/hunter/Library/Application Support/Dark Veil"
+                )]
+            );
+        } else if cfg!(target_os = "linux") {
+            assert_eq!(current, Path::new("/home/hunter/.local/share/gravewake"));
+            assert_eq!(
+                legacy,
+                [
+                    Path::new("/home/hunter/Library/Application Support/Gravewake"),
+                    Path::new("/home/hunter/Library/Application Support/Dark Veil"),
+                ]
+            );
+            let (xdg, _) = save_dirs(env(&[("HOME", "/home/hunter"), ("XDG_DATA_HOME", "/data")]));
+            assert_eq!(xdg, Path::new("/data/gravewake"));
+            // The XDG spec says relative values are invalid and must be ignored.
+            let (relative, _) =
+                save_dirs(env(&[("HOME", "/home/hunter"), ("XDG_DATA_HOME", "data")]));
+            assert_eq!(relative, Path::new("/home/hunter/.local/share/gravewake"));
+        }
+    }
+    #[test]
+    fn migration_prefers_the_newest_legacy_location() {
+        let support = quit_save_test_directory("legacy-priority");
+        let current = support.join("gravewake");
+        let recent = support.join("Library/Application Support/Gravewake");
+        let oldest = support.join("Library/Application Support/Dark Veil");
+        std::fs::create_dir_all(&recent).unwrap();
+        std::fs::create_dir_all(&oldest).unwrap();
+        std::fs::write(recent.join("run.json"), b"recent run").unwrap();
+        std::fs::write(oldest.join("run.json"), b"oldest run").unwrap();
+        std::fs::write(oldest.join("graphics.json"), b"0.5").unwrap();
+        migrate_legacy_saves(&current, &[recent.clone(), oldest.clone()]).unwrap();
+        assert_eq!(
+            std::fs::read(current.join("run.json")).unwrap(),
+            b"recent run"
+        );
+        assert_eq!(
+            std::fs::read(current.join("graphics.json")).unwrap(),
+            b"0.5"
+        );
+        assert!(!current.join("performance.json").exists());
+        assert_eq!(
+            std::fs::read(recent.join("run.json")).unwrap(),
+            b"recent run"
+        );
         std::fs::remove_dir_all(support).unwrap();
     }
     fn quit_save_test_directory(label: &str) -> PathBuf {

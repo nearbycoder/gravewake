@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Gravewake
+GenericName=Gothic Arena Roguelite
+Comment=The dead rise. The living owe.
+Exec=gravewake
+Icon=gravewake
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=roguelite;shooter;gothic;arena;
+StartupWMClass=gravewake

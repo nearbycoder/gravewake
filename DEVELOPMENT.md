@@ -64,6 +64,8 @@ The active run is saved atomically to:
 ~/Library/Application Support/Gravewake/run.json
 ```
 
+On Linux the folder is `$XDG_DATA_HOME/gravewake/` (normally `~/.local/share/gravewake/`). Linux builds that predate this used the macOS path above under the home directory; those files are imported once, preferring them over any older Dark Veil copies.
+
 On first launch, legacy run, graphics and performance files are copied from `~/Library/Application Support/Dark Veil/` into the Gravewake folder. Originals remain untouched, and existing Gravewake files are never overwritten. If copying fails, loading falls back to the old files.
 
 Pausing, closing the window, finishing a descent, and making purchases save progress. Continue restores position, enemies, health, gold, weapon affixes, upgrades, soul level, collected powers, uncollected orbs, queued level choices, and remaining reinforcements. Body-part damage and missing limbs are saved; older saves load with intact anatomy. Temporary visual particles and rigid-body debris are not serialized.
