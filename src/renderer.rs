@@ -171,6 +171,7 @@ impl Renderer {
         let surface = instance
             .create_surface(window.clone())
             .expect("create GPU surface");
+        crate::watchdog::milestone("GPU surface created");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -179,6 +180,7 @@ impl Renderer {
             })
             .await
             .expect("No compatible GPU");
+        crate::watchdog::milestone("GPU adapter selected");
         println!("GPU: {:?}", adapter.get_info());
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -190,6 +192,7 @@ impl Renderer {
             })
             .await
             .expect("GPU device");
+        crate::watchdog::milestone("GPU device ready");
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
         println!(
@@ -216,6 +219,7 @@ impl Renderer {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
+        crate::watchdog::milestone("surface configured");
         let offscreen_target = (std::env::args()
             .any(|arg| arg == "--model-offscreen" || arg == "--world-offscreen")
             && std::env::args().any(|arg| arg == "--model-review" || arg == "--world-review"))
@@ -1007,11 +1011,13 @@ impl Renderer {
         capture: Option<&str>,
     ) -> Result<(), wgpu::SurfaceError> {
         let acquire = std::time::Instant::now();
+        crate::watchdog::milestone("acquiring surface texture");
         let frame = if self.offscreen_target.is_none() {
             Some(self.surface.get_current_texture()?)
         } else {
             None
         };
+        crate::watchdog::milestone("drawing frame");
         self.timings[1] = acquire.elapsed().as_secs_f64() * 1000.;
         let output_texture = frame
             .as_ref()
@@ -1223,6 +1229,7 @@ impl Renderer {
                 .map_async(wgpu::MapMode::Read, move |result| {
                     let _ = tx.send(result);
                 });
+            crate::watchdog::milestone("reading back screenshot");
             let _ = self.device.poll(wgpu::PollType::Wait);
             if rx.recv().unwrap().is_ok() {
                 let data = buffer.slice(..).get_mapped_range();
@@ -1258,6 +1265,7 @@ impl Renderer {
             let _ = self.device.poll(wgpu::PollType::Wait);
         }
         if let Some(frame) = frame {
+            crate::watchdog::milestone("presenting");
             frame.present();
         }
         self.timings[2] = submit.elapsed().as_secs_f64() * 1000.;

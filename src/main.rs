@@ -17,6 +17,7 @@ mod scene;
 mod survival;
 mod text_review;
 mod ui;
+mod watchdog;
 mod weapon_assets;
 mod weapons;
 mod world_layout;
@@ -1262,6 +1263,7 @@ impl App {
                 );
             }
         }
+        watchdog::frame();
         window.request_redraw();
         if self.game.quit_requested {
             self.quit_game(event_loop);
@@ -1270,6 +1272,7 @@ impl App {
 }
 impl ApplicationHandler for App {
     fn exiting(&mut self, _: &ActiveEventLoop) {
+        watchdog::milestone("exiting");
         // Native macOS menu/Dock Quit (including Cmd+Q) can bypass CloseRequested.
         self.game.save_preferences();
         self.game.save_performance();
@@ -1306,6 +1309,7 @@ impl ApplicationHandler for App {
                 )
                 .expect("create window"),
         );
+        watchdog::milestone("window created");
         self.egui_state = Some(egui_winit::State::new(
             self.ctx.clone(),
             egui::ViewportId::ROOT,
@@ -1314,8 +1318,10 @@ impl ApplicationHandler for App {
             None,
             None,
         ));
+        watchdog::milestone("egui state ready");
         self.renderer = Some(pollster::block_on(renderer::Renderer::new(window.clone())));
         self.renderer.as_mut().unwrap().register_previews(&self.ctx);
+        watchdog::milestone("renderer ready");
         self.window = Some(window);
         self.last = Instant::now();
     }
@@ -1501,7 +1507,17 @@ fn main() {
         }
         return;
     }
+    if smoke || review {
+        // Scripted runs report progress; a long silence aborts with a core
+        // dump. GRAVEWAKE_WATCHDOG_SECS overrides the limit.
+        let limit = std::env::var("GRAVEWAKE_WATCHDOG_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120);
+        watchdog::start(std::time::Duration::from_secs(limit));
+    }
     let event_loop = EventLoop::new().expect("event loop");
+    watchdog::milestone("event loop created");
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let mut app = App::new(smoke, review);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

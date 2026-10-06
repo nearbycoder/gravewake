@@ -233,3 +233,9 @@ Editable sources are `assets/blender/gravewake-creatures.blend`, `assets/blender
 Creature geometry stays in indexed GPU buffers. Only rig transforms and combat state are uploaded each frame; lower-detail Blender exports are selected beyond eight and fourteen meters. Full geometry remains available for close views and detached body parts.
 
 `cargo run --release -- --model-review` produces twelve close creature portraits, an environment overview, three weapon views, and a 48-enemy rendering stress capture in `captures/models/after`. The manifest reports 240 timed frames after 60 warm-up frames, excluding screenshots. AI is frozen in this diagnostic; it is a rendering comparison, not a full gameplay benchmark. `--model-cpu` exercises the full-detail CPU fallback in a separate gallery. Review fixtures never load or save player progress.
+
+## Start-up stall watchdog
+
+Smoke, review and benchmark runs start a watchdog thread (`src/watchdog.rs`). Start-up steps (window, egui, GPU surface, adapter, device, renderer) and each frame's surface acquire, screenshot read-back and present report progress. After 120 seconds without progress (override with `GRAVEWAKE_WATCHDOG_SECS`), it prints the last step and frame number and aborts, so systemd-coredump keeps a core with every thread's stack. Normal play never starts it.
+
+`scripts/stall-hunt.sh [runs]` alternates plain and controller smoke runs from a private copy of the release binary. It writes capped logs and `summary.tsv` to `captures/stall/`, and saves `coredumpctl info` and gdb `thread apply all bt` output for any run that fails.
