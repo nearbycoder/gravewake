@@ -1,4 +1,5 @@
 use crate::anatomy::{self, Anatomy, BodyEvent, Part, Pose};
+use crate::controls::{Action, Bindings, Trigger};
 use crate::world_layout::{self, ENEMY_RADIUS, PLAYER_RADIUS};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -290,6 +291,20 @@ pub struct Preferences {
     pub invert_y: bool,
     /// Softer hurt vignette and muzzle lighting for light-sensitive players.
     pub reduce_flashes: bool,
+    #[serde(deserialize_with = "lenient")]
+    pub bindings: Bindings,
+}
+/// Read a field, or use its default if that field alone is damaged, so one
+/// bad entry doesn't reset every other preference.
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    Ok(serde_json::Value::deserialize(d)
+        .ok()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default())
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -299,6 +314,7 @@ impl Default for Preferences {
             fov: 70.,
             invert_y: false,
             reduce_flashes: false,
+            bindings: Bindings::default(),
         }
     }
 }
@@ -320,6 +336,7 @@ impl Preferences {
             fov: clean(self.fov, Self::FOV_RANGE, d.fov),
             invert_y: self.invert_y,
             reduce_flashes: self.reduce_flashes,
+            bindings: self.bindings,
         }
     }
     fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -417,6 +434,12 @@ pub struct Game {
     pub show_fps: bool,
     pub fps: f32,
     pub settings: bool,
+    /// The journal's Controls page is open instead of Preferences.
+    pub journal_controls: bool,
+    /// An action waiting for its new key on the Controls page.
+    pub rebinding: Option<Action>,
+    /// The Controls page's latest confirmation or refusal.
+    pub controls_note: String,
     pub quit_requested: bool,
     pub confirm_new_run: bool,
     pub has_save: bool,
@@ -509,6 +532,9 @@ impl Game {
             },
             fps: 0.,
             settings: false,
+            journal_controls: false,
+            rebinding: None,
+            controls_note: String::new(),
             quit_requested: false,
             confirm_new_run: false,
             has_save: Self::load_path("run.json").exists(),
@@ -795,6 +821,26 @@ impl Game {
             self.dash_cd = 1.5;
             self.sound_events.push("dash");
         }
+    }
+    /// Give the action waiting on the Controls page its new input.
+    pub fn bind(&mut self, trigger: Trigger, glyph: Option<char>) {
+        let Some(action) = self.rebinding else {
+            return;
+        };
+        let bindings = &mut self.prefs.bindings;
+        self.controls_note = match bindings.assign(action, trigger, glyph) {
+            Ok(displaced) => {
+                self.rebinding = None;
+                let mut note = format!("{} is now {}.", action.name(), bindings.label(action));
+                if let Some(other) = displaced {
+                    note += &format!(" {} moved to {}.", other.name(), bindings.label(other));
+                }
+                note
+            }
+            // Keep waiting so the player can simply press another key.
+            Err(reason) => format!("{reason} Choose another key for {}.", action.name()),
+        };
+        self.save_preferences();
     }
     pub fn notify(&mut self, s: &str) {
         self.notice = s.into();
@@ -1909,6 +1955,7 @@ mod tests {
             fov: 85.,
             invert_y: true,
             reduce_flashes: true,
+            ..Preferences::default()
         };
         let bytes = serde_json::to_vec(&custom).unwrap();
         assert_eq!(Preferences::from_json(&bytes), Some(custom));
@@ -1929,6 +1976,29 @@ mod tests {
         .sanitized();
         assert_eq!(nan.fov, Preferences::default().fov);
         assert_eq!(Preferences::from_json(b"not json"), None);
+        // A damaged bindings entry resets only the bindings.
+        let damaged =
+            Preferences::from_json(br#"{"volume":0.3,"bindings":[{"action":"Nope"}]}"#).unwrap();
+        assert_eq!(damaged.volume, 0.3);
+        assert_eq!(damaged.bindings, Bindings::default());
+    }
+    #[test]
+    fn rebinding_waits_for_a_usable_key_and_reports_swaps() {
+        use winit::keyboard::KeyCode;
+        let mut g = Game::new(false);
+        g.bind(Trigger::Key(KeyCode::KeyF), None);
+        assert_eq!(g.prefs.bindings, Bindings::default(), "nothing is waiting");
+        g.rebinding = Some(Action::Reload);
+        g.bind(Trigger::Key(KeyCode::F7), None);
+        assert_eq!(g.rebinding, Some(Action::Reload));
+        assert!(g.controls_note.contains("F7 is reserved"), "{}", g.controls_note);
+        g.bind(Trigger::Key(KeyCode::KeyE), Some('e'));
+        assert_eq!(g.rebinding, None);
+        assert_eq!(g.controls_note, "Reload is now E. Melee moved to R.");
+        assert_eq!(
+            g.prefs.bindings.action(Trigger::Key(KeyCode::KeyR)),
+            Some(Action::Melee)
+        );
     }
     #[test]
     fn save_directories_follow_platform_conventions() {

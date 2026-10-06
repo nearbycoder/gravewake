@@ -22,6 +22,7 @@ enum Screen {
     Powers(usize),
     Pause,
     Settings,
+    Controls(u8),
     Confirmation,
     Ending(bool),
 }
@@ -64,6 +65,7 @@ impl Review {
             ("hud-kill-and-damage-arcs".into(), Screen::Hud(4)),
             ("hud-headshot-reduced-flashes".into(), Screen::Hud(5)),
             ("hud-field-of-view-90".into(), Screen::Hud(6)),
+            ("hud-rebound-mouse-keys".into(), Screen::Hud(7)),
             ("collector".into(), Screen::Shop(false)),
             ("collector-chalice-bound".into(), Screen::Shop(true)),
             ("pack".into(), Screen::Pack),
@@ -92,6 +94,9 @@ impl Review {
         screens.extend([
             ("pause".into(), Screen::Pause),
             ("settings".into(), Screen::Settings),
+            ("controls".into(), Screen::Controls(0)),
+            ("controls-waiting-for-key".into(), Screen::Controls(1)),
+            ("controls-azerty-swap".into(), Screen::Controls(2)),
             ("new-run-confirmation".into(), Screen::Confirmation),
             ("death".into(), Screen::Ending(false)),
             ("victory".into(), Screen::Ending(true)),
@@ -306,6 +311,24 @@ impl Review {
                     game.run.time = 30.;
                     game.prefs.fov = 90.;
                 }
+                if kind == 7 {
+                    // The longest labels: mouse buttons, an arrow-key layout
+                    // and a bound chalice, during the opening banner.
+                    use crate::controls::{Action, Trigger};
+                    use winit::{event::MouseButton, keyboard::KeyCode};
+                    game.run.chalice = true;
+                    for (action, trigger) in [
+                        (Action::Dodge, Trigger::Mouse(MouseButton::Middle)),
+                        (Action::Reload, Trigger::Mouse(MouseButton::Back)),
+                        (Action::Bolt, Trigger::Mouse(MouseButton::Right)),
+                        (Action::Forward, Trigger::Key(KeyCode::ArrowUp)),
+                        (Action::Back, Trigger::Key(KeyCode::ArrowDown)),
+                        (Action::Left, Trigger::Key(KeyCode::ArrowLeft)),
+                        (Action::Right, Trigger::Key(KeyCode::ArrowRight)),
+                    ] {
+                        game.prefs.bindings.assign(action, trigger, None).unwrap();
+                    }
+                }
                 if (4..=5).contains(&kind) {
                     // Past the opening banner, with combat feedback frozen.
                     game.run.time = 30.;
@@ -391,6 +414,30 @@ impl Review {
                 game.settings = true;
                 game.show_fps = true;
                 game.prefs.volume = 1.;
+            }
+            Screen::Controls(kind) => {
+                use crate::controls::{Action, Trigger};
+                use winit::{event::MouseButton, keyboard::KeyCode};
+                game.mode = Mode::Paused;
+                game.settings = true;
+                game.journal_controls = true;
+                game.rebinding = Some(Action::Dodge);
+                if kind == 2 {
+                    // An AZERTY keyboard, then melee moved to the dodge key's
+                    // place and dodge moved to the right mouse button.
+                    for (code, glyph) in [
+                        (KeyCode::KeyW, 'z'),
+                        (KeyCode::KeyA, 'q'),
+                        (KeyCode::KeyQ, 'a'),
+                    ] {
+                        game.prefs.bindings.learn_glyph(code, glyph);
+                    }
+                    game.bind(Trigger::Mouse(MouseButton::Right), None);
+                    game.rebinding = Some(Action::Melee);
+                    game.bind(Trigger::Mouse(MouseButton::Right), None);
+                } else if kind == 0 {
+                    game.rebinding = None;
+                }
             }
             Screen::Confirmation => {
                 game.mode = Mode::Title;

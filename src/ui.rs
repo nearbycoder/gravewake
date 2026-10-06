@@ -1,3 +1,4 @@
+use crate::controls::Action;
 use crate::game::{Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, Mode, Preferences};
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
@@ -940,7 +941,8 @@ fn house(c: &Canvas, g: &mut Game) {
         && g.spend(65)
     {
         g.run.chalice = true;
-        g.notify("Ember Bolt awakened. Press Q in the arena.");
+        let key = g.prefs.bindings.label(Action::Bolt);
+        g.notify(&format!("Ember Bolt awakened. Press {key} in the arena."));
         g.save();
     }
     c.text(
@@ -2298,7 +2300,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         c.text(
             40.,
             h - 149.,
-            "Q / EMBER BOLT",
+            format!("{} / EMBER BOLT", g.prefs.bindings.label(Action::Bolt)),
             17.,
             GOLD,
             false,
@@ -2327,9 +2329,9 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         720.,
         h - 48.,
         if g.dash_cd > 0. {
-            "DODGE RECOVERING"
+            "DODGE RECOVERING".into()
         } else {
-            "SPACE / DODGE"
+            format!("{} / DODGE", g.prefs.bindings.label(Action::Dodge))
         },
         16.,
         IVORY,
@@ -2364,9 +2366,9 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         1030.,
         h - 49.,
         if g.run.weapon.kind.melee() {
-            "LMB / E  STRIKE"
+            format!("LMB / {}  STRIKE", g.prefs.bindings.label(Action::Melee))
         } else {
-            "R  RELOAD"
+            format!("{}  RELOAD", g.prefs.bindings.label(Action::Reload))
         },
         16.,
         MUTED,
@@ -2411,10 +2413,16 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     if g.run.time < 7. {
         let help_y = status_y + if boss.is_some() { 75. } else { 0. };
         c.hud_panel(338., help_y, 764., 35.);
+        let keys = &g.prefs.bindings;
         c.center(
             720.,
             help_y + 17.,
-            "WASD Move  /  Mouse Fire  /  R Reload  /  E Melee  /  Esc Pause",
+            format!(
+                "{} Move  /  Mouse Fire  /  {} Reload  /  {} Melee  /  Esc Pause",
+                keys.movement_label(),
+                keys.label(Action::Reload),
+                keys.label(Action::Melee)
+            ),
             17.,
             IVORY,
         );
@@ -2489,7 +2497,11 @@ fn pause(c: &Canvas, g: &mut Game) {
     c.center(
         720.,
         y + 435.,
-        "ESC / RESUME   ·   CMD + Q / QUIT",
+        if cfg!(target_os = "macos") {
+            "ESC / RESUME   ·   CMD + Q / QUIT"
+        } else {
+            "ESC / RESUME"
+        },
         16.,
         INK,
     );
@@ -2722,154 +2734,232 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                         g.new_run();
                     }
                 } else {
-                    c.folio(325., 88., 790., 724.);
-                    c.text(
-                        720.,
-                        157.,
-                        "The Hunter's Journal",
-                        38.,
-                        INK,
-                        true,
-                        Align2::CENTER_CENTER,
-                    );
-                    c.center(720., 199., "PREFERENCES  &  FIELD NOTES", 11., INK);
-                    c.flourish(720., 225., 530., INK);
-                    for (i, (key, action)) in [
-                        ("W A S D", "Move through Mournhollow"),
-                        ("Mouse / LMB", "Aim and use your weapon"),
-                        ("Shift / Space", "Sprint and dodge"),
-                        ("R / E", "Reload or strike in melee"),
-                        ("Q", "Cast Ember Bolt with a chalice"),
-                        ("Escape / F11", "Pause or change fullscreen"),
-                        (
-                            "Controller",
-                            "RT fire / A dodge / X reload / B melee / Y bolt",
-                        ),
-                    ]
-                    .iter()
-                    .enumerate()
-                    {
-                        let y = 262. + i as f32 * 34.;
-                        c.text(391., y, *key, 15., INK, true, Align2::LEFT_CENTER);
-                        c.text(603., y, *action, 15., INK, true, Align2::LEFT_CENTER);
-                        c.line(
-                            (390., y + 17.),
-                            (1048., y + 17.),
-                            GOLD.gamma_multiply(0.4),
-                            0.6,
-                        );
-                    }
-                    let (min_fov, max_fov) = Preferences::FOV_RANGE;
-                    let (min_sens, max_sens) = Preferences::SENSITIVITY_RANGE;
-                    let prefs = &mut g.prefs;
-                    for (i, (label, id, value, min, max, readout)) in [
-                        (
-                            "Aim sensitivity",
-                            "sensitivity",
-                            &mut prefs.sensitivity,
-                            min_sens,
-                            max_sens,
-                            None,
-                        ),
-                        (
-                            "Sound volume",
-                            "volume",
-                            &mut prefs.volume,
-                            0.,
-                            1.,
-                            Some("%"),
-                        ),
-                        (
-                            "Field of view",
-                            "fov",
-                            &mut prefs.fov,
-                            min_fov,
-                            max_fov,
-                            Some("°"),
-                        ),
-                        (
-                            "Hollowlight / F6",
-                            "hollowlight_effects",
-                            &mut g.shader_intensity,
-                            0.,
-                            1.,
-                            Some("%"),
-                        ),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
-                        let y = 506. + i as f32 * 40.;
-                        c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
-                        c.slider(id, 615., y + 1., 360., value, min, max);
-                        if let Some(unit) = readout {
-                            let shown = if unit == "%" { *value * 100. } else { *value };
-                            c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
-                        }
-                    }
-                    for (id, x, y, label, on) in [
-                        ("invert_y", 392., 664., "INVERT LOOK", g.prefs.invert_y),
-                        (
-                            "reduce_flashes",
-                            734.,
-                            664.,
-                            "REDUCE FLASHES",
-                            g.prefs.reduce_flashes,
-                        ),
-                    ] {
-                        let text = format!("{label} {}", if on { "ON" } else { "OFF" });
-                        if c.button(id, x, y, 310., 35., &text, false) {
-                            match id {
-                                "invert_y" => g.prefs.invert_y = !on,
-                                _ => g.prefs.reduce_flashes = !on,
-                            }
-                        }
-                    }
-                    if c.button(
-                        "vsync",
-                        392.,
-                        708.,
-                        310.,
-                        35.,
-                        if g.vsync {
-                            "F7 / VSYNC ON"
-                        } else {
-                            "F7 / UNLOCKED FPS"
-                        },
-                        false,
-                    ) {
-                        g.vsync = !g.vsync;
-                        g.save_performance();
-                    }
-                    if c.button(
-                        "fpscounter",
-                        734.,
-                        708.,
-                        310.,
-                        35.,
-                        if g.show_fps {
-                            "F8 / FPS COUNTER ON"
-                        } else {
-                            "F8 / SHOW FPS"
-                        },
-                        false,
-                    ) {
-                        g.show_fps = !g.show_fps;
-                        g.save_performance();
-                    }
-                    if c.button(
-                        "notes_back",
-                        558.,
-                        750.,
-                        324.,
-                        38.,
-                        "Close the journal",
-                        true,
-                    ) {
-                        g.save_preferences();
-                        g.settings = false;
-                    }
+                    journal(&c, g);
                 }
             });
     }
 }
+/// The Hunter's Journal: a Preferences page and a Controls page.
+fn journal(c: &Canvas, g: &mut Game) {
+    c.folio(325., 88., 790., 724.);
+    c.text(
+        720.,
+        150.,
+        "The Hunter's Journal",
+        38.,
+        INK,
+        true,
+        Align2::CENTER_CENTER,
+    );
+    c.center(720., 190., "PREFERENCES  &  FIELD NOTES", 11., INK);
+    c.flourish(720., 213., 530., INK);
+    for (id, x, label, controls) in [
+        ("journal_preferences", 418., "PREFERENCES", false),
+        ("journal_controls", 742., "CONTROLS", true),
+    ] {
+        let open = g.journal_controls == controls;
+        if c.button(id, x, 236., 280., 38., label, open) {
+            g.journal_controls = controls;
+            g.rebinding = None;
+            g.controls_note.clear();
+        }
+        if open {
+            c.line((x + 40., 284.), (x + 240., 284.), INK, 2.);
+            c.diamond(x + 140., 284., 5., INK);
+        }
+    }
+    if g.journal_controls {
+        journal_controls(c, g);
+    } else {
+        journal_preferences(c, g);
+    }
+    if c.button(
+        "notes_back",
+        558.,
+        750.,
+        324.,
+        38.,
+        "Close the journal",
+        true,
+    ) {
+        g.rebinding = None;
+        g.save_preferences();
+        g.settings = false;
+    }
+}
+fn journal_preferences(c: &Canvas, g: &mut Game) {
+    let (min_fov, max_fov) = Preferences::FOV_RANGE;
+    let (min_sens, max_sens) = Preferences::SENSITIVITY_RANGE;
+    let prefs = &mut g.prefs;
+    for (row, label, id, value, min, max, readout) in [
+        (
+            0,
+            "Aim sensitivity",
+            "sensitivity",
+            &mut prefs.sensitivity,
+            min_sens,
+            max_sens,
+            None,
+        ),
+        (
+            1,
+            "Sound volume",
+            "volume",
+            &mut prefs.volume,
+            0.,
+            1.,
+            Some("%"),
+        ),
+        (
+            3,
+            "Field of view",
+            "fov",
+            &mut prefs.fov,
+            min_fov,
+            max_fov,
+            Some("°"),
+        ),
+        (
+            4,
+            "Hollowlight / F6",
+            "hollowlight_effects",
+            &mut g.shader_intensity,
+            0.,
+            1.,
+            Some("%"),
+        ),
+    ] {
+        let y = JOURNAL_SLIDER_Y + row as f32 * 44.;
+        c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
+        c.slider(id, 615., y + 1., 360., value, min, max);
+        if let Some(unit) = readout {
+            let shown = if unit == "%" { *value * 100. } else { *value };
+            c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
+        }
+    }
+    for (id, x, y, label, on) in [
+        ("invert_y", 392., 560., "INVERT LOOK", g.prefs.invert_y),
+        (
+            "reduce_flashes",
+            734.,
+            560.,
+            "REDUCE FLASHES",
+            g.prefs.reduce_flashes,
+        ),
+    ] {
+        let text = format!("{label} {}", if on { "ON" } else { "OFF" });
+        if c.button(id, x, y, 310., 35., &text, false) {
+            match id {
+                "invert_y" => g.prefs.invert_y = !on,
+                _ => g.prefs.reduce_flashes = !on,
+            }
+        }
+    }
+    if c.button(
+        "vsync",
+        392.,
+        604.,
+        310.,
+        35.,
+        if g.vsync {
+            "F7 / VSYNC ON"
+        } else {
+            "F7 / UNLOCKED FPS"
+        },
+        false,
+    ) {
+        g.vsync = !g.vsync;
+        g.save_performance();
+    }
+    if c.button(
+        "fpscounter",
+        734.,
+        604.,
+        310.,
+        35.,
+        if g.show_fps {
+            "F8 / FPS COUNTER ON"
+        } else {
+            "F8 / SHOW FPS"
+        },
+        false,
+    ) {
+        g.show_fps = !g.show_fps;
+        g.save_performance();
+    }
+}
+fn journal_controls(c: &Canvas, g: &mut Game) {
+    let mut clicked_key = false;
+    for (i, action) in Action::ALL.into_iter().enumerate() {
+        let (column, row) = if i < 5 { (0., i) } else { (1., i - 5) };
+        let x = 372. + column * 372.;
+        let y = 304. + row as f32 * 46.;
+        c.text(x, y + 18., action.name(), 17., INK, true, Align2::LEFT_CENTER);
+        let waiting = g.rebinding == Some(action);
+        let label = if waiting {
+            "PRESS A KEY".into()
+        } else {
+            g.prefs.bindings.label(action)
+        };
+        if waiting {
+            let pulse = 0.55 + 0.45 * (c.time * 5.).sin().abs();
+            c.border(x + 122., y - 6., 208., 48., GOLD.gamma_multiply(pulse));
+        }
+        if c.button(
+            &format!("bind_{}", action.name()),
+            x + 128.,
+            y,
+            196.,
+            36.,
+            &label,
+            waiting,
+        ) {
+            clicked_key = true;
+            g.rebinding = (!waiting).then_some(action);
+            g.controls_note.clear();
+        }
+    }
+    // Clicking anywhere else stops waiting for a key.
+    if g.rebinding.is_some() && !clicked_key && c.ui.input(|i| i.pointer.any_click()) {
+        g.rebinding = None;
+    }
+    for (i, line) in [
+        "Left mouse  fire    1 2 3  choose a power    Esc  pause    F11  fullscreen",
+        "F6  Hollowlight    F7  VSync    F8  FPS counter",
+        "Controller   RT fire  /  LT sprint  /  A dodge  /  X reload  /  B melee  /  Y bolt",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let y = 552. + i as f32 * 28.;
+        c.center(720., y, line, 13., INK);
+        c.line((390., y + 14.), (1050., y + 14.), GOLD.gamma_multiply(0.35), 0.6);
+    }
+    let note = if let Some(action) = g.rebinding {
+        format!(
+            "Press a key or mouse button for {}. Escape cancels.",
+            action.name()
+        )
+    } else if g.controls_note.is_empty() {
+        "Choose an action's key to change it. A key already in use swaps.".into()
+    } else {
+        g.controls_note.clone()
+    };
+    c.center(720., 652., note, 13., INK);
+    if c.button(
+        "restore_keys",
+        558.,
+        686.,
+        324.,
+        36.,
+        "Restore default keys",
+        false,
+    ) {
+        g.prefs.bindings = Default::default();
+        g.rebinding = None;
+        g.controls_note = "Default keys restored.".into();
+        g.save_preferences();
+    }
+}
+/// Top row of the Preferences page sliders; the Hollowlight slider is row 4.
+pub const JOURNAL_SLIDER_Y: f32 = 312.;

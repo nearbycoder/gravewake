@@ -2,6 +2,7 @@ mod anatomy;
 mod anatomy_review;
 mod architecture_assets;
 mod audio;
+mod controls;
 mod dismemberment;
 mod encounters;
 mod enemy_assets;
@@ -40,11 +41,13 @@ struct App {
     game: Game,
     bones: scene::Bones,
     audio: audio::Audio,
-    keys: HashSet<KeyCode>,
+    /// Bound keys and mouse buttons currently held.
+    held: HashSet<controls::Trigger>,
     pad: gamepad::Pad,
     pad_events: Vec<egui::Event>,
     gamepad_smoke: bool,
     mouse_fire: bool,
+    pointer_ignored: bool,
     focused: bool,
     last: Instant,
     captured: bool,
@@ -98,11 +101,12 @@ impl App {
             game: Game::new(!smoke && !review),
             bones: scene::Bones::new(),
             audio: audio::Audio::new(),
-            keys: HashSet::new(),
+            held: HashSet::new(),
             pad: gamepad::Pad::new(!smoke && !review),
             pad_events: vec![],
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
             mouse_fire: false,
+            pointer_ignored: false,
             focused: true,
             last: Instant::now(),
             captured: false,
@@ -155,7 +159,9 @@ impl App {
     }
     // Escape, controller B in menus, and Start share one back/pause action.
     fn escape(&mut self) {
-        if self.game.confirm_new_run {
+        if self.game.rebinding.is_some() {
+            self.game.rebinding = None;
+        } else if self.game.confirm_new_run {
             self.game.confirm_new_run = false;
         } else if self.game.settings {
             self.game.save_preferences();
@@ -164,6 +170,17 @@ impl App {
             self.game.back();
         }
         self.sync_cursor();
+    }
+    /// Run the one-shot action bound to a key or mouse button, if any.
+    fn press(&mut self, trigger: controls::Trigger) {
+        use controls::Action;
+        match self.game.prefs.bindings.action(trigger) {
+            Some(Action::Dodge) => self.game.dodge(),
+            Some(Action::Reload) => self.game.reload_weapon(),
+            Some(Action::Melee) => self.game.melee(),
+            Some(Action::Bolt) => self.game.fire(true),
+            _ => {}
+        }
     }
     fn sync_cursor(&mut self) {
         let Some(w) = &self.window else { return };
@@ -177,7 +194,7 @@ impl App {
                     .or_else(|_| w.set_cursor_grab(CursorGrabMode::Confined));
             } else {
                 let _ = w.set_cursor_grab(CursorGrabMode::None);
-                self.keys.clear();
+                self.held.clear();
                 self.game.input = Default::default();
             }
         }
@@ -885,15 +902,15 @@ impl App {
         }
         if !self.smoke && !self.review {
             let pad = gamepad::arena(&pad_frame);
-            let axis = |positive: KeyCode, negative: KeyCode, stick: f32| {
-                (self.keys.contains(&positive) as u8 as f32
-                    - self.keys.contains(&negative) as u8 as f32
-                    + stick)
-                    .clamp(-1., 1.)
+            let bindings = self.game.prefs.bindings;
+            let down = |action| self.held.contains(&bindings.get(action).trigger);
+            let axis = |positive, negative, stick: f32| {
+                (down(positive) as u8 as f32 - down(negative) as u8 as f32 + stick).clamp(-1., 1.)
             };
-            self.game.input.forward = axis(KeyCode::KeyW, KeyCode::KeyS, pad.forward);
-            self.game.input.right = axis(KeyCode::KeyD, KeyCode::KeyA, pad.right);
-            self.game.input.sprint = self.keys.contains(&KeyCode::ShiftLeft) || pad.sprint;
+            use controls::Action;
+            self.game.input.forward = axis(Action::Forward, Action::Back, pad.forward);
+            self.game.input.right = axis(Action::Right, Action::Left, pad.right);
+            self.game.input.sprint = down(Action::Sprint) || pad.sprint;
             let menus =
                 self.game.mode != Mode::Arena || self.game.settings || self.game.confirm_new_run;
             if menus {
@@ -1167,11 +1184,11 @@ impl App {
         if self.shader_review && self.stage == 6 && matches!(self.stage_frames, 20 | 21 | 50 | 51) {
             let r = input.screen_rect.unwrap();
             let scale = (r.width() / 1440.).min(r.height() / 900.);
-            // Ends of the journal's Hollowlight slider.
+            // Ends of the journal's Hollowlight slider (row 4).
             let x = if self.stage_frames < 40 { 615. } else { 975. };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + 627. * scale,
+                r.min.y + (ui::JOURNAL_SLIDER_Y + 4. * 44. + 1.) * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1354,6 +1371,14 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => self.frame(event_loop),
             WindowEvent::Focused(true) => self.focused = true,
+            // Scripted runs steer the controller cursor themselves; a desktop
+            // pointer crossing the window must not reset it mid-click.
+            WindowEvent::CursorMoved { .. } if self.smoke || self.review => {
+                if !self.pointer_ignored {
+                    self.pointer_ignored = true;
+                    println!("SMOKE: ignoring desktop pointer motion over the window");
+                }
+            }
             WindowEvent::CursorMoved { .. } => self.pad.cursor.hide(),
             WindowEvent::Focused(false) => {
                 self.focused = false;
@@ -1362,55 +1387,74 @@ impl ApplicationHandler for App {
                     self.game.back();
                     self.sync_cursor();
                 }
-                self.keys.clear();
+                self.held.clear();
                 self.game.input = Default::default();
             }
             WindowEvent::KeyboardInput { event, .. } if !self.smoke && !self.review => {
-                if let PhysicalKey::Code(code) = event.physical_key {
-                    let pressed = event.state == ElementState::Pressed;
-                    if pressed {
-                        self.keys.insert(code);
-                    } else {
-                        self.keys.remove(&code);
-                    }
+                let PhysicalKey::Code(code) = event.physical_key else {
+                    return;
+                };
+                let pressed = event.state == ElementState::Pressed;
+                let trigger = controls::Trigger::Key(code);
+                if self.game.rebinding.is_some() {
+                    // The journal is waiting for a new key; nothing else sees it.
                     if pressed && !event.repeat {
-                        match code {
-                            KeyCode::Escape => self.escape(),
-                            KeyCode::Digit1 => self.game.choose_power(0),
-                            KeyCode::Digit2 => self.game.choose_power(1),
-                            KeyCode::Digit3 => self.game.choose_power(2),
-                            KeyCode::KeyR => self.game.reload_weapon(),
-                            KeyCode::KeyQ => self.game.fire(true),
-                            KeyCode::KeyE => self.game.melee(),
-                            KeyCode::Space => self.game.dodge(),
-                            KeyCode::F7 => {
-                                self.game.vsync = !self.game.vsync;
-                                self.game.save_performance();
-                            }
-                            KeyCode::F8 => {
-                                self.game.show_fps = !self.game.show_fps;
-                                self.game.save_performance();
-                            }
-                            KeyCode::F6 => {
-                                self.game.shader_intensity = if self.game.shader_intensity > 0. {
-                                    0.
-                                } else {
-                                    1.
-                                };
-                                self.game.save_preferences();
-                            }
-                            KeyCode::F11 => {
-                                let w = self.window.as_ref().unwrap();
-                                w.set_fullscreen(if w.fullscreen().is_some() {
-                                    None
-                                } else {
-                                    Some(winit::window::Fullscreen::Borderless(None))
-                                });
-                            }
-                            _ => {}
+                        if code == KeyCode::Escape {
+                            self.escape();
+                        } else {
+                            self.game.bind(trigger, key_glyph(&event));
                         }
-                        self.sync_cursor();
                     }
+                    return;
+                }
+                if pressed {
+                    if let Some(glyph) = key_glyph(&event) {
+                        self.game.prefs.bindings.learn_glyph(code, glyph);
+                    }
+                    self.held.insert(trigger);
+                } else {
+                    self.held.remove(&trigger);
+                }
+                if pressed && !event.repeat {
+                    match code {
+                        KeyCode::Escape => self.escape(),
+                        KeyCode::F7 => {
+                            self.game.vsync = !self.game.vsync;
+                            self.game.save_performance();
+                        }
+                        KeyCode::F8 => {
+                            self.game.show_fps = !self.game.show_fps;
+                            self.game.save_performance();
+                        }
+                        KeyCode::F6 => {
+                            self.game.shader_intensity = if self.game.shader_intensity > 0. {
+                                0.
+                            } else {
+                                1.
+                            };
+                            self.game.save_preferences();
+                        }
+                        KeyCode::F11 => {
+                            let w = self.window.as_ref().unwrap();
+                            w.set_fullscreen(if w.fullscreen().is_some() {
+                                None
+                            } else {
+                                Some(winit::window::Fullscreen::Borderless(None))
+                            });
+                        }
+                        _ => {
+                            // Power choices only apply while leveling and
+                            // actions only in the arena, so a digit can be both.
+                            if let Some(choice) = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3]
+                                .iter()
+                                .position(|&k| k == code)
+                            {
+                                self.game.choose_power(choice);
+                            }
+                            self.press(trigger);
+                        }
+                    }
+                    self.sync_cursor();
                 }
             }
             WindowEvent::MouseInput {
@@ -1420,6 +1464,21 @@ impl ApplicationHandler for App {
             } if !self.smoke && !self.review => {
                 self.mouse_fire = self.game.mode == Mode::Arena && state == ElementState::Pressed;
                 self.game.input.fire = self.mouse_fire;
+            }
+            WindowEvent::MouseInput { state, button, .. } if !self.smoke && !self.review => {
+                let trigger = controls::Trigger::Mouse(button);
+                let pressed = state == ElementState::Pressed;
+                if self.game.rebinding.is_some() {
+                    if pressed {
+                        self.game.bind(trigger, None);
+                    }
+                } else if pressed {
+                    self.held.insert(trigger);
+                    self.press(trigger);
+                    self.sync_cursor();
+                } else {
+                    self.held.remove(&trigger);
+                }
             }
             _ => {}
         }
@@ -1451,6 +1510,15 @@ impl ApplicationHandler for App {
             }
         }
     }
+}
+/// The character a key produces without modifiers, for layout-aware labels.
+fn key_glyph(event: &winit::event::KeyEvent) -> Option<char> {
+    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+    let winit::keyboard::Key::Character(text) = event.key_without_modifiers() else {
+        return None;
+    };
+    let mut chars = text.chars();
+    chars.next().filter(|_| chars.next().is_none())
 }
 trait AppIdentity {
     fn with_app_identity(self) -> Self;

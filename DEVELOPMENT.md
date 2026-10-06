@@ -58,6 +58,8 @@ A district label, compass and final-threat bearing help with orientation. Reinfo
 
 Mouse sensitivity, invert look, field of view and sound volume are available in Settings & Controls and persist in `settings.json` beside the run save. Missing or out-of-range values fall back to defaults or are clamped. Losing window focus pauses combat and releases the pointer.
 
+The keys above are defaults. The journal's **Controls** page rebinds the nine keyboard actions (`src/controls.rs`). Bindings store physical key positions, plus the character each key last produced, so labels match the player's layout after the key has been pressed once. Until then, a default key shows its US label. Right, middle and side mouse buttons can be bound too. Binding a key that's already in use swaps the two actions. Escape, F6, F7, F8, F11 and the left mouse button are reserved. Bindings are saved in `settings.json`. A damaged bindings entry resets only the bindings, and the other preferences still load. Every on-screen prompt (the HUD, the opening banner and notices) uses the current labels. Controller buttons aren't remappable.
+
 ## Save data
 
 The active run is saved atomically to:

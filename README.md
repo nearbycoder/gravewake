@@ -87,6 +87,8 @@ The tarball contains the self-contained executable, a desktop entry, an icon and
 
 ## Controls
 
+Default keys are listed below. Rebind them on the **Controls** page of **Settings & Controls**.
+
 | Input | Action |
 | --- | --- |
 | W A S D / mouse | Move / look |
@@ -116,7 +118,7 @@ The tarball contains the self-contained executable, a desktop entry, an icon and
 | Start | Pause |
 | Menus | Left stick (or D-pad) moves a cursor, A selects, B or Start goes back |
 
-Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, flash reduction, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Enemy wind-ups, blasts and swings are positioned in stereo, and each special attack has a distinct warning sound. Losing focus pauses combat and releases the pointer.
+Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, flash reduction, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Its **Controls** page rebinds movement, sprint, dodge, reload, melee and Ember Bolt to any key or to the right, middle or side mouse buttons. A key that's already in use swaps with the action you're changing. Escape, F6, F7, F8, F11 and the left mouse button keep their jobs. Key names follow your keyboard layout once you've pressed the key, so an AZERTY keyboard shows Z Q S D. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Enemy wind-ups, blasts and swings are positioned in stereo, and each special attack has a distinct warning sound. Losing focus pauses combat and releases the pointer.
 
 Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** (macOS) and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
 
