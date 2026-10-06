@@ -344,3 +344,49 @@ come from the text review, plus a real launch and close with a temporary
   build (#15), and first-run contextual tips (the rest of #7).
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, and licences.
+
+## Round 2 results
+
+All four scoped items shipped on `improvements-2`. The round 1 CI run on `main`
+passed both jobs, including the macOS job's build and unit tests with the new
+gilrs dependency; the game itself has still not been run on a Mac. Native
+checks below ran on the same CachyOS / Radeon 8060S / KDE Wayland machine.
+
+| Item | Verification |
+| --- | --- |
+| A. Clean exit after a panic, plus FOV capture | A temporary injected panic (not committed) exited with status 101, printed the panic message and left no core dump. Before the fix, panics ended in SIGSEGV (139) from the clipboard worker. The new `hud-field-of-view-90` text-review fixture shows the wider view next to the default (`round2/hud-field-of-view-{70,90}.jpg`). Wide angles stretch objects near the edges, such as the moon, as expected for a rectilinear projection. |
+| B. Positional audio and wind-up cues | Unit tests cover equal-power panning (ahead centred at the unpanned level, hard left and right, softer behind, centred when facing, falling with distance) and each special-attack family's cue at the position where its warning starts. The sound-bank bounds test covers the five new cues. `--export-audio` spectrograms show distinct shapes: rising cast, low slam, falling dive, steady summon bell, blink whoosh (`round2/warning-cue-spectrograms.jpg`). In the survival review's recorded stereo track, 20 of 124 active 100 ms windows have more than 20% left/right imbalance. That supports panning in real play but doesn't prove it, since some existing sounds already had stereo reflections. **No human listening test was possible.** |
+| C. Weapon comparison on cards | Unit tests cover single-shot, pellet, burst and melee estimates, rarity and both upgrade paths, and a finite positive value for all 33 weapons. Native text-review captures of the pack (1440×900 and 960×600) and the Collector show green, red and "same as equipped" lines (`round2/pack-dps-comparison*.jpg`, `round2/collector-dps-comparison.jpg`). The estimate is single-target, so splash and elemental weapons look weaker than they are; DEVELOPMENT.md says so. |
+| D. Shuffled waves and records | Unit tests: two bag passes contain each species exactly twice, one seed repeats its order, other seeds vary it, and boss descents open with the Tithekeeper. Records update through a new run, a descent, death and victory; practice is ignored; and the atomic write and read-back work. The twelve-descent combat test still passes. Text-review captures cover the title and death screens (`round2/title-records.jpg`, `round2/death-new-records.jpg`). In a real launch with a temporary `HOME`, `records.json` was read and shown on the title, captured with KWin's screenshot tool (`round2/title-records-live-launch.jpg`), and the window then closed cleanly with status 0. |
+
+Final state: 99 unit tests pass. `--smoke`, `--shader-review`,
+`--survival-review`, `--world-review`, `--benchmark` and `--text-review`
+(normal and `--review-small`) pass.
+
+Notes:
+- **Intermittent startup stall, still unexplained.** Across both rounds,
+  about 5 of roughly 60 `--smoke --gamepad` launches stalled after renderer
+  start-up and before the first frame. In this round it happened with the
+  machine nearly idle, so load is not the cause. It has not happened in about
+  35 plain `--smoke` launches, but the gamepad variant was always the second
+  of a pair, and no controller code runs before the stall. Stacks could not be
+  captured: Yama blocks attaching to a running process, and five runs under
+  gdb as the parent did not stall. The cause could be a startup race between
+  back-to-back Wayland windows or something in the game, and needs testing on
+  another machine. When the gamepad smoke did run, it passed every time.
+- Benchmark under shared load this round: 124, 118 and 72 FPS for the
+  optimized 12-enemy, 48-enemy and corpse scenes. Earlier today the same scenes
+  ran at 259, 242 and 93 FPS. Simulation and mesh CPU times were unchanged
+  (about 0.1 ms and 0.76 ms in the 12-enemy scene). The difference was
+  surface acquisition (6.4 ms vs 1.75 ms per frame), i.e. compositor
+  presentation, not game code.
+
+Deferred, with reasons:
+- Instanced ragdoll sections (#10). This needs a new GPU path for clipped
+  fragment meshes, which is too risky to combine with this round. Now that the
+  benchmark shows presentation varying by time of day, it should be measured
+  with GPU timestamps first.
+- First-run contextual tips (rest of #7), key rebinding (#11), music (#13),
+  Windows (#12) and the browser build (#15).
+- Owner decisions: release downloads and tag workflows, macOS signing and
+  notarization, and licences.
