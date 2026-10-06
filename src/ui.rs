@@ -606,6 +606,7 @@ fn weapon_card(
     h: f32,
     card: &Card,
     action: &str,
+    equipped: Option<&Card>,
 ) -> bool {
     let hover =
         c.ui.interact(c.rect(x, y, w, h), Id::new((id, "card")), Sense::hover())
@@ -687,11 +688,28 @@ fn weapon_card(
         10.5,
         ink,
     );
+    if let Some(equipped) = equipped {
+        let (line, color) = dps_comparison(card, equipped);
+        c.center(x + w * 0.5, y + h * 0.808, line, 11.5, color);
+    }
     if !action.is_empty() {
         c.button(id, x + 22., y + h - 61., w - 44., 36., action, true)
     } else {
         false
     }
+}
+// Estimated damage per second, inked green or red against the equipped card.
+fn dps_comparison(card: &Card, equipped: &Card) -> (String, C) {
+    let dps = card.sustained_dps();
+    let delta = (dps - equipped.sustained_dps()).round();
+    let (versus, color) = if delta > 0. {
+        (format!("+{delta:.0} VS EQUIPPED"), C::from_rgb(34, 92, 46))
+    } else if delta < 0. {
+        (format!("{delta:.0} VS EQUIPPED"), C::from_rgb(138, 30, 26))
+    } else {
+        ("SAME AS EQUIPPED".into(), INK)
+    };
+    (format!("EST. {dps:.0} DPS  /  {versus}"), color)
 }
 fn header(c: &Canvas, title: &str, sub: &str, gold: Option<u32>) {
     c.text(65., 54., title, 42., IVORY, true, Align2::LEFT_CENTER);
@@ -859,6 +877,7 @@ fn house(c: &Canvas, g: &mut Game) {
         h,
         &offer,
         &format!("EQUIP    {} GOLD", 35 + offer.rarity as u32 * 20),
+        Some(&g.run.weapon),
     ) {
         g.buy_offer();
     }
@@ -1119,6 +1138,7 @@ fn moving_card(
             425.,
             card,
             "",
+            None,
         );
     }
     let shapes = c.ui.ctx().graphics_mut(|g| {
@@ -1377,6 +1397,7 @@ fn pack(c: &Canvas, g: &mut Game) {
                         } else {
                             "CHOOSE CARD"
                         },
+                        Some(&g.run.weapon),
                     ) {
                         state.selected = Some(i);
                         g.sound_events.push("card_deal");
@@ -1493,6 +1514,7 @@ fn tree(c: &Canvas, g: &mut Game) {
         103. + 342. * t,
         &card,
         "",
+        None,
     );
     c.center(220., 732., "UPGRADES STAY WITH THIS CARD", 10., MUTED);
     c.line(
@@ -1724,7 +1746,7 @@ fn collection(c: &Canvas, g: &mut Game) {
             70,
         );
     } else {
-        weapon_card(c, "armory_card", 493., 240., 338., 514., &card, "");
+        weapon_card(c, "armory_card", 493., 240., 338., 514., &card, "", None);
     }
     c.folio(882., 238., 487., 510.);
     c.text(

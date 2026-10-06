@@ -141,6 +141,18 @@ impl Card {
     pub fn pellets(&self) -> u32 {
         self.kind.spec().pellets
     }
+    /// Single-target damage per second over a full magazine and its reload,
+    /// or per swing for melee. Elemental effects, piercing, splash and soul
+    /// powers are not included; it is a like-for-like comparison of cards.
+    pub fn sustained_dps(&self) -> f32 {
+        if self.kind.melee() {
+            return self.damage() / self.interval();
+        }
+        let rounds = self.capacity().max(1);
+        let pulls = rounds.div_ceil(self.kind.spec().burst.max(1));
+        let cycle = pulls as f32 * self.interval() + self.reload_time();
+        rounds as f32 * self.damage() * self.pellets() as f32 / cycle
+    }
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Enemy {
@@ -2370,6 +2382,42 @@ mod tests {
         g.reset_effects();
         g.damage_enemy(0, 20., -Vec3::Y);
         assert_eq!(kind(&g), None);
+    }
+    #[test]
+    fn sustained_dps_counts_pellets_magazines_bursts_and_upgrades() {
+        let card = |kind, rarity, paths| Card {
+            kind,
+            rarity,
+            paths,
+            major: false,
+        };
+        let pistol = card(WeaponKind::Pistol, 0, [0; 3]);
+        let s = WeaponKind::Pistol.spec();
+        let expected = s.capacity as f32 * s.damage / (s.capacity as f32 * s.interval + s.reload);
+        assert!((pistol.sustained_dps() - expected).abs() < 1e-3);
+        let double = card(WeaponKind::Double, 0, [0; 3]);
+        let d = WeaponKind::Double.spec();
+        let expected = d.capacity as f32 * d.damage * d.pellets as f32
+            / (d.capacity as f32 * d.interval + d.reload);
+        assert!((double.sustained_dps() - expected).abs() < 1e-3);
+        let cleaver = card(WeaponKind::Cleaver, 0, [0; 3]);
+        let c = WeaponKind::Cleaver.spec();
+        assert!((cleaver.sustained_dps() - c.damage / c.interval).abs() < 1e-3);
+        // A three-round burst spends its magazine in a third as many pulls.
+        let burst = card(WeaponKind::Carbine, 0, [0; 3]);
+        let b = WeaponKind::Carbine.spec();
+        assert_eq!(b.burst, 3);
+        let pulls = b.capacity.div_ceil(3) as f32;
+        let expected = b.capacity as f32 * b.damage / (pulls * b.interval + b.reload);
+        assert!((burst.sustained_dps() - expected).abs() < 1e-3);
+        // Rarity and both damage and speed upgrades raise the estimate.
+        assert!(card(WeaponKind::Pistol, 2, [0; 3]).sustained_dps() > pistol.sustained_dps());
+        assert!(card(WeaponKind::Pistol, 0, [2, 0, 0]).sustained_dps() > pistol.sustained_dps());
+        assert!(card(WeaponKind::Pistol, 0, [0, 2, 0]).sustained_dps() > pistol.sustained_dps());
+        for kind in WeaponKind::ALL {
+            let dps = card(kind, 0, [0; 3]).sustained_dps();
+            assert!(dps.is_finite() && dps > 0., "{kind:?}");
+        }
     }
     #[test]
     fn special_attack_warnings_emit_a_positional_cue() {

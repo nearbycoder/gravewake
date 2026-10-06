@@ -21,7 +21,7 @@ The 42-second trailer above was captured from the native game with in-game sound
 - **Survive Mournhollow.** Move, sprint and dodge through a 96 × 96 metre arena connecting a ruined chapel, cloister, bell sanctuary, grave orchard and open court. Ground hunters, flying creatures, summoners and bosses pressure different parts of your build.
 - **Make every shot count.** Head and limb hits have different consequences. Severed arms weaken attacks, injured legs cause limping or crawling, and articulated ragdolls and fractured remains react to later impacts.
 - **Find your weapon.** Six families span revolvers, scatterguns, automatic weapons, grenade launchers, occult implements and melee. Burn, frost, venom, piercing, chain lightning and life drain change how you fight. [Browse all 33 weapons.](ARMORY.md)
-- **Visit the Collector.** Spend earned gold on equipment and supplies. Tear a pack, reveal three cards, then choose one to equip. Four rarities and individual upgrade paths give each weapon room to grow.
+- **Visit the Collector.** Spend earned gold on equipment and supplies. Tear a pack, reveal three cards, then choose one to equip; each card estimates its damage per second against the weapon you're holding. Four rarities and individual upgrade paths give each weapon room to grow.
 - **Harvest souls.** Every kill drops experience. Level up to choose powers such as orbiting blades, lightning, frost pulses and stronger pickups. Clear twelve descents, face the Tithekeeper, then continue into endless survival.
 
 ## Inside Mournhollow
