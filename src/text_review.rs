@@ -345,7 +345,7 @@ impl Review {
                 game.mode = Mode::Paused;
                 game.settings = true;
                 game.show_fps = true;
-                game.volume = 1.;
+                game.prefs.volume = 1.;
             }
             Screen::Confirmation => {
                 game.mode = Mode::Title;

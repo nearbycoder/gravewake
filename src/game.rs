@@ -230,6 +230,52 @@ pub struct Floater {
     pub text: String,
     pub life: f32,
 }
+// Player preferences that are not tied to graphics or presentation files.
+// Missing fields take defaults so older or hand-edited files still load.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Preferences {
+    pub sensitivity: f32,
+    pub volume: f32,
+    /// Vertical field of view in degrees.
+    pub fov: f32,
+    pub invert_y: bool,
+}
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            sensitivity: 0.0025,
+            volume: 0.4,
+            fov: 70.,
+            invert_y: false,
+        }
+    }
+}
+impl Preferences {
+    pub const FOV_RANGE: (f32, f32) = (60., 90.);
+    pub const SENSITIVITY_RANGE: (f32, f32) = (0.0007, 0.007);
+    fn sanitized(self) -> Self {
+        let d = Self::default();
+        let clean = |x: f32, (lo, hi): (f32, f32), fallback: f32| {
+            if x.is_finite() {
+                x.clamp(lo, hi)
+            } else {
+                fallback
+            }
+        };
+        Self {
+            sensitivity: clean(self.sensitivity, Self::SENSITIVITY_RANGE, d.sensitivity),
+            volume: clean(self.volume, (0., 1.), d.volume),
+            fov: clean(self.fov, Self::FOV_RANGE, d.fov),
+            invert_y: self.invert_y,
+        }
+    }
+    fn from_json(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice::<Self>(bytes)
+            .ok()
+            .map(Self::sanitized)
+    }
+}
 #[derive(Serialize, Deserialize)]
 struct Save {
     version: u32,
@@ -267,8 +313,7 @@ pub struct Game {
     pub sound_events: Vec<&'static str>,
     pub spawned_bodies: Vec<BodyEvent>,
     pub physics_impacts: Vec<anatomy::PhysicsImpact>,
-    pub sensitivity: f32,
-    pub volume: f32,
+    pub prefs: Preferences,
     pub shader_intensity: f32,
     pub vsync: bool,
     pub show_fps: bool,
@@ -324,8 +369,14 @@ impl Game {
             sound_events: vec![],
             spawned_bodies: vec![],
             physics_impacts: vec![],
-            sensitivity: 0.0025,
-            volume: 0.4,
+            prefs: if save_enabled {
+                std::fs::read(Self::load_path("settings.json"))
+                    .ok()
+                    .and_then(|b| Preferences::from_json(&b))
+                    .unwrap_or_default()
+            } else {
+                Preferences::default()
+            },
             shader_intensity: if save_enabled {
                 std::fs::read(Self::load_path("graphics.json"))
                     .ok()
@@ -397,7 +448,26 @@ impl Game {
             eprintln!("Could not save performance settings: {e}");
         }
     }
-    pub fn save_graphics(&self) {
+    // Persist journal settings: player preferences and the Hollowlight level.
+    pub fn save_preferences(&self) {
+        if !self.save_enabled {
+            return;
+        }
+        let path = Self::save_path().with_file_name("settings.json");
+        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            let data = serde_json::to_vec_pretty(&self.prefs.sanitized())?;
+            let temporary = path.with_extension("tmp");
+            std::fs::write(&temporary, data)?;
+            std::fs::rename(temporary, path)?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            eprintln!("Could not save preferences: {e}");
+        }
+        self.save_graphics();
+    }
+    fn save_graphics(&self) {
         if !self.save_enabled {
             return;
         }
@@ -1573,6 +1643,34 @@ mod tests {
         assert_eq!(std::fs::read(new.join("graphics.json")).unwrap(), b"0.8");
         assert_eq!(std::fs::read(old.join("run.json")).unwrap(), saved);
         std::fs::remove_dir_all(support).unwrap();
+    }
+    #[test]
+    fn preferences_roundtrip_and_tolerate_old_or_bad_values() {
+        let custom = Preferences {
+            sensitivity: 0.004,
+            volume: 0.8,
+            fov: 85.,
+            invert_y: true,
+        };
+        let bytes = serde_json::to_vec(&custom).unwrap();
+        assert_eq!(Preferences::from_json(&bytes), Some(custom));
+        // Fields added later fall back to defaults instead of discarding the file.
+        let partial = Preferences::from_json(br#"{"volume":0.2}"#).unwrap();
+        assert_eq!(partial.volume, 0.2);
+        assert_eq!(partial.fov, Preferences::default().fov);
+        assert!(!partial.invert_y);
+        let clamped =
+            Preferences::from_json(br#"{"sensitivity":1.0,"volume":-3,"fov":200}"#).unwrap();
+        assert_eq!(clamped.sensitivity, Preferences::SENSITIVITY_RANGE.1);
+        assert_eq!(clamped.volume, 0.);
+        assert_eq!(clamped.fov, Preferences::FOV_RANGE.1);
+        let nan = Preferences {
+            fov: f32::NAN,
+            ..custom
+        }
+        .sanitized();
+        assert_eq!(nan.fov, Preferences::default().fov);
+        assert_eq!(Preferences::from_json(b"not json"), None);
     }
     #[test]
     fn save_directories_follow_platform_conventions() {

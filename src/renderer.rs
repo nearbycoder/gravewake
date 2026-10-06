@@ -945,10 +945,11 @@ impl Renderer {
             self.surface.configure(&self.device, &self.config);
         }
 
-        let (eye, target) = if matches!(
+        let first_person = matches!(
             game.mode,
             Mode::Arena | Mode::LevelUp | Mode::Paused | Mode::Dead | Mode::Victory
-        ) {
+        );
+        let (eye, target) = if first_person {
             (
                 game.run.pos,
                 game.run.pos
@@ -975,7 +976,7 @@ impl Renderer {
         };
         let view = Mat4::look_at_rh(eye, target, Vec3::Y);
         let projection = Mat4::perspective_rh(
-            70f32.to_radians(),
+            if first_person { game.prefs.fov } else { 70. }.to_radians(),
             self.config.width as f32 / self.config.height as f32,
             0.04,
             200.,

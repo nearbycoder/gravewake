@@ -1,4 +1,4 @@
-use crate::game::{Card, Game, Mode};
+use crate::game::{Card, Game, Mode, Preferences};
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
 const GOLD: C = C::from_rgb(226, 188, 119);
@@ -2633,86 +2633,89 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     .iter()
                     .enumerate()
                     {
-                        let y = 269. + i as f32 * 43.;
+                        let y = 262. + i as f32 * 34.;
                         c.text(391., y, *key, 15., INK, true, Align2::LEFT_CENTER);
                         c.text(603., y, *action, 15., INK, true, Align2::LEFT_CENTER);
                         c.line(
-                            (390., y + 21.),
-                            (1048., y + 21.),
+                            (390., y + 17.),
+                            (1048., y + 17.),
                             GOLD.gamma_multiply(0.4),
                             0.6,
                         );
                     }
-                    c.text(
+                    let (min_fov, max_fov) = Preferences::FOV_RANGE;
+                    let (min_sens, max_sens) = Preferences::SENSITIVITY_RANGE;
+                    let prefs = &mut g.prefs;
+                    for (i, (label, id, value, min, max, readout)) in [
+                        (
+                            "Aim sensitivity",
+                            "sensitivity",
+                            &mut prefs.sensitivity,
+                            min_sens,
+                            max_sens,
+                            None,
+                        ),
+                        (
+                            "Sound volume",
+                            "volume",
+                            &mut prefs.volume,
+                            0.,
+                            1.,
+                            Some("%"),
+                        ),
+                        (
+                            "Field of view",
+                            "fov",
+                            &mut prefs.fov,
+                            min_fov,
+                            max_fov,
+                            Some("°"),
+                        ),
+                        (
+                            "Hollowlight / F6",
+                            "hollowlight_effects",
+                            &mut g.shader_intensity,
+                            0.,
+                            1.,
+                            Some("%"),
+                        ),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        let y = 488. + i as f32 * 46.;
+                        c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
+                        c.slider(id, 615., y + 1., 360., value, min, max);
+                        if let Some(unit) = readout {
+                            let shown = if unit == "%" { *value * 100. } else { *value };
+                            c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
+                        }
+                    }
+                    if c.button(
+                        "invert_y",
                         392.,
-                        559.,
-                        "Aim sensitivity",
-                        18.,
-                        INK,
-                        true,
-                        Align2::LEFT_CENTER,
-                    );
-                    c.slider(
-                        "sensitivity",
-                        615.,
-                        560.,
-                        360.,
-                        &mut g.sensitivity,
-                        0.0007,
-                        0.007,
-                    );
-                    c.text(
-                        392.,
-                        622.,
-                        "Sound volume",
-                        18.,
-                        INK,
-                        true,
-                        Align2::LEFT_CENTER,
-                    );
-                    c.slider("volume", 615., 621., 360., &mut g.volume, 0., 1.);
-                    c.center(
-                        1010.,
-                        622.,
-                        format!("{}%", (g.volume * 100.).round()),
-                        13.,
-                        INK,
-                    );
-                    c.text(
-                        392.,
-                        680.,
-                        "Hollowlight / F6",
-                        17.,
-                        INK,
-                        true,
-                        Align2::LEFT_CENTER,
-                    );
-                    c.slider(
-                        "hollowlight_effects",
-                        615.,
-                        680.,
-                        360.,
-                        &mut g.shader_intensity,
-                        0.,
-                        1.,
-                    );
-                    c.center(
-                        1010.,
-                        680.,
-                        format!("{}%", (g.shader_intensity * 100.).round()),
-                        12.,
-                        INK,
-                    );
+                        672.,
+                        210.,
+                        35.,
+                        if g.prefs.invert_y {
+                            "INVERT LOOK ON"
+                        } else {
+                            "INVERT LOOK OFF"
+                        },
+                        false,
+                    ) {
+                        g.prefs.invert_y = !g.prefs.invert_y;
+                    }
                     if c.button(
                         "vsync",
-                        392.,
-                        708.,
-                        310.,
+                        615.,
+                        672.,
+                        210.,
                         35.,
                         if g.vsync {
                             "F7 / VSYNC ON"
                         } else {
-                            "F7 / UNLOCKED FPS"
+                            "F7 / UNLOCKED"
                         },
                         false,
                     ) {
@@ -2721,12 +2724,12 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     }
                     if c.button(
                         "fpscounter",
-                        734.,
-                        708.,
-                        310.,
+                        838.,
+                        672.,
+                        210.,
                         35.,
                         if g.show_fps {
-                            "F8 / FPS COUNTER ON"
+                            "F8 / FPS ON"
                         } else {
                             "F8 / SHOW FPS"
                         },
@@ -2744,7 +2747,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                         "Close the journal",
                         true,
                     ) {
-                        g.save_graphics();
+                        g.save_preferences();
                         g.settings = false;
                     }
                 }

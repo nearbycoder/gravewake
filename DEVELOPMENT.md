@@ -54,7 +54,7 @@ A district label, compass and final-threat bearing help with orientation. Reinfo
 | Escape | Pause / back |
 | F11 | Toggle fullscreen |
 
-Mouse sensitivity and sound volume are available in Settings & Controls. Losing window focus pauses combat and releases the pointer.
+Mouse sensitivity, invert look, field of view and sound volume are available in Settings & Controls and persist in `settings.json` beside the run save. Missing or out-of-range values fall back to defaults or are clamped. Losing window focus pauses combat and releases the pointer.
 
 ## Save data
 

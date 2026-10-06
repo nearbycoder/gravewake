@@ -64,7 +64,7 @@ struct App {
 impl App {
     fn quit_game(&mut self, event_loop: &ActiveEventLoop) {
         self.game.quit_requested = false;
-        self.game.save_graphics();
+        self.game.save_preferences();
         self.game.save_performance();
         if !self.game.save() {
             if self.game.mode == Mode::Arena {
@@ -913,7 +913,7 @@ impl App {
         self.audio.volume(if self.smoke || self.review {
             0.
         } else {
-            self.game.volume
+            self.game.prefs.volume
         });
         for event in self.game.sound_events.drain(..) {
             if self.review || self.anatomy_review || self.survival_review {
@@ -926,7 +926,7 @@ impl App {
                 }
             }
             if !self.smoke && !self.review {
-                self.audio.play(event, self.game.volume);
+                self.audio.play(event, self.game.prefs.volume);
             }
         }
         self.sync_cursor();
@@ -1029,10 +1029,11 @@ impl App {
         if self.shader_review && self.stage == 6 && matches!(self.stage_frames, 20 | 21 | 50 | 51) {
             let r = input.screen_rect.unwrap();
             let scale = (r.width() / 1440.).min(r.height() / 900.);
+            // Ends of the journal's Hollowlight slider.
             let x = if self.stage_frames < 40 { 615. } else { 975. };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + 680. * scale,
+                r.min.y + 627. * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1048,14 +1049,15 @@ impl App {
         {
             let r = input.screen_rect.unwrap();
             let scale = (r.width() / 1440.).min(r.height() / 900.);
+            // Journal VSync and FPS counter buttons.
             let x = if matches!(self.stage_frames, 70 | 71) {
-                890.
+                943.
             } else {
-                545.
+                720.
             };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + 725. * scale,
+                r.min.y + 690. * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1130,7 +1132,7 @@ impl App {
 impl ApplicationHandler for App {
     fn exiting(&mut self, _: &ActiveEventLoop) {
         // Native macOS menu/Dock Quit (including Cmd+Q) can bypass CloseRequested.
-        self.game.save_graphics();
+        self.game.save_preferences();
         self.game.save_performance();
         self.game.save();
         // Release the egui clipboard, GPU surface and window while the
@@ -1228,7 +1230,7 @@ impl ApplicationHandler for App {
                                 if self.game.confirm_new_run {
                                     self.game.confirm_new_run = false;
                                 } else if self.game.settings {
-                                    self.game.save_graphics();
+                                    self.game.save_preferences();
                                     self.game.settings = false;
                                 } else {
                                     self.game.back();
@@ -1255,7 +1257,7 @@ impl ApplicationHandler for App {
                                 } else {
                                     1.
                                 };
-                                self.game.save_graphics();
+                                self.game.save_preferences();
                             }
                             KeyCode::F11 => {
                                 let w = self.window.as_ref().unwrap();
@@ -1291,9 +1293,12 @@ impl ApplicationHandler for App {
                     .game
                     .look_sway
                     .clamp(glam::Vec2::splat(-0.045), glam::Vec2::splat(0.045));
-                self.game.run.yaw += delta.0 as f32 * self.game.sensitivity;
-                self.game.run.pitch =
-                    (self.game.run.pitch - delta.1 as f32 * self.game.sensitivity).clamp(-1.3, 1.3);
+                let prefs = self.game.prefs;
+                let vertical = if prefs.invert_y { -1. } else { 1. };
+                self.game.run.yaw += delta.0 as f32 * prefs.sensitivity;
+                self.game.run.pitch = (self.game.run.pitch
+                    - delta.1 as f32 * prefs.sensitivity * vertical)
+                    .clamp(-1.3, 1.3);
             }
         }
     }
