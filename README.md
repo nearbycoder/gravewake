@@ -47,7 +47,7 @@ The 42-second trailer above was captured from the native game with in-game sound
 
 ## Build and play
 
-**Supported: native macOS and Linux.** macOS is tested on Apple Silicon with Metal. Linux is tested on one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland; X11, NVIDIA and other distributions have not been tested. This is a playable development build, not a finished commercial release. Windows and browser builds have not been validated. Keyboard and mouse are required.
+**Supported: native macOS and Linux.** macOS is tested on Apple Silicon with Metal. Linux is tested on one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland; X11, NVIDIA and other distributions have not been tested. This is a playable development build, not a finished commercial release. Windows and browser builds have not been validated. Play with keyboard and mouse or a controller; controller support has so far been verified only with simulated input, not a physical controller.
 
 ### Requirements
 
@@ -100,6 +100,21 @@ The tarball contains the self-contained executable, a desktop entry, an icon and
 | F11 | Fullscreen |
 | F6 | Toggle Hollowlight shader treatment |
 | F7 / F8 | Toggle VSync / FPS counter |
+
+**Controller** (standard layout, shown with Xbox names; supported through [gilrs](https://gitlab.com/gilrs-project/gilrs)):
+
+| Input | Action |
+| --- | --- |
+| Left stick / right stick | Move / look |
+| Right trigger | Fire or use the equipped melee weapon |
+| Left trigger or left-stick click | Sprint |
+| A | Dodge |
+| X | Reload |
+| B or RB | Melee attack |
+| Y or LB | Ember Bolt |
+| D-pad left / up / right | Choose soul power 1 / 2 / 3 |
+| Start | Pause |
+| Menus | Left stick (or D-pad) moves a cursor, A selects, B or Start goes back |
 
 Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, flash reduction, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Losing focus pauses combat and releases the pointer.
 

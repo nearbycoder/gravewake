@@ -7,6 +7,7 @@ mod encounters;
 mod enemy_assets;
 mod environment_assets;
 mod game;
+mod gamepad;
 mod guns;
 mod model_review;
 mod motion;
@@ -39,6 +40,11 @@ struct App {
     bones: scene::Bones,
     audio: audio::Audio,
     keys: HashSet<KeyCode>,
+    pad: gamepad::Pad,
+    pad_events: Vec<egui::Event>,
+    gamepad_smoke: bool,
+    mouse_fire: bool,
+    focused: bool,
     last: Instant,
     captured: bool,
     occluded: bool,
@@ -92,6 +98,11 @@ impl App {
             bones: scene::Bones::new(),
             audio: audio::Audio::new(),
             keys: HashSet::new(),
+            pad: gamepad::Pad::new(!smoke && !review),
+            pad_events: vec![],
+            gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
+            mouse_fire: false,
+            focused: true,
             last: Instant::now(),
             captured: false,
             occluded: false,
@@ -140,6 +151,18 @@ impl App {
             },
             stage_frames: 0,
         }
+    }
+    // Escape, controller B in menus, and Start share one back/pause action.
+    fn escape(&mut self) {
+        if self.game.confirm_new_run {
+            self.game.confirm_new_run = false;
+        } else if self.game.settings {
+            self.game.save_preferences();
+            self.game.settings = false;
+        } else {
+            self.game.back();
+        }
+        self.sync_cursor();
     }
     fn sync_cursor(&mut self) {
         let Some(w) = &self.window else { return };
@@ -499,6 +522,13 @@ impl App {
             3 if self.stage_frames > 310 => {
                 assert_eq!(self.game.mode, Mode::Shop, "Pack was taken through UI");
                 println!("SMOKE: pack tear, reveal, select, and equip UI passed");
+                if self.gamepad_smoke {
+                    assert!(
+                        self.pad.cursor.pos.is_some(),
+                        "controller cursor drove the pack"
+                    );
+                    println!("SMOKE: controller cursor and A button drove the pack UI");
+                }
                 self.game.mode = Mode::Tree;
                 self.game.upgrade(0);
                 assert_eq!(self.game.run.weapon.paths[0], 1);
@@ -845,12 +875,66 @@ impl App {
             event_loop.exit();
             return;
         }
+        let mut pad_frame = self.pad.poll();
+        if !self.focused {
+            pad_frame = gamepad::Frame::default();
+        }
+        for notice in self.pad.notices.drain(..) {
+            self.game.notify(&notice);
+        }
         if !self.smoke && !self.review {
-            self.game.input.forward = (self.keys.contains(&KeyCode::KeyW) as u8 as f32)
-                - (self.keys.contains(&KeyCode::KeyS) as u8 as f32);
-            self.game.input.right = (self.keys.contains(&KeyCode::KeyD) as u8 as f32)
-                - (self.keys.contains(&KeyCode::KeyA) as u8 as f32);
-            self.game.input.sprint = self.keys.contains(&KeyCode::ShiftLeft);
+            let pad = gamepad::arena(&pad_frame);
+            let axis = |positive: KeyCode, negative: KeyCode, stick: f32| {
+                (self.keys.contains(&positive) as u8 as f32
+                    - self.keys.contains(&negative) as u8 as f32
+                    + stick)
+                    .clamp(-1., 1.)
+            };
+            self.game.input.forward = axis(KeyCode::KeyW, KeyCode::KeyS, pad.forward);
+            self.game.input.right = axis(KeyCode::KeyD, KeyCode::KeyA, pad.right);
+            self.game.input.sprint = self.keys.contains(&KeyCode::ShiftLeft) || pad.sprint;
+            let menus =
+                self.game.mode != Mode::Arena || self.game.settings || self.game.confirm_new_run;
+            if menus {
+                let size = self.window.as_ref().unwrap().inner_size();
+                let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+                let screen = egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(size.width as f32, size.height as f32) / scale,
+                );
+                let (events, back) = self.pad.cursor.step(&pad_frame, dt, screen);
+                self.pad_events.extend(events);
+                if back {
+                    self.escape();
+                }
+                if let Some(power) = pad.power {
+                    self.game.choose_power(power);
+                }
+            } else {
+                self.pad.cursor.hide();
+                self.game.input.fire = self.mouse_fire || pad.fire;
+                let prefs = self.game.prefs;
+                let rate = prefs.sensitivity / game::Preferences::default().sensitivity * dt;
+                let vertical = if prefs.invert_y { -1. } else { 1. };
+                self.game.run.yaw += pad.look.x * rate;
+                self.game.run.pitch =
+                    (self.game.run.pitch + pad.look.y * rate * vertical).clamp(-1.3, 1.3);
+                if pad.dodge {
+                    self.game.dodge();
+                }
+                if pad.reload {
+                    self.game.reload_weapon();
+                }
+                if pad.melee {
+                    self.game.melee();
+                }
+                if pad.spell {
+                    self.game.fire(true);
+                }
+                if pad.pause {
+                    self.escape();
+                }
+            }
         }
         if (self.smoke
             && !self.survival_review
@@ -943,6 +1027,7 @@ impl App {
             input.time = Some(self.frames as f64 / 60.);
             input.focused = true;
         }
+        input.events.append(&mut self.pad_events);
         if let Some(review) = &self.text_review {
             input.time = Some(self.game.elapsed as f64);
             review.input(&mut input);
@@ -982,6 +1067,7 @@ impl App {
         }
         // Exercise egui's real hit testing and handlers in the native render loop.
         if (self.smoke
+            && !self.gamepad_smoke
             && !self.gun_review
             && !self.shader_review
             && self.text_review.is_none()
@@ -1025,6 +1111,40 @@ impl App {
                     modifiers: egui::Modifiers::NONE,
                 });
             }
+        }
+        // The same pack clicks, reached by steering the controller cursor and pressing A.
+        if self.gamepad_smoke && self.stage == 3 {
+            const CLICKS: [(u32, (f32, f32)); 4] = [
+                (22, (720., 690.)),
+                (160, (720., 728.)),
+                (235, (720., 587.)),
+                (255, (720., 728.)),
+            ];
+            let r = input.screen_rect.unwrap();
+            let s = (r.width() / 1440.).min(r.height() / 900.);
+            let to_screen = |(x, y): (f32, f32)| {
+                egui::pos2(
+                    r.min.x + (r.width() - 1440. * s) * 0.5 + x * s,
+                    r.min.y + y * s,
+                )
+            };
+            let mut frame = gamepad::Frame::default();
+            // Hold still while A is released, or egui sees a drag instead of a click.
+            let releasing = CLICKS.iter().any(|(t, _)| t + 1 == self.stage_frames);
+            if let Some(&(tick, point)) = CLICKS
+                .iter()
+                .find(|(t, _)| *t >= self.stage_frames)
+                .filter(|_| !releasing)
+            {
+                let from = self.pad.cursor.pos.unwrap_or(r.center());
+                frame.left = gamepad::steer(from, to_screen(point), 1. / 60.);
+                if tick == self.stage_frames {
+                    frame.pressed.push(gamepad::Button::South);
+                    frame.held.push(gamepad::Button::South);
+                }
+            }
+            let (events, _) = self.pad.cursor.step(&frame, 1. / 60., r);
+            input.events.extend(events);
         }
         if self.shader_review && self.stage == 6 && matches!(self.stage_frames, 20 | 21 | 50 | 51) {
             let r = input.screen_rect.unwrap();
@@ -1073,6 +1193,9 @@ impl App {
                 .is_none_or(|review| review.show_ui())
             {
                 ui::draw(ctx, &mut self.game, renderer.view_projection);
+            }
+            if let Some(pos) = self.pad.cursor.pos {
+                ui::pad_cursor(ctx, pos);
             }
         });
         state.handle_platform_output(window, out.platform_output.clone());
@@ -1207,7 +1330,11 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => self.frame(event_loop),
+            WindowEvent::Focused(true) => self.focused = true,
+            WindowEvent::CursorMoved { .. } => self.pad.cursor.hide(),
             WindowEvent::Focused(false) => {
+                self.focused = false;
+                self.mouse_fire = false;
                 if self.game.mode == Mode::Arena && !self.smoke && !self.review {
                     self.game.back();
                     self.sync_cursor();
@@ -1225,16 +1352,7 @@ impl ApplicationHandler for App {
                     }
                     if pressed && !event.repeat {
                         match code {
-                            KeyCode::Escape => {
-                                if self.game.confirm_new_run {
-                                    self.game.confirm_new_run = false;
-                                } else if self.game.settings {
-                                    self.game.save_preferences();
-                                    self.game.settings = false;
-                                } else {
-                                    self.game.back();
-                                }
-                            }
+                            KeyCode::Escape => self.escape(),
                             KeyCode::Digit1 => self.game.choose_power(0),
                             KeyCode::Digit2 => self.game.choose_power(1),
                             KeyCode::Digit3 => self.game.choose_power(2),
@@ -1277,9 +1395,8 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } if !self.smoke && !self.review => {
-                if self.game.mode == Mode::Arena {
-                    self.game.input.fire = state == ElementState::Pressed;
-                }
+                self.mouse_fire = self.game.mode == Mode::Arena && state == ElementState::Pressed;
+                self.game.input.fire = self.mouse_fire;
             }
             _ => {}
         }

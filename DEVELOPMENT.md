@@ -190,6 +190,12 @@ The renderer now instances repeated enemy shapes on the GPU, caches primitive ge
 
 Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance results and methodology](PERFORMANCE.md) for measured frame times, matched reference images, and limitations.
 
+## Controllers
+
+`src/gamepad.rs` polls controllers through gilrs (evdev/udev on Linux, IOKit on macOS) and maps them in pure functions that tests can drive without hardware. In the arena, sticks have radial deadzones, and the look stick uses a squared response; its turn rate follows the Aim sensitivity slider and invert-look setting. Menus use a virtual cursor that sends ordinary egui pointer events, so every screen (shop, packs, the Binding, Armory, journal) works without a separate navigation layer; moving the mouse hands control back to it. The most recently used controller drives the game, connections and disconnections show a notice, and a missing or inaccessible device leaves keyboard and mouse play unchanged. Linux builds need `libudev`.
+
+`cargo run --release -- --smoke --gamepad` runs the normal smoke test but tears, reveals, selects and equips the pack by steering the controller cursor with synthetic stick input and pressing A. No physical controller has been tested yet.
+
 ## Combat feedback
 
 Your own weapon hits flash a marker around the reticle: ivory for a body hit, gold for a headshot, and a larger red mark with a short tick for a kill. Pellets and splash that land together show the strongest result and tick once. Automatic powers do not trigger markers. When you take damage, a red arc around the reticle points toward each source (the striking enemy, a blast's caster, or the direction a projectile came from) and fades over 1.2 seconds; up to four arcs show at once. **Reduce flashes** in Settings & Controls softens the full-screen hurt vignette and muzzle lighting to 35%.

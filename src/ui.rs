@@ -2565,6 +2565,16 @@ fn ending(c: &Canvas, g: &mut Game) {
         g.mode = Mode::Title;
     }
 }
+/// The controller's virtual pointer, drawn above every menu and modal.
+pub fn pad_cursor(ctx: &egui::Context, pos: Pos2) {
+    let p = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        Id::new("pad_cursor"),
+    ));
+    p.circle_stroke(pos, 11., Stroke::new(4.5, C::from_black_alpha(170)));
+    p.circle_stroke(pos, 11., Stroke::new(2., GOLD));
+    p.circle_filled(pos, 2.5, IVORY);
+}
 pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
     let old = ctx.data(|d| d.get_temp::<(Mode, f32)>(Id::new("mode_transition")));
     if old.is_none_or(|(mode, _)| mode != g.mode) {
@@ -2679,6 +2689,10 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                         ("R / E", "Reload or strike in melee"),
                         ("Q", "Cast Ember Bolt with a chalice"),
                         ("Escape / F11", "Pause or change fullscreen"),
+                        (
+                            "Controller",
+                            "RT fire / A dodge / X reload / B melee / Y bolt",
+                        ),
                     ]
                     .iter()
                     .enumerate()
@@ -2733,7 +2747,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     .into_iter()
                     .enumerate()
                     {
-                        let y = 488. + i as f32 * 46.;
+                        let y = 506. + i as f32 * 40.;
                         c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
                         c.slider(id, 615., y + 1., 360., value, min, max);
                         if let Some(unit) = readout {
