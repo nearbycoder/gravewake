@@ -253,3 +253,94 @@ problems once pushed); Windows; X11; NVIDIA.
 
 Deferred to later rounds: everything ranked #6 onward. Release artifacts (#6)
 remain an owner decision, including Developer ID notarization for macOS.
+
+## Round 2 scope
+
+Round 1 was merged to `main` on 2026-10-06. This round takes the next items
+that most help a player and can be verified on this Linux machine. It also
+closes two loose ends from round 1.
+
+### A. Clean exit after a crash, plus an FOV capture (round 1 follow-ups)
+
+A panic inside the event loop unwinds past `exiting`. The App is then dropped
+after the Wayland connection, so the panic message is followed by a segfault
+in the clipboard worker. The FOV slider was also never checked visually in a
+live arena.
+
+Acceptance criteria:
+- A panic during play prints its message and exits with Rust's panic status
+  (101), not SIGSEGV (139), and leaves no core dump.
+- A text-review fixture captures the arena at a non-default FOV.
+
+Verification: a temporary local panic injection (not committed) run natively,
+checked with its exit status and `coredumpctl`. The new fixture is captured
+and inspected.
+
+### B. Positional audio and attack telegraph cues (backlog #9)
+
+Today every sound is mono and centred, and enemies wind up their special
+attacks silently, so threats behind you are invisible and inaudible.
+
+Acceptance criteria:
+- World sounds from enemies (special-attack wind-ups, blasts, melee swings)
+  are panned with equal power by bearing relative to the player's view, and
+  attenuated by distance. Sounds behind the player are slightly softened.
+- Each special-attack family plays a distinct wind-up cue when its visible
+  warning starts: caster bolts, slams and plague bursts, dives, summons and
+  blinks.
+- The player's own weapon, UI and pickup sounds are unchanged.
+
+Verification: unit tests for the pan/gain function (front, left, right,
+behind, near and far) and for warnings emitting a cue at the enemy's position.
+The sound-bank bounds test covers the new cues, and their exported WAVs get
+spectrogram images. No human listening test is possible here, and the report
+will say so.
+
+### C. Weapon comparison on cards (part of backlog #7)
+
+Pack and Collector offers show raw stats, so the main shop decision needs
+mental arithmetic.
+
+Acceptance criteria:
+- Pack choices and the Collector's offer show an estimated sustained damage
+  per second (pellets, magazine and reload included; melee per swing). They
+  also show the difference from the equipped card, in green or red ink.
+- The equipped card, armory cards and binding view are unchanged.
+
+Verification: unit tests for the estimate (pistol, shotgun, melee and upgraded
+cards) and the delta sign. Native pack and Collector captures at 1440×900 and
+960×600 via the text review.
+
+### D. Run records and varied wave order (part of backlog #8)
+
+Every run plays the same per-descent enemy order (`pool[(n + wave * 3) %
+len]`), and the game keeps no history.
+
+Acceptance criteria:
+- Reinforcements draw from each descent's existing pool through a seeded
+  shuffle bag. Each species keeps the same share of a wave as before, so
+  balance is preserved, but the order changes between runs. Tithekeeper
+  descents still open with the boss.
+- `records.json` stores runs started, deepest descent, most souls in a run,
+  victories and the fastest victory. Records update on death, victory and each
+  cleared descent. The title shows them once a run has been played, and the
+  ending screen marks new records. Save-disabled modes never write records.
+
+Verification: unit tests that composition counts match the old round-robin
+per bag, that order differs across seeds and repeats for one seed, that the
+twelve-descent progression test still passes, and that records update and
+round-trip without writing in save-disabled games. Title and ending captures
+come from the text review, plus a real launch and close with a temporary
+`HOME` to confirm the file is written and read.
+
+### Deferred this round
+
+- **Instanced ragdoll sections (#10).** Corpse fragments are arbitrary
+  clipped meshes, transformed on the CPU and re-uploaded every frame. Doing
+  this properly needs a new instanced GPU path for fragment meshes, which is
+  too large and risky to combine with this round. The worst benchmark scene
+  ran at 93 FPS here.
+- Key rebinding (#11), music (#13), Windows validation (#12), the browser
+  build (#15), and first-run contextual tips (the rest of #7).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, and licences.
