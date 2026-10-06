@@ -227,6 +227,8 @@ impl Game {
         let cleanup = self.run.survival.remaining == 0 && self.run.enemies.len() <= 3;
         let positions: Vec<_> = self.run.enemies.iter().map(|e| e.pos).collect();
         let mut damage = 0.;
+        // Where each hit this update came from, for the HUD's damage arcs.
+        let mut sources = vec![];
         let mut summons = vec![];
         for (index, e) in self.run.enemies.iter_mut().enumerate() {
             if e.hp <= 0. {
@@ -302,6 +304,7 @@ impl Game {
                                 && world_layout::obstruction(blast_origin, player_body).is_none()
                             {
                                 damage += if e.kind == 3 { 24. } else { 18. };
+                                sources.push(e.pos);
                             }
                             for j in 0..40 {
                                 let a = j as f32 * std::f32::consts::TAU / 40.;
@@ -417,6 +420,7 @@ impl Game {
                 && clear_sight
             {
                 e.attack = 1.3 * (1. + e.anatomy.arms() as f32 * 0.6);
+                sources.push(e.pos);
                 damage += (if e.kind == 3 {
                     22.
                 } else if e.kind == 5 {
@@ -449,6 +453,12 @@ impl Game {
             let blocked = world_layout::obstruction(a, h.pos).is_some();
             if nearest.distance(player) < 0.5 && !blocked {
                 damage += h.damage;
+                // A projectile came from opposite its direction of travel.
+                sources.push(if h.vel.length_squared() > 0.01 {
+                    player - h.vel
+                } else {
+                    h.pos
+                });
                 h.life = 0.;
             }
             if blocked || h.pos.y < 0.1 || !world_layout::inside_bounds(h.pos, 0.) {
@@ -462,6 +472,9 @@ impl Game {
             self.run.hp -= damage - absorbed;
             self.hurt = 0.35;
             self.sound_events.push("hurt");
+            for source in sources {
+                self.mark_damage_from(source);
+            }
         }
     }
 }

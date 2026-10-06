@@ -1,4 +1,4 @@
-use crate::game::{Card, Game, Mode, Preferences};
+use crate::game::{Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, Mode, Preferences};
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
 const GOLD: C = C::from_rgb(226, 188, 119);
@@ -2008,6 +2008,54 @@ fn last_threat(c: &Canvas, g: &Game) -> bool {
     true
 }
 
+// Reticle ticks for the player's own hits and arcs toward recent damage.
+fn hit_feedback(c: &Canvas, g: &Game, cx: f32, cy: f32) {
+    for mark in &g.damage_marks {
+        let fade = (mark.life / DAMAGE_MARK_LIFE).clamp(0., 1.).powf(0.7);
+        let centre = relative_bearing(mark.bearing, g.run.yaw);
+        let point = |a: f32, r: f32| (cx + a.sin() * r, cy - a.cos() * r);
+        for (width, color) in [
+            (7., C::from_black_alpha((150. * fade) as u8)),
+            (
+                4.,
+                C::from_rgba_unmultiplied(214, 46, 34, (235. * fade) as u8),
+            ),
+        ] {
+            for k in 0..8 {
+                let a0 = centre - 0.3 + 0.6 * k as f32 / 8.;
+                let a1 = centre - 0.3 + 0.6 * (k + 1) as f32 / 8.;
+                c.line(point(a0, 96.), point(a1, 96.), color, width);
+            }
+        }
+        let tip = point(centre, 108.);
+        let left = point(centre - 0.07, 101.);
+        let right = point(centre + 0.07, 101.);
+        c.p.add(Shape::convex_polygon(
+            vec![
+                c.pt(tip.0, tip.1),
+                c.pt(right.0, right.1),
+                c.pt(left.0, left.1),
+            ],
+            C::from_rgba_unmultiplied(214, 46, 34, (235. * fade) as u8),
+            Stroke::NONE,
+        ));
+    }
+    let Some(marker) = g.hit_marker else { return };
+    let fade = (marker.life / HIT_MARKER_LIFE).clamp(0., 1.);
+    let (inner, outer, width, color) = match marker.kind {
+        HitKind::Body => (9., 16., 1.6, IVORY),
+        HitKind::Head => (9., 18., 2.2, GOLD),
+        HitKind::Kill => (10., 22., 2.8, C::from_rgb(222, 70, 52)),
+    };
+    let alpha = |c: C| c.gamma_multiply(fade);
+    for (dx, dy) in [(-1., -1.), (1., -1.), (-1., 1.), (1., 1.)] {
+        let d = std::f32::consts::FRAC_1_SQRT_2;
+        let a = (cx + dx * d * inner, cy + dy * d * inner);
+        let b = (cx + dx * d * outer, cy + dy * d * outer);
+        c.line(a, b, alpha(C::from_black_alpha(160)), width + 2.);
+        c.line(a, b, alpha(color), width);
+    }
+}
 fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     let h = c.h;
     let xp = &g.run.survival;
@@ -2161,6 +2209,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         c.line((cx, cy + side * d), (cx, cy + side * (d + 6.)), IVORY, 1.);
     }
     c.p.circle_filled(c.pt(cx, cy), c.s, IVORY);
+    hit_feedback(c, g, cx, cy);
     // Keep the sculpted end caps away from the labels and digits.
     c.texture("button_plate", 16., h - 134., 395., 108., C::WHITE);
     c.inset(78., h - 106., 271., 55., C::from_rgb(43, 12, 16));
@@ -2299,7 +2348,8 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         }
     }
     if g.hurt > 0. {
-        let alpha = (g.hurt / 0.35 * 130.) as u8;
+        let strength = if g.prefs.reduce_flashes { 0.35 } else { 1. };
+        let alpha = (g.hurt / 0.35 * 130. * strength) as u8;
         for i in 0..9 {
             let a = (alpha as f32 * (1. - i as f32 / 9.)) as u8;
             c.p.rect_stroke(
@@ -2691,31 +2741,34 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                             c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
                         }
                     }
-                    if c.button(
-                        "invert_y",
-                        392.,
-                        672.,
-                        210.,
-                        35.,
-                        if g.prefs.invert_y {
-                            "INVERT LOOK ON"
-                        } else {
-                            "INVERT LOOK OFF"
-                        },
-                        false,
-                    ) {
-                        g.prefs.invert_y = !g.prefs.invert_y;
+                    for (id, x, y, label, on) in [
+                        ("invert_y", 392., 664., "INVERT LOOK", g.prefs.invert_y),
+                        (
+                            "reduce_flashes",
+                            734.,
+                            664.,
+                            "REDUCE FLASHES",
+                            g.prefs.reduce_flashes,
+                        ),
+                    ] {
+                        let text = format!("{label} {}", if on { "ON" } else { "OFF" });
+                        if c.button(id, x, y, 310., 35., &text, false) {
+                            match id {
+                                "invert_y" => g.prefs.invert_y = !on,
+                                _ => g.prefs.reduce_flashes = !on,
+                            }
+                        }
                     }
                     if c.button(
                         "vsync",
-                        615.,
-                        672.,
-                        210.,
+                        392.,
+                        708.,
+                        310.,
                         35.,
                         if g.vsync {
                             "F7 / VSYNC ON"
                         } else {
-                            "F7 / UNLOCKED"
+                            "F7 / UNLOCKED FPS"
                         },
                         false,
                     ) {
@@ -2724,12 +2777,12 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     }
                     if c.button(
                         "fpscounter",
-                        838.,
-                        672.,
-                        210.,
+                        734.,
+                        708.,
+                        310.,
                         35.,
                         if g.show_fps {
-                            "F8 / FPS ON"
+                            "F8 / FPS COUNTER ON"
                         } else {
                             "F8 / SHOW FPS"
                         },

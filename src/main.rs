@@ -1049,15 +1049,14 @@ impl App {
         {
             let r = input.screen_rect.unwrap();
             let scale = (r.width() / 1440.).min(r.height() / 900.);
-            // Journal VSync and FPS counter buttons.
             let x = if matches!(self.stage_frames, 70 | 71) {
-                943.
+                890.
             } else {
-                720.
+                545.
             };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + 690. * scale,
+                r.min.y + 725. * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {

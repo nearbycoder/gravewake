@@ -1,7 +1,10 @@
 //! Deterministic, disposable native UI gallery for typography review.
 //! This mode renders the actual game UI and never loads or writes a player run.
 use crate::{
-    game::{Card, Enemy, Floater, Game, Mode},
+    game::{
+        Card, DAMAGE_MARK_LIFE, DamageMark, Enemy, Floater, Game, HIT_MARKER_LIFE, HitKind,
+        HitMarker, Mode,
+    },
     weapons::WeaponKind,
 };
 use glam::Vec3;
@@ -56,6 +59,8 @@ impl Review {
             ("hud-all-powers-boss".into(), Screen::Hud(1)),
             ("hud-reloading".into(), Screen::Hud(2)),
             ("hud-melee-endless".into(), Screen::Hud(3)),
+            ("hud-kill-and-damage-arcs".into(), Screen::Hud(4)),
+            ("hud-headshot-reduced-flashes".into(), Screen::Hud(5)),
             ("collector".into(), Screen::Shop(false)),
             ("collector-chalice-bound".into(), Screen::Shop(true)),
             ("pack".into(), Screen::Pack),
@@ -256,7 +261,7 @@ impl Review {
                 game.run.survival.level = 99;
                 game.run.survival.xp = 798;
                 game.show_fps = true;
-                if kind == 0 {
+                if kind == 0 || kind >= 4 {
                     game.run.time = 0.;
                     game.run.wave = 1;
                     game.run.enemies = vec![Enemy::spawn(0, Vec3::new(0., 0., -6.), 1, 0.)];
@@ -282,6 +287,28 @@ impl Review {
                 if kind == 2 {
                     game.reload = 1.;
                     game.run.hp = 8.;
+                }
+                if kind >= 4 {
+                    // Past the opening banner, with combat feedback frozen.
+                    game.run.time = 30.;
+                    game.hurt = 0.3;
+                    game.prefs.reduce_flashes = kind == 5;
+                    game.hit_marker = Some(HitMarker {
+                        kind: if kind == 4 {
+                            HitKind::Kill
+                        } else {
+                            HitKind::Head
+                        },
+                        life: HIT_MARKER_LIFE,
+                    });
+                    game.damage_marks = [(1.1, 1.), (2.6, 0.6), (-1.9, 0.3)]
+                        .into_iter()
+                        .take(if kind == 4 { 3 } else { 1 })
+                        .map(|(bearing, fade)| DamageMark {
+                            bearing,
+                            life: DAMAGE_MARK_LIFE * fade,
+                        })
+                        .collect();
                 }
                 if kind == 3 {
                     game.run.weapon.kind = WeaponKind::TwinDaggers;

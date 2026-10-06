@@ -15,6 +15,7 @@ pub const EVENTS: &[&str] = &[
     "level_up",
     "bone",
     "hurt",
+    "kill",
     "dash",
     "deny",
     "cloth",
@@ -210,6 +211,7 @@ fn designed(event: &str, variant: u32) -> Vec<f32> {
                 "level_up" => (660., 0.3, &[0., 0.08, 0.16, 0.24]),
                 "coin" => (2400., 0.18, &[0., 0.045, 0.09]),
                 "bone" => (680., 0.18, &[0., 0.019, 0.043, 0.11]),
+                "kill" => (1650., 0.13, &[0., 0.03]),
                 _ => (600., 0.1, &[0.]),
             };
             let mut y = 0.;

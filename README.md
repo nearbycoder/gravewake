@@ -101,7 +101,7 @@ The tarball contains the self-contained executable, a desktop entry, an icon and
 | F6 | Toggle Hollowlight shader treatment |
 | F7 / F8 | Toggle VSync / FPS counter |
 
-Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Losing focus pauses combat and releases the pointer.
+Change mouse sensitivity, invert look, field of view (60–90° vertical), volume, flash reduction, lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Losing focus pauses combat and releases the pointer.
 
 Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** (macOS) and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
 

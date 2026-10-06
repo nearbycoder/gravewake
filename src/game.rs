@@ -239,6 +239,28 @@ pub struct Projectile {
     pub damage: f32,
     pub kind: WeaponKind,
 }
+/// Reticle feedback for the player's own weapon hits, strongest first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum HitKind {
+    Body,
+    Head,
+    Kill,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct HitMarker {
+    pub kind: HitKind,
+    pub life: f32,
+}
+pub const HIT_MARKER_LIFE: f32 = 0.3;
+/// A fading arc around the reticle pointing toward a damage source.
+#[derive(Clone, Copy, Debug)]
+pub struct DamageMark {
+    /// World bearing from the player, matching `forward()` at `yaw == bearing`.
+    pub bearing: f32,
+    pub life: f32,
+}
+pub const DAMAGE_MARK_LIFE: f32 = 1.2;
+const MAX_DAMAGE_MARKS: usize = 4;
 pub struct Floater {
     pub pos: Vec3,
     pub text: String,
@@ -254,6 +276,8 @@ pub struct Preferences {
     /// Vertical field of view in degrees.
     pub fov: f32,
     pub invert_y: bool,
+    /// Softer hurt vignette and muzzle lighting for light-sensitive players.
+    pub reduce_flashes: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -262,6 +286,7 @@ impl Default for Preferences {
             volume: 0.4,
             fov: 70.,
             invert_y: false,
+            reduce_flashes: false,
         }
     }
 }
@@ -282,6 +307,7 @@ impl Preferences {
             volume: clean(self.volume, (0., 1.), d.volume),
             fov: clean(self.fov, Self::FOV_RANGE, d.fov),
             invert_y: self.invert_y,
+            reduce_flashes: self.reduce_flashes,
         }
     }
     fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -318,6 +344,8 @@ pub struct Game {
     pub look_sway: Vec2,
     pub motion_speed: f32,
     pub hurt: f32,
+    pub hit_marker: Option<HitMarker>,
+    pub damage_marks: Vec<DamageMark>,
     pub dash: f32,
     pub dash_cd: f32,
     pub spell_cd: f32,
@@ -374,6 +402,8 @@ impl Game {
             look_sway: Vec2::ZERO,
             motion_speed: 0.,
             hurt: 0.,
+            hit_marker: None,
+            damage_marks: vec![],
             dash: 0.,
             dash_cd: 0.,
             spell_cd: 0.,
@@ -577,6 +607,8 @@ impl Game {
         self.look_sway = Vec2::ZERO;
         self.motion_speed = 0.;
         self.hurt = 0.;
+        self.hit_marker = None;
+        self.damage_marks.clear();
         self.dash = 0.;
         self.dash_cd = 0.;
         self.spell_cd = 0.;
@@ -870,6 +902,7 @@ impl Game {
             point,
             fracture_allowed,
         );
+        self.register_hit(i, part);
         let e = &mut self.run.enemies[i];
         let flat = Vec3::new(dir.x, 0., dir.z).normalize_or_zero();
         if e.hp > 0. {
@@ -1145,11 +1178,69 @@ impl Game {
                 && diff.normalize().dot(forward) > 0.1
                 && world_layout::obstruction(self.run.pos, self.run.enemies[i].pos + Vec3::Y)
                     .is_none()
+                && self.run.enemies[i].hp > 0.
             {
                 self.damage_enemy(i, 45., forward);
+                self.register_hit(i, Part::Torso);
             }
         }
         self.collect_dead();
+    }
+    // Call after a weapon hit lands on a living enemy. Pellets and splash
+    // landing together keep the strongest result and a single kill tick.
+    fn register_hit(&mut self, i: usize, part: Part) {
+        let e = &self.run.enemies[i];
+        let kind = if e.hp <= 0. {
+            HitKind::Kill
+        } else if part == Part::Head && !crate::encounters::head_only(e.kind) {
+            HitKind::Head
+        } else {
+            HitKind::Body
+        };
+        let fresh = self
+            .hit_marker
+            .filter(|m| m.life > HIT_MARKER_LIFE - 0.05)
+            .map(|m| m.kind);
+        if kind == HitKind::Kill && fresh != Some(HitKind::Kill) {
+            self.sound_events.push("kill");
+        }
+        self.hit_marker = Some(HitMarker {
+            kind: fresh.map_or(kind, |k| k.max(kind)),
+            life: HIT_MARKER_LIFE,
+        });
+    }
+    /// Point a damage arc toward `source`. Nearby bearings refresh one arc.
+    pub(crate) fn mark_damage_from(&mut self, source: Vec3) {
+        let flat = (source - self.run.pos) * Vec3::new(1., 0., 1.);
+        if flat.length_squared() < 0.01 {
+            return;
+        }
+        let bearing = flat.x.atan2(-flat.z);
+        let near = |m: &DamageMark| {
+            let d = bearing - m.bearing;
+            d.sin().atan2(d.cos()).abs() < 0.35
+        };
+        if let Some(mark) = self.damage_marks.iter_mut().find(|m| near(m)) {
+            *mark = DamageMark {
+                bearing,
+                life: DAMAGE_MARK_LIFE,
+            };
+            return;
+        }
+        if self.damage_marks.len() >= MAX_DAMAGE_MARKS {
+            let oldest = (0..self.damage_marks.len())
+                .min_by(|&a, &b| {
+                    self.damage_marks[a]
+                        .life
+                        .total_cmp(&self.damage_marks[b].life)
+                })
+                .unwrap();
+            self.damage_marks.remove(oldest);
+        }
+        self.damage_marks.push(DamageMark {
+            bearing,
+            life: DAMAGE_MARK_LIFE,
+        });
     }
     pub(crate) fn damage_enemy(&mut self, i: usize, damage: f32, dir: Vec3) {
         let part = if crate::encounters::head_only(self.run.enemies[i].kind) {
@@ -1334,6 +1425,14 @@ impl Game {
         let speed = (self.input.forward.abs() + self.input.right.abs()).min(1.);
         self.motion_speed += (speed - self.motion_speed) * (1. - (-dt * 12.).exp());
         self.hurt = (self.hurt - dt).max(0.);
+        if let Some(marker) = &mut self.hit_marker {
+            marker.life -= dt;
+        }
+        self.hit_marker = self.hit_marker.filter(|m| m.life > 0.);
+        for mark in &mut self.damage_marks {
+            mark.life -= dt;
+        }
+        self.damage_marks.retain(|m| m.life > 0.);
         self.dash = (self.dash - dt).max(0.);
         self.dash_cd = (self.dash_cd - dt).max(0.);
         self.spell_cd = (self.spell_cd - dt).max(0.);
@@ -1705,6 +1804,7 @@ mod tests {
             volume: 0.8,
             fov: 85.,
             invert_y: true,
+            reduce_flashes: true,
         };
         let bytes = serde_json::to_vec(&custom).unwrap();
         assert_eq!(Preferences::from_json(&bytes), Some(custom));
@@ -2207,6 +2307,119 @@ mod tests {
                 "{kind:?} retained impact location"
             );
         }
+    }
+    #[test]
+    fn weapon_hits_set_reticle_markers_and_kills_tick_once() {
+        let mut g = Game::new(false);
+        g.new_run();
+        g.run.pos = Vec3::new(0., 1.65, 4.);
+        let mut front = target(0., 0.);
+        front.hp = 100.;
+        front.max_hp = 100.;
+        let kind = |g: &Game| g.hit_marker.map(|m| m.kind);
+        // Bullet to the torso.
+        g.run.enemies = vec![front.clone()];
+        g.ray_attack(Vec3::new(0., 1.2, 4.), -Vec3::Z, WeaponKind::Pistol, 20.);
+        assert_eq!(kind(&g), Some(HitKind::Body));
+        // A light projectile to the skull, then a lethal one.
+        for (damage, expected) in [(8., HitKind::Head), (50., HitKind::Kill)] {
+            g.hit_marker = None;
+            g.run.enemies = vec![front.clone()];
+            g.projectiles = vec![Projectile {
+                pos: Vec3::new(0., 1.74, 3.),
+                vel: -Vec3::Z * 100.,
+                life: 2.,
+                damage,
+                kind: WeaponKind::Crossbow,
+            }];
+            g.update_projectiles(0.05);
+            assert_eq!(kind(&g), Some(expected), "{damage} damage projectile");
+        }
+        // Two pellets killing two enemies in the same update tick once.
+        g.hit_marker = None;
+        g.sound_events.clear();
+        let mut second = front.clone();
+        second.pos.x = 1.;
+        g.run.enemies = vec![front.clone(), second];
+        for i in 0..2 {
+            let point = Pose::for_enemy(&g.run.enemies[i], g.run.pos).anchor(Part::Torso);
+            g.apply_hit_at(i, 200., WeaponKind::Double, -Vec3::Z, Part::Torso, point);
+        }
+        assert_eq!(kind(&g), Some(HitKind::Kill));
+        assert_eq!(g.sound_events.iter().filter(|e| **e == "kill").count(), 1);
+        // A melee weapon strike and the E bash both register.
+        g.reset_effects();
+        g.run.pos = Vec3::new(0., 1.65, 0.);
+        g.run.weapon.kind = WeaponKind::Cleaver;
+        g.run.enemies = vec![target(0., -2.)];
+        g.fire(false);
+        while g.run.enemies[0].hp == 500. && g.run.time < 1. {
+            g.update(0.01);
+        }
+        // Melee picks the region nearest the aim; level eyes meet the skull.
+        assert_eq!(kind(&g), Some(HitKind::Head));
+        g.reset_effects();
+        g.run.weapon.kind = WeaponKind::Pistol;
+        g.run.enemies = vec![target(0., -2.)];
+        g.melee();
+        assert_eq!(kind(&g), Some(HitKind::Body));
+        // Automatic powers are not the player's aim and leave the reticle alone.
+        g.reset_effects();
+        g.damage_enemy(0, 20., -Vec3::Y);
+        assert_eq!(kind(&g), None);
+    }
+    #[test]
+    fn damage_arcs_point_toward_their_source_and_merge() {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let mut g = Game::new(false);
+        g.new_run();
+        g.run.pos = Vec3::new(0., 1.65, 0.);
+        let relative = |g: &Game| {
+            let a = g.damage_marks[0].bearing - g.run.yaw;
+            a.sin().atan2(a.cos())
+        };
+        // Facing -Z: front, right, behind and left of the player.
+        for (yaw, x, z, expected) in [
+            (0., 0., -5., 0.),
+            (0., 5., 0., FRAC_PI_2),
+            (0., 0., 5., PI),
+            (0., -5., 0., -FRAC_PI_2),
+            (FRAC_PI_2, 5., 0., 0.),
+            (FRAC_PI_2, 0., 5., FRAC_PI_2),
+        ] {
+            g.damage_marks.clear();
+            g.run.yaw = yaw;
+            g.mark_damage_from(Vec3::new(x, 0., z));
+            let r = relative(&g);
+            assert!(
+                (r.sin() - expected.sin()).abs() < 1e-4 && (r.cos() - expected.cos()).abs() < 1e-4,
+                "source ({x}, {z}) at yaw {yaw}: {r}"
+            );
+        }
+        g.damage_marks.clear();
+        g.mark_damage_from(Vec3::new(5., 0., 0.));
+        g.mark_damage_from(Vec3::new(5., 0., 0.5));
+        assert_eq!(g.damage_marks.len(), 1);
+        for i in 0..6 {
+            let a = i as f32 * 1.05;
+            g.mark_damage_from(Vec3::new(a.sin() * 5., 0., a.cos() * 5.));
+        }
+        assert_eq!(g.damage_marks.len(), MAX_DAMAGE_MARKS);
+        g.mark_damage_from(g.run.pos);
+        assert_eq!(g.damage_marks.len(), MAX_DAMAGE_MARKS);
+        // A real enemy strike from the player's right marks that side.
+        g.reset_effects();
+        g.run.yaw = 0.;
+        let mut attacker = target(1.2, 0.);
+        attacker.attack = 0.;
+        g.run.enemies = vec![attacker];
+        let hp = g.run.hp;
+        while g.run.hp == hp && g.run.time < 3. {
+            g.update(0.01);
+        }
+        assert!(g.run.hp < hp, "the adjacent enemy should strike");
+        assert_eq!(g.damage_marks.len(), 1);
+        assert!(relative(&g) > 0.8 && relative(&g) < 2.4, "{}", relative(&g));
     }
     #[test]
     fn all_33_weapons_deal_damage_and_roundtrip() {

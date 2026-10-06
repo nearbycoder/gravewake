@@ -990,7 +990,8 @@ impl Renderer {
                 game.elapsed,
                 0.,
                 game.shader_intensity,
-                (game.flash / 0.095).clamp(0., 1.),
+                (game.flash / 0.095).clamp(0., 1.)
+                    * if game.prefs.reduce_flashes { 0.35 } else { 1. },
             ],
             lights: scene::nearest_lights(eye),
         };
