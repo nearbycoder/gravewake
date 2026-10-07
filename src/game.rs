@@ -439,6 +439,8 @@ pub struct Preferences {
     pub hud_scale: f32,
     /// Open in borderless fullscreen; F11 and the journal switch it.
     pub fullscreen: bool,
+    /// Right-stick turn rate, relative to `gamepad::LOOK_SPEED`.
+    pub stick_speed: f32,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -467,12 +469,14 @@ impl Default for Preferences {
             tips_seen: 0,
             hud_scale: 1.,
             fullscreen: false,
+            stick_speed: 1.,
         }
     }
 }
 impl Preferences {
     pub const FOV_RANGE: (f32, f32) = (60., 90.);
     pub const SENSITIVITY_RANGE: (f32, f32) = (0.0007, 0.007);
+    pub const STICK_SPEED_RANGE: (f32, f32) = (0.5, 2.);
     /// HUD sizes the journal cycles through. Beyond 110% the bottom row
     /// (vitality, armor, dodge and weapon) no longer fits side by side, and
     /// the boss bar reaches the damage arcs.
@@ -512,6 +516,7 @@ impl Preferences {
                 d.hud_scale,
             ),
             fullscreen: self.fullscreen,
+            stick_speed: clean(self.stick_speed, Self::STICK_SPEED_RANGE, d.stick_speed),
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {

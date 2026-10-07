@@ -127,8 +127,15 @@ impl Frame {
 
 pub const STICK_DEADZONE: f32 = 0.2;
 pub const TRIGGER_THRESHOLD: f32 = 0.35;
-/// Turn rate in radians per second at full deflection and default sensitivity.
+/// Turn rate in radians per second at full deflection and 100% stick speed.
 pub const LOOK_SPEED: f32 = 3.4;
+/// How far the view turns this update, as (yaw, pitch), from the arena's
+/// `look` (already scaled by `LOOK_SPEED`). The journal's Stick look speed
+/// scales it; the mouse's Aim sensitivity doesn't.
+pub fn look_turn(look: Vec2, stick_speed: f32, invert_y: bool, dt: f32) -> (f32, f32) {
+    let rate = stick_speed * dt;
+    (look.x * rate, look.y * rate * if invert_y { -1. } else { 1. })
+}
 /// Virtual cursor speed in egui points per second at full deflection.
 pub const CURSOR_SPEED: f32 = 1100.;
 const DPAD_NUDGE: f32 = 0.45;
@@ -1003,6 +1010,39 @@ mod tests {
         ];
         assert_eq!(neighbour(Pos2::new(400., 700.), egui::vec2(0., -1.), &side), Some(0));
         assert_eq!(neighbour(Pos2::new(420., 400.), egui::vec2(0., -1.), &side), Some(1));
+    }
+    #[test]
+    fn stick_look_speed_scales_the_turn_and_ignores_mouse_sensitivity() {
+        let frame = Frame {
+            right: Vec2::new(1., -1.),
+            ..Default::default()
+        };
+        let look = arena(&frame, &PadBindings::default()).look;
+        let dt = 0.01;
+        // At 100% it turns as before at the default mouse sensitivity.
+        let (yaw, pitch) = look_turn(look, 1., false, dt);
+        assert!((yaw - look.x * dt).abs() < 1e-6 && (pitch - look.y * dt).abs() < 1e-6);
+        assert!(yaw > 0. && (yaw - LOOK_SPEED * dt * curve(radial(frame.right, STICK_DEADZONE)).x).abs() < 1e-6);
+        let (fast, _) = look_turn(look, 2., false, dt);
+        let (slow, _) = look_turn(look, 0.5, false, dt);
+        assert!((fast - yaw * 2.).abs() < 1e-6 && (slow - yaw * 0.5).abs() < 1e-6);
+        let (_, inverted) = look_turn(look, 1., true, dt);
+        assert_eq!(inverted, -pitch);
+        // The setting is saved, clamped, and older files load at 100%.
+        use crate::game::Preferences;
+        let custom = Preferences {
+            stick_speed: 1.45,
+            sensitivity: 0.006,
+            ..Default::default()
+        };
+        assert_eq!(
+            Preferences::from_json(&serde_json::to_vec(&custom).unwrap()),
+            Some(custom)
+        );
+        assert_eq!(Preferences::from_json(b"{}").unwrap().stick_speed, 1.);
+        let (lo, hi) = Preferences::STICK_SPEED_RANGE;
+        assert_eq!(Preferences::from_json(br#"{"stick_speed":9}"#).unwrap().stick_speed, hi);
+        assert_eq!(Preferences::from_json(br#"{"stick_speed":0}"#).unwrap().stick_speed, lo);
     }
     #[test]
     fn the_focus_frame_marks_the_smallest_control_under_the_cursor() {

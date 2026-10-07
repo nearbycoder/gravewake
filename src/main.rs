@@ -976,11 +976,10 @@ impl App {
                 self.pad.cursor.hide();
                 self.game.input.fire = self.mouse_fire || pad.fire;
                 let prefs = self.game.prefs;
-                let rate = prefs.sensitivity / game::Preferences::default().sensitivity * dt;
-                let vertical = if prefs.invert_y { -1. } else { 1. };
-                self.game.run.yaw += pad.look.x * rate;
-                self.game.run.pitch =
-                    (self.game.run.pitch + pad.look.y * rate * vertical).clamp(-1.3, 1.3);
+                let (yaw, pitch) =
+                    gamepad::look_turn(pad.look, prefs.stick_speed, prefs.invert_y, dt);
+                self.game.run.yaw += yaw;
+                self.game.run.pitch = (self.game.run.pitch + pitch).clamp(-1.3, 1.3);
                 if pad.dodge {
                     self.game.dodge();
                 }

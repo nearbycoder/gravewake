@@ -2919,7 +2919,10 @@ fn ledger_layout(c: &Canvas, text: &str, width: f32) -> std::sync::Arc<egui::Gal
 }
 fn pause(c: &Canvas, g: &mut Game) {
     c.fill(-100., 0., 1640., c.h, C::from_black_alpha(165));
-    pause_ledger(c, g);
+    // The journal opens over the pause menu and is wider than it.
+    if !g.settings {
+        pause_ledger(c, g);
+    }
     let x = 464.;
     let y = 215.;
     c.layout("pause_folio", x, y, 512., 515.);
@@ -3651,6 +3654,17 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
     if g.pad_rebinding.is_some() && !clicked_slot && c.ui.input(|i| i.pointer.any_click()) {
         g.pad_rebinding = None;
     }
+    // The right stick's turn rate, separate from the mouse's sensitivity.
+    let (min_speed, max_speed) = Preferences::STICK_SPEED_RANGE;
+    c.text(392., 584., "Stick look speed", 17., INK, true, Align2::LEFT_CENTER);
+    c.slider("stick_speed", 615., 585., 360., &mut g.prefs.stick_speed, min_speed, max_speed);
+    c.center(
+        1010.,
+        585.,
+        format!("{:.0}%", g.prefs.stick_speed * 100.),
+        12.,
+        INK,
+    );
     for (i, line) in [
         "Left stick  move    Right stick  look    Start  pause    D-pad  choose a power",
         "In menus, the left stick moves the cursor, A selects and B goes back.",
@@ -3658,9 +3672,9 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
     .into_iter()
     .enumerate()
     {
-        let y = 582. + i as f32 * 28.;
+        let y = 616. + i as f32 * 25.;
         c.center(720., y, line, 13., INK);
-        c.line((390., y + 14.), (1050., y + 14.), GOLD.gamma_multiply(0.35), 0.6);
+        c.line((390., y + 12.5), (1050., y + 12.5), GOLD.gamma_multiply(0.35), 0.6);
     }
     let note = if let Some((action, _)) = g.pad_rebinding {
         format!(
@@ -3672,11 +3686,11 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
     } else {
         g.controls_note.clone()
     };
-    c.center(720., 652., note, 13., INK);
+    c.center(720., 670., note, 13., INK);
     if c.button(
         "restore_buttons",
         558.,
-        686.,
+        698.,
         324.,
         36.,
         "Restore default buttons",
