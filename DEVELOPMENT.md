@@ -232,13 +232,21 @@ One rodio source plays all three layers from the same position and crossfades th
 
 ## HUD size
 
-**HUD size** in Settings & Controls cycles 80, 90, 100 and 110% (`Preferences::hud_scale`, saved in `settings.json`; older files load at 100%, and other values are clamped). Each HUD group scales around its own anchor through `Canvas::anchored`: the status panel from the top-left corner, the descent panel, compass, last-threat bearing and boss bar from the top centre, gold from the top right, vitality, armor and the chalice from the bottom left, the weapon panel from the bottom right, and the dodge readout, field notes and notices from the bottom centre. The reticle, hit marks, damage arcs and off-screen warnings keep their size, so they can't run into the boss bar or the notes. Menus, cards and the journal are unchanged. Below 100% the 13.5-point text floor shrinks with the HUD, so labels stay inside their panels; at 80% in a 960×600 window, HUD text is about 11 points.
+**HUD size** in Settings & Controls cycles 80, 90, 100, 110, 120 and 130% (`Preferences::hud_scale`, saved in `settings.json`; older files load at 100%, and other values are clamped). Each HUD group scales around its own anchor through `Canvas::anchored`: the status panel from the top-left corner, the descent panel, compass, last-threat bearing and boss bar from the top centre, gold from the top right, vitality, armor and the chalice from the bottom left, the weapon panel from the bottom right, and the dodge readout, field notes and notices from the bottom centre. The reticle, hit marks, damage arcs and off-screen warnings keep their size. Menus, cards and the journal are unchanged. Below 100% the 13.5-point text floor shrinks with the HUD, so labels stay inside their panels; at 80% in a 960×600 window, HUD text is about 11 points.
 
-110% is the largest size because the bottom row is nearly full: at 100% the vitality group, dodge readout and weapon panel use all but about 225 of the 1440 design units. If a larger HUD crowds the dodge readout, it moves right to keep a gap. Above 110%, a damage arc pointing straight ahead would also reach the boss bar. A larger HUD would need a different layout.
+At 100% the vitality group, dodge readout and weapon panel use all but about 225 of the 1440 design units, and the boss bar ends about 35 units above the damage arcs, so up to 110% the layout only moves the dodge readout right if a larger HUD crowds it. Above 110% (`Preferences::COMPACT_ABOVE`) a compact layout takes over:
 
-Arena field notes end above the weapon and chalice panels: a note that needs more lines rises instead of covering them. Before this change, a two-line note in a 960×600 window overlapped the weapon panel's corner by a few pixels. Off-screen warnings draw over the notes.
+- armor moves into the vitality plate, opposite the vitality figure, and the chalice bar narrows to the plate;
+- the dodge readout narrows from 238 to 200 units;
+- the descent panel and compass narrow from 454 to 420 units, so they clear the status panel at 130%;
+- the Tithekeeper's name and health join the descent panel (beside the hunting count) instead of a separate panel under the stack, which kept the stack clear of the damage arcs;
+- soul powers list in two columns, so a full list ends well above the notices.
 
-![The busiest HUD at 110%](docs/media/improvements/round5/hud-size-110-busy.jpg)
+`busiest_hud_panels_never_overlap_at_any_size` draws the busiest HUD (every power, the boss, the last-threat line, a chalice, the longest field note under a notice, a damage arc straight ahead and a dive behind) through `ui::draw` in a real egui frame at every size, in 1440×900, 960×600 and 1920×1080 windows. It checks every recorded panel rectangle against every other and against the damage arcs' reach. Without the compact layout it fails at 120% (the boss panel reaches the arcs). Field notes and notices are the one exception: from 110% in a 1440×900 window (100% in 960×600, where they touch by a fraction of a pixel) a note or notice can reach the circle that an arc pointing behind you sweeps. Since round 6, hit marks, damage arcs and off-screen warnings are drawn after notes and notices, so they always show on top.
+
+Arena field notes end above the weapon and chalice panels: a note that needs more lines rises instead of covering them.
+
+![The busiest HUD at 130%](docs/media/improvements/round6/hud-size-130-busy.jpg)
 
 ## Field tips
 

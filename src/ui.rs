@@ -138,6 +138,8 @@ impl TypeRole {
         FontId::new(size, FontFamily::Name("gravewake".into()))
     }
 }
+/// HUD panel rectangles drawn this frame, recorded in tests only.
+const HUD_LAYOUT: &str = "hud_layout";
 /// Controls drawn this frame that the controller's D-pad can reach. Each
 /// frame starts empty, and a dialog or the journal empties it again, so
 /// controls it hides can't be reached.
@@ -188,6 +190,16 @@ impl<'a> Canvas<'a> {
             h: self.h,
             time: self.time,
             floor: self.floor * k.min(1.),
+        }
+    }
+    /// Note a HUD panel's rectangle so tests can check that none overlap.
+    fn layout(&self, name: &'static str, x: f32, y: f32, w: f32, h: f32) {
+        if cfg!(test) {
+            let rect = self.rect(x, y, w, h);
+            self.ui.ctx().data_mut(|d| {
+                d.get_temp_mut_or_default::<Vec<(&'static str, Rect)>>(Id::new(HUD_LAYOUT))
+                    .push((name, rect))
+            });
         }
     }
     /// Let the D-pad reach a control drawn this frame.
@@ -328,6 +340,7 @@ impl<'a> Canvas<'a> {
             .rect_filled(self.rect(x, y, w, h), 4. * self.s, color);
     }
     fn hud_panel(&self, x: f32, y: f32, w: f32, h: f32) {
+        self.layout("panel", x, y, w, h);
         self.inset(x, y, w, h, HUD_SURFACE);
         self.border(x, y, w, h, C::from_rgb(111, 87, 51));
     }
@@ -2016,7 +2029,7 @@ fn direction_pointer(c: &Canvas, x: f32, y: f32, angle: f32, color: C) {
 }
 /// One quiet orientation strip for the larger grounds. Cardinal ticks turn with
 /// the camera; a diamond and explicit bearing point toward the next district.
-fn world_compass(c: &Canvas, g: &Game) {
+fn world_compass(c: &Canvas, g: &Game, y: f32, half: f32) {
     use crate::world_layout::{DISTRICTS, district_at};
     let here = district_at(g.run.pos);
     let next = DISTRICTS
@@ -2034,8 +2047,11 @@ fn world_compass(c: &Canvas, g: &Game) {
     let bearing = direction.x.atan2(-direction.z);
     let relative = relative_bearing(bearing, g.run.yaw);
     let distance = glam::Vec2::new(direction.x, direction.z).length();
-    c.hud_panel(493., 120., 454., 70.);
-    c.line((516., 152.), (924., 152.), C::from_rgb(78, 70, 51), 1.);
+    // Laid out at y 120; `y` moves it down.
+    let c = &c.shifted(0., y - 120.);
+    let (left, right) = (720. - half, 720. + half);
+    c.hud_panel(left, 120., half * 2., 70.);
+    c.line((left + 23., 152.), (right - 23., 152.), C::from_rgb(78, 70, 51), 1.);
     for tick in 0..16 {
         let angle = relative_bearing(tick as f32 * std::f32::consts::TAU / 16., g.run.yaw);
         if angle.abs() <= 1.47 {
@@ -2066,9 +2082,9 @@ fn world_compass(c: &Canvas, g: &Game) {
         GOLD,
     );
     c.line((720., 121.), (720., 126.), GOLD, 2.);
-    direction_pointer(c, 516., 174., relative, GOLD);
+    direction_pointer(c, left + 23., 174., relative, GOLD);
     c.text_role(
-        541.,
+        left + 48.,
         174.,
         next.name,
         16.,
@@ -2077,7 +2093,7 @@ fn world_compass(c: &Canvas, g: &Game) {
         Align2::LEFT_CENTER,
     );
     c.text(
-        928.,
+        right - 19.,
         174.,
         format!("{}  /  {:.0} m", cardinal(bearing), distance),
         16.,
@@ -2086,7 +2102,7 @@ fn world_compass(c: &Canvas, g: &Game) {
         Align2::RIGHT_CENTER,
     );
 }
-fn last_threat(c: &Canvas, g: &Game) -> bool {
+fn last_threat(c: &Canvas, g: &Game, y: f32) -> bool {
     let living = g.run.enemies.iter().filter(|enemy| enemy.hp > 0.).count();
     if g.run.survival.remaining != 0 || living == 0 || living > 3 {
         return false;
@@ -2105,6 +2121,8 @@ fn last_threat(c: &Canvas, g: &Game) -> bool {
     let direction = enemy.pos - g.run.pos;
     let bearing = direction.x.atan2(-direction.z);
     let distance = glam::Vec2::new(direction.x, direction.z).length();
+    // Laid out at y 198; `y` moves it down.
+    let c = &c.shifted(0., y - 198.);
     c.hud_panel(535., 198., 370., 35.);
     direction_pointer(c, 555., 216., relative_bearing(bearing, g.run.yaw), GOLD);
     c.text_role(
@@ -2217,12 +2235,26 @@ fn threat_pointers(c: &Canvas, g: &Game, cx: f32, cy: f32) {
 /// the screen corners, the top and bottom centres and the tip panel. The
 /// reticle group, the hurt vignette and floating numbers' positions don't.
 fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
+    if cfg!(test) {
+        base.ui
+            .ctx()
+            .data_mut(|d| d.insert_temp(Id::new(HUD_LAYOUT), Vec::<(&'static str, Rect)>::new()));
+    }
     let h = base.h;
     let k = g.prefs.hud_scale;
+    // Above 110% a compact layout keeps the larger groups apart: two power
+    // columns, narrower top-centre panels with the boss inside the descent
+    // panel, armor inside the vitality plate, and a narrower dodge readout.
+    let compact = k > Preferences::COMPACT_ABOVE;
     let c = &base.anchored(k, 0., 0.);
     let xp = &g.run.survival;
     let power_count = xp.ranks.iter().filter(|r| **r > 0).count();
-    c.hud_panel(22., 18., 310., 154. + power_count as f32 * 24.);
+    let power_rows = if compact {
+        power_count.div_ceil(2)
+    } else {
+        power_count
+    };
+    c.hud_panel(22., 18., 310., 154. + power_rows as f32 * 24.);
     c.diamond(43., 47., 6., GOLD);
     c.text(
         62.,
@@ -2276,9 +2308,11 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         .filter(|(_, r)| **r > 0)
         .enumerate()
     {
+        let (column, row) = if compact { (row % 2, row / 2) } else { (0, row) };
+        let x = 40. + column as f32 * 141.;
         let y = 178. + row as f32 * 24.;
         c.text(
-            40.,
+            x,
             y,
             crate::survival::POWERS[i].0,
             16.,
@@ -2287,7 +2321,7 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
             Align2::LEFT_CENTER,
         );
         c.text_role(
-            314.,
+            if compact { x + 133. } else { 314. },
             y,
             format!("{rank}/5"),
             16.,
@@ -2297,7 +2331,11 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         );
     }
     let c = &base.anchored(k, 720., 0.);
-    c.hud_panel(493., 18., 454., 94.);
+    let boss = g.run.enemies.iter().find(|e| e.kind == 3 && e.hp > 0.);
+    // Half the width of the descent panel and compass.
+    let half = if compact { 210. } else { 227. };
+    let boss_inside = compact && boss.is_some();
+    c.hud_panel(720. - half, 18., half * 2., if boss_inside { 104. } else { 94. });
     c.text_role(
         720.,
         46.,
@@ -2311,17 +2349,19 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         TypeRole::Strong,
         Align2::CENTER_CENTER,
     );
-    c.center(
-        720.,
-        84.,
-        format!(
-            "{} HUNTING  /  {} APPROACHING",
-            g.run.enemies.len(),
-            xp.remaining
-        ),
-        18.,
-        MUTED,
+    let hunting = format!(
+        "{} HUNTING  /  {} APPROACHING",
+        g.run.enemies.len(),
+        xp.remaining
     );
+    if let Some(e) = boss.filter(|_| boss_inside) {
+        let (left, right) = (720. - half + 20., 720. + half - 20.);
+        c.text(left, 78., "THE TITHEKEEPER", 16., GOLD, false, Align2::LEFT_CENTER);
+        c.text(right, 78., hunting, 16., MUTED, false, Align2::RIGHT_CENTER);
+        boss_bar(c, left, 98., right - left, e);
+    } else {
+        c.center(720., 84., hunting, 18., MUTED);
+    }
     let c = &base.anchored(k, 1440., 0.);
     c.hud_panel(1188., 18., 200., if g.show_fps { 85. } else { 56. });
     c.coin(1212., 46., 10.);
@@ -2350,23 +2390,18 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         );
     }
     let c = &base.anchored(k, 720., 0.);
-    world_compass(c, g);
-    let threat_shown = last_threat(c, g);
+    let below = if boss_inside { 10. } else { 0. };
+    world_compass(c, g, 120. + below, half);
+    let threat_shown = last_threat(c, g, 198. + below);
     let status_y = if threat_shown { 243. } else { 200. };
-    let boss = g.run.enemies.iter().find(|e| e.kind == 3 && e.hp > 0.);
-    if let Some(e) = boss {
+    if let Some(e) = boss.filter(|_| !boss_inside) {
         c.hud_panel(480., status_y, 480., 65.);
         c.center(720., status_y + 21., "THE TITHEKEEPER", 18., GOLD);
-        c.fill(494., status_y + 45., 452., 7., C::from_rgb(54, 30, 28));
-        c.fill(
-            494.,
-            status_y + 45.,
-            452. * (e.hp / e.max_hp).clamp(0., 1.),
-            7.,
-            C::from_rgb(209, 65, 52),
-        );
+        boss_bar(c, 494., status_y + 45., 452., e);
     }
     let c = base;
+    // The damage arcs reach 108 units from the reticle.
+    c.layout("reticle", 610., h * 0.5 - 110., 220., 220.);
     let d = 5. + g.flash * 38.;
     let cx = 720.;
     let cy = h * 0.5;
@@ -2375,10 +2410,11 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         c.line((cx, cy + side * d), (cx, cy + side * (d + 6.)), IVORY, 1.);
     }
     c.p.circle_filled(c.pt(cx, cy), c.s, IVORY);
-    hit_feedback(c, g, cx, cy);
     let c = &base.anchored(k, 0., h);
     // Keep the sculpted end caps away from the labels and digits.
     c.texture("button_plate", 16., h - 134., 395., 108., C::WHITE);
+    // The plate's artwork, without the texture's transparent margins.
+    c.layout("vitality", 16., h - 124., 395., 98.);
     c.inset(78., h - 106., 271., 55., C::from_rgb(43, 12, 16));
     c.text_role(
         87.,
@@ -2406,19 +2442,35 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         5.,
         C::from_rgb(234, 84, 71),
     );
-    c.hud_panel(414., h - 111., 136., 75.);
-    c.center(482., h - 92., "ARMOR", 16., MUTED);
-    c.text_role(
-        482.,
-        h - 64.,
-        format!("{:.0}", g.run.armor),
-        28.,
-        IVORY,
-        TypeRole::Strong,
-        Align2::CENTER_CENTER,
-    );
+    if compact {
+        // Armor shares the plate, right-aligned opposite vitality.
+        c.text_role(340., h - 96., "ARMOR", 16., MUTED, TypeRole::Strong, Align2::RIGHT_CENTER);
+        c.text_role(
+            340.,
+            h - 70.,
+            format!("{:.0}", g.run.armor),
+            28.,
+            IVORY,
+            TypeRole::Strong,
+            Align2::RIGHT_CENTER,
+        );
+    } else {
+        c.hud_panel(414., h - 111., 136., 75.);
+        c.center(482., h - 92., "ARMOR", 16., MUTED);
+        c.text_role(
+            482.,
+            h - 64.,
+            format!("{:.0}", g.run.armor),
+            28.,
+            IVORY,
+            TypeRole::Strong,
+            Align2::CENTER_CENTER,
+        );
+    }
+    // The vitality group's right edge: the plate, or the armor panel.
+    let group_right = if compact { 411. } else { 550. };
     if g.run.chalice {
-        c.hud_panel(24., h - 166., 526., 34.);
+        c.hud_panel(24., h - 166., group_right - 24., 34.);
         c.text(
             40.,
             h - 149.,
@@ -2429,7 +2481,7 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
             Align2::LEFT_CENTER,
         );
         c.text_role(
-            530.,
+            group_right - 20.,
             h - 149.,
             format!("{:.0} MANA", g.run.mana),
             18.,
@@ -2440,16 +2492,18 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
     }
     // The dodge readout stays centred unless a larger HUD crowds it toward
     // the weapon panel; 16 units of the vitality group's gap are kept.
+    let dodge_half = if compact { 100. } else { 119. };
     let dodge_x = 720_f32
-        .max(550. * k + 16. * k + 119. * k)
-        .min(1440. - 427. * k - 16. * k - 119. * k);
+        .max((group_right + 16. + dodge_half) * k)
+        .min(1440. - (427. + 16. + dodge_half) * k);
     let c = &base.anchored(k, 720., h).shifted(dodge_x - 720., 0.);
-    c.hud_panel(601., h - 91., 238., 66.);
-    c.fill(613., h - 73., 214., 6., C::from_rgb(53, 63, 58));
+    c.hud_panel(720. - dodge_half, h - 91., dodge_half * 2., 66.);
+    let bar = dodge_half * 2. - 24.;
+    c.fill(732. - dodge_half, h - 73., bar, 6., C::from_rgb(53, 63, 58));
     c.fill(
-        613.,
+        732. - dodge_half,
         h - 73.,
-        214. * (1. - g.dash_cd / 1.5).clamp(0., 1.),
+        bar * (1. - g.dash_cd / 1.5).clamp(0., 1.),
         6.,
         C::from_rgb(105, 225, 188),
     );
@@ -2567,8 +2621,24 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
             IVORY,
         );
     }
-    // Over any field note: a threat matters more than a tutorial.
-    threat_pointers(base, g, 720., h * 0.5);
+}
+/// Hit marks, damage arcs and off-screen warnings, drawn after field notes
+/// and notices: a threat matters more than a tutorial, and at larger HUD
+/// sizes an arc pointing behind reaches the notes.
+fn combat_feedback(c: &Canvas, g: &Game) {
+    hit_feedback(c, g, 720., c.h * 0.5);
+    threat_pointers(c, g, 720., c.h * 0.5);
+}
+/// The Tithekeeper's health bar.
+fn boss_bar(c: &Canvas, x: f32, y: f32, w: f32, e: &crate::game::Enemy) {
+    c.fill(x, y, w, 7., C::from_rgb(54, 30, 28));
+    c.fill(
+        x,
+        y,
+        w * (e.hp / e.max_hp).clamp(0., 1.),
+        7.,
+        C::from_rgb(209, 65, 52),
+    );
 }
 /// Distance from the bottom of the screen to the top of the arena tip panel.
 const TIP_FROM_BOTTOM: f32 = 272.;
@@ -2609,6 +2679,7 @@ fn tip_height(c: &Canvas, text: &str, width: f32) -> f32 {
 fn field_tip(c: &Canvas, text: &str, y: f32, width: f32, alpha: f32) {
     let x = 720. - width / 2.;
     let height = tip_height(c, text, width);
+    c.layout("tip", x, y, width, height);
     c.inset(x, y, width, height, HUD_SURFACE.gamma_multiply(alpha));
     c.border(x, y, width, height, GOLD.gamma_multiply(0.75 * alpha));
     c.diamond(720., y, 5., GOLD.gamma_multiply(alpha));
@@ -2931,6 +3002,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                 Mode::Bestiary => bestiary(&c, g),
                 Mode::Paused => {
                     hud(&c, g, vp);
+                    combat_feedback(&c, g);
                     pause(&c, g);
                 }
                 Mode::Dead | Mode::Victory => ending(&c, g),
@@ -2951,6 +3023,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     (&arena, c.h * 0.72)
                 };
                 let alpha = (g.notice_time.min(1.) * 245.) as u8;
+                c.layout("notice", 310., y - 17., 820., 35.);
                 c.fill(
                     310.,
                     y - 17.,
@@ -2965,6 +3038,9 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     11.,
                     GOLD.gamma_multiply(g.notice_time.min(1.)),
                 );
+            }
+            if g.mode == Mode::Arena {
+                combat_feedback(&c, g);
             }
         });
     if g.confirm_new_run || g.settings {
@@ -3374,6 +3450,94 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| (f.take().unwrap())(&Canvas::new(ui, 0.)));
         });
+    }
+    /// The busiest HUD, as in the `hud-size-*-busy` review fixtures: every
+    /// power at full rank, the boss under the last-threat bearing, a bound
+    /// chalice, the longest arena note under a notice, a damage arc straight
+    /// ahead and a dive winding up behind.
+    fn busiest_hud(k: f32) -> Game {
+        use crate::game::{DamageMark, Enemy};
+        let mut g = Game::new(false);
+        g.mode = Mode::Arena;
+        g.prefs.hud_scale = k;
+        g.show_fps = true;
+        g.run.wave = 12;
+        g.run.time = 30.;
+        g.run.gold = 98765;
+        g.run.survival.remaining = 0;
+        g.run.survival.level = 99;
+        g.run.survival.ranks = [5; 10];
+        g.run.hp = 200.;
+        g.run.armor = 999.;
+        g.run.chalice = true;
+        g.run.mana = 120.;
+        g.dash_cd = 0.5;
+        g.notice = "HEADSHOT / THE SKULL BREAKS FREE".into();
+        g.notice_time = 2.;
+        let player = g.run.pos;
+        let mut diver = Enemy::spawn(4, player + glam::Vec3::new(-2., -player.y, 5.), 12, 0.);
+        diver.ai.warning = crate::encounters::warning_time(4) * 0.3;
+        diver.ai.target = glam::Vec3::new(player.x, 0., player.z);
+        g.run.enemies = vec![
+            Enemy::spawn(3, player + glam::Vec3::new(0., -player.y, -6.), 12, 0.),
+            diver,
+        ];
+        g.tip = Some(crate::tips::ActiveTip {
+            tip: crate::tips::Tip::Souls,
+            life: 5.,
+        });
+        g.damage_marks = vec![DamageMark {
+            bearing: g.run.yaw,
+            life: DAMAGE_MARK_LIFE,
+        }];
+        g
+    }
+    #[test]
+    fn busiest_hud_panels_never_overlap_at_any_size() {
+        for (width, height) in [(1440., 900.), (960., 600.), (1920., 1080.)] {
+            for k in Preferences::HUD_SCALES {
+                let ctx = egui::Context::default();
+                configure(&ctx);
+                let mut g = busiest_hud(k);
+                for _ in 0..2 {
+                    let input = egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(width, height),
+                        )),
+                        ..Default::default()
+                    };
+                    let _ = ctx.run(input, |ctx| draw(ctx, &mut g, Mat4::IDENTITY));
+                }
+                let layout = ctx
+                    .data(|d| d.get_temp::<Vec<(&'static str, Rect)>>(Id::new(HUD_LAYOUT)))
+                    .unwrap();
+                let names: Vec<_> = layout.iter().map(|(n, _)| *n).collect();
+                for name in ["reticle", "vitality", "tip", "notice"] {
+                    assert!(names.contains(&name), "{name} missing: {names:?}");
+                }
+                // Status, descent, gold, compass, last threat, the boss (its
+                // own panel up to 110%), chalice, armor (up to 110%), dodge
+                // and weapon.
+                let panels = names.iter().filter(|n| **n == "panel").count();
+                let compact = k > Preferences::COMPACT_ABOVE;
+                assert_eq!(panels, if compact { 8 } else { 10 }, "{k}");
+                // Combat feedback draws over field notes and notices, which
+                // may reach the arcs' circle at larger sizes; nothing else may.
+                let feedback_over = |a: &str, b: &str| {
+                    (a == "reticle" && matches!(b, "tip" | "notice"))
+                        || (b == "reticle" && matches!(a, "tip" | "notice"))
+                };
+                for (i, (a, ra)) in layout.iter().enumerate() {
+                    for (b, rb) in &layout[i + 1..] {
+                        assert!(
+                            !ra.intersects(*rb) || feedback_over(a, b),
+                            "{a} {ra:?} overlaps {b} {rb:?} at {k} in {width}x{height}"
+                        );
+                    }
+                }
+            }
+        }
     }
     #[test]
     fn hud_groups_scale_around_their_anchors() {

@@ -85,6 +85,8 @@ impl Review {
             ("hud-size-100-busy".into(), Screen::Hud(14)),
             ("hud-size-110-busy".into(), Screen::Hud(15)),
             ("hud-controller-remapped".into(), Screen::Hud(16)),
+            ("hud-size-120-busy".into(), Screen::Hud(17)),
+            ("hud-size-130-busy".into(), Screen::Hud(18)),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
@@ -471,11 +473,17 @@ impl Review {
                         life: DAMAGE_MARK_LIFE * 0.8,
                     }];
                 }
-                if (13..=15).contains(&kind) {
+                if (13..=15).contains(&kind) || (17..=18).contains(&kind) {
                     // The busiest HUD at each size: every power, the boss bar
                     // under the last-threat bearing, a bound chalice, the longest
                     // arena tip under a notice, a damage arc and an unseen dive.
-                    game.prefs.hud_scale = [0.8, 1., 1.1][kind as usize - 13];
+                    game.prefs.hud_scale = match kind {
+                        13 => 0.8,
+                        14 => 1.,
+                        15 => 1.1,
+                        17 => 1.2,
+                        _ => 1.3,
+                    };
                     game.run.time = 30.;
                     game.run.survival.remaining = 0;
                     let player = game.run.pos;
@@ -487,8 +495,10 @@ impl Review {
                         tip: crate::tips::Tip::Souls,
                         life: 5.,
                     });
+                    // The compact sizes show an arc straight ahead, toward the
+                    // boss inside the descent panel.
                     game.damage_marks = vec![DamageMark {
-                        bearing: 1.3,
+                        bearing: if kind >= 17 { game.run.yaw } else { 1.3 },
                         life: DAMAGE_MARK_LIFE,
                     }];
                 }

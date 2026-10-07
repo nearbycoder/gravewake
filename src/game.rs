@@ -473,7 +473,9 @@ impl Preferences {
     /// HUD sizes the journal cycles through. Beyond 110% the bottom row
     /// (vitality, armor, dodge and weapon) no longer fits side by side, and
     /// the boss bar reaches the damage arcs.
-    pub const HUD_SCALES: [f32; 4] = [0.8, 0.9, 1., 1.1];
+    pub const HUD_SCALES: [f32; 6] = [0.8, 0.9, 1., 1.1, 1.2, 1.3];
+    /// Larger HUD sizes use the compact layout.
+    pub const COMPACT_ABOVE: f32 = 1.15;
     /// The HUD size after `self.hud_scale`, wrapping to the smallest.
     pub fn next_hud_scale(&self) -> f32 {
         Self::HUD_SCALES
@@ -503,7 +505,7 @@ impl Preferences {
             tips_seen: self.tips_seen,
             hud_scale: clean(
                 self.hud_scale,
-                (Self::HUD_SCALES[0], Self::HUD_SCALES[3]),
+                (Self::HUD_SCALES[0], Self::HUD_SCALES[5]),
                 d.hud_scale,
             ),
         }
@@ -2292,15 +2294,15 @@ mod tests {
         };
         let bytes = serde_json::to_vec(&sized).unwrap();
         assert_eq!(Preferences::from_json(&bytes).unwrap().hud_scale, 1.1);
-        assert_eq!(Preferences::from_json(br#"{"hud_scale":9}"#).unwrap().hud_scale, 1.1);
+        assert_eq!(Preferences::from_json(br#"{"hud_scale":9}"#).unwrap().hud_scale, 1.3);
         assert_eq!(Preferences::from_json(br#"{"hud_scale":0}"#).unwrap().hud_scale, 0.8);
         let mut prefs = Preferences::default();
         let mut seen = vec![];
-        for _ in 0..4 {
+        for _ in 0..6 {
             prefs.hud_scale = prefs.next_hud_scale();
             seen.push(prefs.hud_scale);
         }
-        assert_eq!(seen, [1.1, 0.8, 0.9, 1.]);
+        assert_eq!(seen, [1.1, 1.2, 1.3, 0.8, 0.9, 1.]);
     }
     #[test]
     fn rebinding_waits_for_a_usable_key_and_reports_swaps() {
