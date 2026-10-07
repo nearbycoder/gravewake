@@ -218,4 +218,62 @@ mod tests {
         assert_eq!(optimized.enemies.len(), g.run.enemies.len());
         assert_eq!(optimized.enemies.capacity(), enemy_capacity);
     }
+    #[test]
+    fn resident_corpse_transforms_reproduce_the_cpu_expansion() {
+        let mut g = Game::new(false);
+        let mut bones = Bones::new();
+        Benchmark::setup(&mut g, &mut bones, 2);
+        for _ in 0..30 {
+            bones.update(1. / 60.);
+        }
+        // Two pieces in their end-of-life shrink.
+        bones.pieces[0].ttl = 0.6;
+        bones.pieces[5].ttl = 0.15;
+        let vp = Mat4::perspective_rh(70f32.to_radians(), 1.6, 0.04, 120.)
+            * Mat4::look_at_rh(g.run.pos, g.run.pos - Vec3::Z, Vec3::Y);
+        let mut cpu = Mesh::new();
+        cpu.cpu_pieces = true;
+        let mut resident = Mesh::new();
+        crate::scene::dynamic(&g, &bones, &mut cpu, vp, true);
+        crate::scene::dynamic(&g, &bones, &mut resident, vp, true);
+        assert!(cpu.pieces.is_empty() && cpu.piece_instances.is_empty());
+        assert!(resident.pieces.len() > 100, "{} visible", resident.pieces.len());
+        assert_eq!(resident.pieces.len(), resident.piece_instances.len());
+        // The CPU mesh is the resident mesh with every visible piece's
+        // vertices spliced in at one point.
+        let pieces: Vec<_> = resident
+            .pieces
+            .iter()
+            .map(|id| bones.pieces.iter().find(|p| p.id == *id).unwrap())
+            .collect();
+        let expanded: usize = pieces.iter().map(|p| p.vertices.len()).sum();
+        assert_eq!(cpu.vertices.len(), resident.vertices.len() + expanded);
+        let start = (0..resident.vertices.len())
+            .find(|&i| {
+                bytemuck::bytes_of(&cpu.vertices[i]) != bytemuck::bytes_of(&resident.vertices[i])
+            })
+            .unwrap_or(resident.vertices.len());
+        let tail = &cpu.vertices[start + expanded..];
+        assert_eq!(
+            bytemuck::cast_slice::<_, u8>(tail),
+            bytemuck::cast_slice::<_, u8>(&resident.vertices[start..])
+        );
+        let mut cpu_vertices = cpu.vertices[start..start + expanded].iter();
+        for (piece, instance) in pieces.iter().zip(&resident.piece_instances) {
+            let model = Mat4::from_cols_array_2d(&instance.transform);
+            // As in `piece_vs`: turn the normal without the shrink's scale.
+            let scale = model.x_axis.truncate().length();
+            for source in &piece.vertices {
+                let expected = cpu_vertices.next().unwrap();
+                let p = model.transform_point3(Vec3::from_array(source.pos));
+                let n = model.transform_vector3(Vec3::from_array(source.normal)) / scale;
+                assert!(p.distance(Vec3::from_array(expected.pos)) < 1e-4);
+                assert!(n.distance(Vec3::from_array(expected.normal)) < 1e-4);
+                assert_eq!(
+                    (source.color, source.material, source.local, source.wear_uv),
+                    (expected.color, expected.material, expected.local, expected.wear_uv)
+                );
+            }
+        }
+    }
 }

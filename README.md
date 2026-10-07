@@ -137,7 +137,7 @@ Linux builds before this change stored files under `~/Library/Application Suppor
 
 ## Under the hood
 
-A custom Rust game layer and renderer using **wgpu**, **winit**, **egui**, **Rapier 3D**, and **rodio**. Features include GPU-instanced creature geometry, visibility batches, fixed-step body physics, custom WGSL lighting and post-processing, authored Blender assets, and the embedded **Gravewake Gothic** font.
+A custom Rust game layer and renderer using **wgpu**, **winit**, **egui**, **Rapier 3D**, and **rodio**. Features include GPU-instanced creature geometry, GPU-resident corpse sections, visibility batches, fixed-step body physics, custom WGSL lighting and post-processing, authored Blender assets, and the embedded **Gravewake Gothic** font.
 
 ```sh
 cargo test --locked

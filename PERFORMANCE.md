@@ -1,3 +1,22 @@
+# Resident corpse sections (round 4)
+
+Corpse sections (intact ragdoll sections and fracture fragments) keep fixed body-space vertices. Until round 4 the optimized renderer still transformed every one of those vertices on the CPU each frame and re-uploaded them: about 527,000 vertices with 14 corpses. Now each section's vertices are uploaded once, when it appears, into a resident vertex buffer, and each frame writes one matrix per visible section: the rigid-body pose plus the end-of-life shrink. `piece_vs` in `shaders/world.wgsl` applies it, and turns normals without the shrink's scale, as the CPU path did. Ground shadows, frustum culling and lifetimes are unchanged. Expired sections leave holes in the buffer. When it fills, the live sections are packed again from the start, and the buffer doubles if they need more than half of it. Section ids are unique per process, so a reset `Bones` can't reuse stale geometry.
+
+Measured on the Linux test machine (Radeon 8060S, Vulkan, Wayland, 1440 × 900 logical) in one release binary, alternating `GRAVEWAKE_CPU_CORPSES=1` (the old CPU expansion, kept as a diagnostic switch) with the default path. The shared machine's load average was 20–23 throughout.
+
+| Optimized corpse scene (24 enemies + 14 corpses) | CPU expansion (2 runs) | Resident sections (2 runs) |
+| --- | ---: | ---: |
+| Mean dynamic mesh CPU time | 7.44 / 6.46 ms | 0.90 / 0.85 ms |
+| Mean submit time (uploads, encoding, UI) | 3.97 / 2.86 ms | 0.78 / 0.78 ms |
+| Dynamic vertices uploaded per frame | 527,310 | 41,790 |
+| Mean frame rate | 61.2 / 66.2 FPS | 65.9 / 73.5 FPS |
+
+The CPU cost of the corpse scene now matches the 12- and 48-enemy scenes (0.70–0.97 ms mesh time). Frame rates barely moved because, at this load, presentation dominated: surface acquisition took 2–12 ms per frame and varied between runs. GPU time wasn't measured separately. Sources: `captures/performance/round4-{cpu,gpu}{1,2}.json`.
+
+The two paths render the same image. In the benchmark's corpse capture, the mean pixel difference is under 0.0001/255, and 0.009% of pixels differ by at most 2/255. Across the anatomy review (decapitation, disarm, limp and crawl, a ten-body collapse, then fractures and an explosion), every frame up to the fracture scene has an MSE under 0.005 between the two paths. After that, the physics itself diverges: two runs of the same path also first differ at the same frame, so the anatomy review's fracture scene isn't deterministic run to run (a pre-existing issue). A unit test checks the instance transform against the CPU expansion for every visible vertex, and another drives the buffer through 400 steps of piece churn.
+
+![Resident (left) and CPU-expanded (right) corpse, anatomy review frame 470](docs/media/improvements/round4/corpse-gpu-vs-cpu.jpg)
+
 # Articulated ragdoll performance
 
 After the ragdoll/fracture pass, the release benchmark was rerun on the Apple M4 Max with Metal at 1440 × 900 and full Hollowlight effects. The optimized 24-enemy fixture plus 14 complete articulated corpses (140 physical sections, 126 joints) averaged **60.0 FPS**, with a **17.82 ms p95** frame interval. Mean simulation time was **0.774 ms**, and dynamic mesh construction took **2.609 ms**. Physics now advances at 120 Hz. The 12- and 48-enemy scenarios averaged 60.0 and 60.1 FPS respectively. Source: `captures/performance/ragdoll.json`.

@@ -52,6 +52,18 @@ struct EnemyInstance {
  var o:Out;o.clip=cam.vp*p;o.world=p.xyz;o.normal=world_n/max(length(world_n),0.000001);
  o.color=color.xyz;o.material=center.w;o.local=vec3(uv,0.);o.wear_uv=uv*2.7;return o;
 }
+// Corpse sections stay resident; only their rigid-body transform (with the
+// end-of-life shrink as a uniform scale) is uploaded each frame. Normals turn
+// with the body but aren't rescaled, exactly as the CPU expansion did.
+@vertex fn piece_vs(@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,
+ @location(2) color:vec3<f32>,@location(3) material:f32,
+ @location(4) local:vec3<f32>,@location(5) wear_uv:vec2<f32>,
+ @location(6) c0:vec4<f32>,@location(7) c1:vec4<f32>,@location(8) c2:vec4<f32>,@location(9) c3:vec4<f32>)->Out {
+ let model=mat4x4(c0,c1,c2,c3);let p=model*vec4(pos,1.);
+ var o:Out;o.clip=cam.vp*p;o.world=p.xyz;
+ o.normal=(model*vec4(normal,0.)).xyz/max(length(c0.xyz),0.000001);
+ o.color=color;o.material=material;o.local=local;o.wear_uv=wear_uv;return o;
+}
 fn hash(p:vec3<f32>)->f32 {return fract(sin(dot(p,vec3(12.9898,78.233,42.714)))*43758.5453);}
 fn soil_noise(p:vec2<f32>)->f32 {
  let i=floor(p);let f=fract(p);let u=f*f*(3.-2.*f);

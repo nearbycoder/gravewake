@@ -22,6 +22,12 @@ pub struct SphereInstance {
     pub radius: [f32; 4],
     pub color: [f32; 4],
 }
+/// Body space to world for one corpse section drawn from resident GPU geometry.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct PieceInstance {
+    pub transform: [[f32; 4]; 4],
+}
 /// Conservative world-space sphere/frustum test; gameplay remains fully simulated.
 pub struct Visibility {
     planes: [glam::Vec4; 6],
@@ -53,6 +59,13 @@ pub struct Mesh {
     pub spheres: Vec<SphereInstance>,
     pub enemies: Vec<crate::enemy_assets::Instance>,
     pub instance_spheres: bool,
+    /// Visible corpse sections drawn from resident geometry (by piece id),
+    /// with one transform each.
+    pub pieces: Vec<u64>,
+    pub piece_instances: Vec<PieceInstance>,
+    /// Expand corpse sections on the CPU even when optimized (a diagnostic
+    /// comparison; see `GRAVEWAKE_CPU_CORPSES`).
+    pub cpu_pieces: bool,
 }
 impl Mesh {
     pub fn new() -> Self {
@@ -63,6 +76,9 @@ impl Mesh {
             spheres: vec![],
             enemies: vec![],
             instance_spheres: false,
+            pieces: vec![],
+            piece_instances: vec![],
+            cpu_pieces: false,
         }
     }
     pub fn triangle(&mut self, a: Vec3, b: Vec3, c: Vec3, color: [f32; 3], material: f32) {
@@ -1199,6 +1215,8 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
     m.transparent.clear();
     m.spheres.clear();
     m.enemies.clear();
+    m.pieces.clear();
+    m.piece_instances.clear();
     m.transform = Mat4::IDENTITY;
     let arena = matches!(
         game.mode,
@@ -1407,6 +1425,7 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
             }
             m.cube(p.pos, Vec3::splat(p.size), p.color, 9.);
         }
+        let resident = optimized && !m.cpu_pieces;
         for piece in &physics.pieces {
             if let Some(b) = physics.bodies.get(piece.handle) {
                 let t = b.translation();
@@ -1421,8 +1440,14 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
                     piece.radius * 1.3,
                     piece.radius * 0.8,
                 );
-                // Shrink away only at the end of the lifetime, after the body settles.
-                let fade = (piece.ttl / 1.2).clamp(0., 1.);
+                if resident {
+                    m.pieces.push(piece.id);
+                    m.piece_instances.push(PieceInstance {
+                        transform: piece.model(rotation, position).to_cols_array_2d(),
+                    });
+                    continue;
+                }
+                let fade = piece.fade();
                 for vertex in &piece.vertices {
                     let mut v = *vertex;
                     v.pos = (rotation * Vec3::from_array(v.pos) * fade + position).to_array();
@@ -1684,9 +1709,24 @@ pub struct BodyPiece {
     pub part: Part,
     pub section: crate::dismemberment::Section,
     pub fractured: bool,
-    vertices: Vec<Vertex>,
+    /// Unique for the whole process, so resident GPU geometry can never be
+    /// confused with a piece from an earlier `Bones`.
+    pub id: u64,
+    /// Body-space vertices; fixed once the piece exists.
+    pub vertices: Vec<Vertex>,
     radius: f32,
     group: u64,
+}
+static NEXT_PIECE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+impl BodyPiece {
+    /// Shrink away only at the end of the lifetime, after the body settles.
+    fn fade(&self) -> f32 {
+        (self.ttl / 1.2).clamp(0., 1.)
+    }
+    /// Body space to world: the rigid-body pose and the end-of-life shrink.
+    pub fn model(&self, rotation: Quat, position: Vec3) -> Mat4 {
+        Mat4::from_scale_rotation_translation(Vec3::splat(self.fade()), rotation, position)
+    }
 }
 struct PlannedBody {
     section: crate::dismemberment::Section,
@@ -1997,6 +2037,7 @@ impl Bones {
                 part: plan.section.part(),
                 section: plan.section,
                 fractured: plan.fractured,
+                id: NEXT_PIECE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 vertices: plan.vertices,
                 radius,
                 group,

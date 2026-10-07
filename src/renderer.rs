@@ -7,6 +7,118 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+/// Placement of resident corpse geometry inside one vertex buffer. Pieces are
+/// appended once, when they first appear. Expired pieces leave holes, and
+/// when the buffer fills, every live piece is packed again from the start,
+/// growing the buffer if needed.
+#[derive(Default)]
+struct PieceSlab {
+    ranges: std::collections::HashMap<u64, std::ops::Range<u32>>,
+    used: u32,
+    capacity: u32,
+}
+/// What `PieceSlab::admit` needs the GPU to do.
+#[derive(Debug, PartialEq)]
+struct Admission {
+    /// The buffer must be recreated with this many vertices (a reallocation
+    /// discards every existing range, so `uploads` then covers all pieces).
+    grow: Option<u32>,
+    /// Pieces to upload, as (index into `live`, first vertex).
+    uploads: Vec<(usize, u32)>,
+}
+impl PieceSlab {
+    const MIN_CAPACITY: u32 = 1 << 16;
+    /// Make every live piece, given as (id, vertex count), resident.
+    fn admit(&mut self, live: &[(u64, u32)]) -> Admission {
+        self.ranges
+            .retain(|id, _| live.iter().any(|(live_id, _)| live_id == id));
+        let missing: Vec<usize> = (0..live.len())
+            .filter(|&i| !self.ranges.contains_key(&live[i].0))
+            .collect();
+        let needed: u32 = missing.iter().map(|&i| live[i].1).sum();
+        if self.used + needed <= self.capacity {
+            let uploads = missing
+                .into_iter()
+                .map(|i| {
+                    let start = self.used;
+                    self.used += live[i].1;
+                    self.ranges.insert(live[i].0, start..self.used);
+                    (i, start)
+                })
+                .collect();
+            return Admission { grow: None, uploads };
+        }
+        // Full: pack every live piece again, with room to spare for new ones.
+        let total: u32 = live.iter().map(|piece| piece.1).sum();
+        let grow = (total > self.capacity / 2).then(|| {
+            self.capacity = (total * 2).next_power_of_two().max(Self::MIN_CAPACITY);
+            self.capacity
+        });
+        self.ranges.clear();
+        self.used = 0;
+        let uploads = (0..live.len())
+            .map(|i| {
+                let start = self.used;
+                self.used += live[i].1;
+                self.ranges.insert(live[i].0, start..self.used);
+                (i, start)
+            })
+            .collect();
+        Admission { grow, uploads }
+    }
+}
+
+/// Corpse sections on the GPU: geometry placed by the slab, plus this
+/// frame's transforms.
+struct ResidentPieces {
+    slab: PieceSlab,
+    geometry: wgpu::Buffer,
+    instances: wgpu::Buffer,
+}
+impl ResidentPieces {
+    /// Upload new corpse sections once, and this frame's section transforms.
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bones: &Bones,
+        transforms: &[scene::PieceInstance],
+    ) {
+        let live: Vec<(u64, u32)> = bones
+            .pieces
+            .iter()
+            .map(|piece| (piece.id, piece.vertices.len() as u32))
+            .collect();
+        let admission = self.slab.admit(&live);
+        let stride = std::mem::size_of::<Vertex>() as u64;
+        if let Some(capacity) = admission.grow {
+            self.geometry = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Resident corpse sections"),
+                size: capacity as u64 * stride,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        for (index, start) in admission.uploads {
+            queue.write_buffer(
+                &self.geometry,
+                start as u64 * stride,
+                bytemuck::cast_slice(&bones.pieces[index].vertices),
+            );
+        }
+        let bytes: &[u8] = bytemuck::cast_slice(transforms);
+        if bytes.len() as u64 > self.instances.size() {
+            self.instances = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Corpse section transforms"),
+                size: (bytes.len() as u64).next_power_of_two(),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        queue.write_buffer(&self.instances, 0, bytes);
+    }
+}
+
 fn index_enemy_geometry(vertices: &[Vertex]) -> (Vec<Vertex>, Vec<u32>) {
     let mut unique = Vec::new();
     let mut indices = Vec::with_capacity(vertices.len());
@@ -64,6 +176,67 @@ fn index_world_geometry(vertices: &[Vertex]) -> (Vec<Vertex>, Vec<u32>, Vec<Worl
 #[cfg(test)]
 mod model_tests {
     use super::*;
+
+    /// Every live piece has its own range of the right length inside the buffer.
+    fn check(slab: &PieceSlab, live: &[(u64, u32)]) {
+        assert_eq!(slab.ranges.len(), live.len());
+        let mut ranges: Vec<_> = live
+            .iter()
+            .map(|(id, len)| {
+                let range = slab.ranges[id].clone();
+                assert_eq!(range.len() as u32, *len);
+                range
+            })
+            .collect();
+        ranges.sort_by_key(|r| r.start);
+        assert!(ranges.windows(2).all(|w| w[0].end <= w[1].start));
+        assert!(ranges.last().is_none_or(|r| r.end <= slab.used && slab.used <= slab.capacity));
+    }
+    #[test]
+    fn corpse_slab_appends_reuses_space_and_compacts_without_losing_a_piece() {
+        let mut slab = PieceSlab::default();
+        // The first corpse sizes the buffer and uploads everything.
+        let mut live = vec![(1, 40_000), (2, 9_000)];
+        let first = slab.admit(&live);
+        assert_eq!(first.grow, Some(PieceSlab::MIN_CAPACITY << 1));
+        assert_eq!(first.uploads, vec![(0, 0), (1, 40_000)]);
+        check(&slab, &live);
+        // Nothing new: nothing to upload.
+        assert_eq!(slab.admit(&live).uploads, vec![]);
+        // A new piece is appended after the others; an expired one leaves a hole.
+        live = vec![(2, 9_000), (3, 30_000)];
+        let next = slab.admit(&live);
+        assert_eq!(next, Admission { grow: None, uploads: vec![(1, 49_000)] });
+        check(&slab, &live);
+        assert_eq!(slab.ranges[&2], 40_000..49_000);
+        // Another piece expires and the next doesn't fit after the others, so
+        // the live pieces are packed again from the start of the same buffer.
+        live = vec![(2, 9_000), (4, 53_000)];
+        let packed = slab.admit(&live);
+        assert_eq!(packed.grow, None);
+        assert_eq!(packed.uploads, vec![(0, 0), (1, 9_000)]);
+        check(&slab, &live);
+        // More live geometry than half the buffer grows it.
+        live.push((5, 70_000));
+        let grown = slab.admit(&live);
+        assert_eq!(grown.grow, Some(1 << 19));
+        assert_eq!(grown.uploads.len(), live.len());
+        check(&slab, &live);
+        // Churn: pieces come and go, and every live piece stays placed.
+        let mut next_id = 6;
+        for step in 0..400u32 {
+            if live.len() > 6 || step % 3 == 0 {
+                live.remove((step as usize * 7) % live.len());
+            }
+            live.push((next_id, 2_000 + (step * 7919) % 40_000));
+            next_id += 1;
+            let admission = slab.admit(&live);
+            for (index, start) in admission.uploads {
+                assert_eq!(slab.ranges[&live[index].0].start, start);
+            }
+            check(&slab, &live);
+        }
+    }
 
     #[test]
     fn world_chunks_preserve_triangle_attributes_and_contain_their_geometry() {
@@ -141,6 +314,8 @@ pub struct Renderer {
     enemy_instances: wgpu::Buffer,
     enemy_bind: wgpu::BindGroup,
     enemy_layout: wgpu::BindGroupLayout,
+    piece_pipeline: wgpu::RenderPipeline,
+    pieces: ResidentPieces,
     dynamic_mesh: scene::Mesh,
     sky: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
@@ -539,6 +714,35 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let piece_attributes =
+            wgpu::vertex_attr_array![6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4];
+        let piece_pipeline = make_pipeline(
+            "piece_vs",
+            "fs",
+            &[
+                buffers[0].clone(),
+                wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<scene::PieceInstance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &piece_attributes,
+                },
+            ],
+            true,
+            &layout,
+        );
+        // Placeholders until the first corpse appears; both grow on demand.
+        let piece_geometry = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Resident corpse sections"),
+            size: std::mem::size_of::<Vertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let piece_instances = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Corpse section transforms"),
+            size: (std::mem::size_of::<scene::PieceInstance>() * 256) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let sky = make_pipeline("sky_vs", "sky_fs", &[], false, &layout);
         let scene_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -654,7 +858,16 @@ impl Renderer {
             enemy_instances,
             enemy_bind,
             enemy_layout,
-            dynamic_mesh: scene::Mesh::new(),
+            piece_pipeline,
+            pieces: ResidentPieces {
+                slab: PieceSlab::default(),
+                geometry: piece_geometry,
+                instances: piece_instances,
+            },
+            dynamic_mesh: scene::Mesh {
+                cpu_pieces: std::env::var_os("GRAVEWAKE_CPU_CORPSES").is_some(),
+                ..scene::Mesh::new()
+            },
             sky,
             composite,
             camera_buffer,
@@ -1033,6 +1246,14 @@ impl Renderer {
             self.view_projection,
             self.optimized && !self.model_review_cpu,
         );
+        if !self.dynamic_mesh.pieces.is_empty() {
+            self.pieces.upload(
+                &self.device,
+                &self.queue,
+                bones,
+                &self.dynamic_mesh.piece_instances,
+            );
+        }
         let mesh = &self.dynamic_mesh;
         self.timings[0] = mesh_start.elapsed().as_secs_f64() * 1000.;
         self.vertex_count = mesh.vertices.len() + mesh.transparent.len();
@@ -1137,6 +1358,16 @@ impl Renderer {
                 for (index, enemy) in mesh.enemies.iter().enumerate() {
                     let range = self.enemy_ranges[enemy.params[0] as usize].clone();
                     pass.draw_indexed(range, 0, index as u32..index as u32 + 1);
+                }
+                pass.set_pipeline(&self.world);
+            }
+            if !mesh.pieces.is_empty() {
+                pass.set_pipeline(&self.piece_pipeline);
+                pass.set_vertex_buffer(0, self.pieces.geometry.slice(..));
+                pass.set_vertex_buffer(1, self.pieces.instances.slice(..));
+                for (index, id) in mesh.pieces.iter().enumerate() {
+                    let range = self.pieces.slab.ranges[id].clone();
+                    pass.draw(range, index as u32..index as u32 + 1);
                 }
                 pass.set_pipeline(&self.world);
             }
