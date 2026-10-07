@@ -557,3 +557,99 @@ Deferred, with reasons:
 - Owner decisions: release downloads and tag workflows, macOS signing and
   notarization, licences, and whether the synthesized score fits the game or
   should be replaced by composed music.
+
+## Round 4 scope
+
+Round 3 was merged and pushed on 2026-10-06. Rounds 1–3 covered the platform,
+preferences, feedback, audio, rebinding, tips and music. This round fixes two
+gaps a player meets in the first hour: prompts that ignore the controller,
+and deaths that don't say what happened. It also takes on the long-deferred
+corpse rendering path. The README gains a "Status and known issues" section.
+The riskiest item (C) goes last, so A and B ship even if it slips.
+
+### A. Controller-aware prompts
+
+Controller players see keyboard prompts everywhere: the field tips ("W A S D
+to move… Shift to sprint"), the HUD hints (reload, strike, dodge, Ember Bolt)
+and the level-up line ("PRESS 1, 2 OR 3").
+
+Acceptance criteria:
+- The game tracks the last input device used. A controller button, a trigger
+  or a stick pushed past its deadzone switches prompts to controller labels. A
+  key press, a mouse click or real mouse movement switches them back. Stick
+  noise inside the deadzone doesn't switch. The choice isn't saved.
+- In controller mode, the HUD hints, the level-up line, the opening banner and
+  every field tip name controller inputs, using the same Xbox names as the
+  README table (left stick, LT, A, X, B, Y, D-pad). Keyboard prompts are
+  unchanged.
+
+Verification: unit tests for device switching (including deadzone noise), the
+label for every action on both devices, and every tip's text on both devices.
+Text-review captures of the controller HUD, the movement tip and the level-up
+screen at 1440×900 and 960×600. `--smoke --gamepad` must still pass.
+
+### B. Death recap and run summary
+
+The ending screen shows only the descent, kills and time. Damage from all
+sources is summed each tick, so the game can't say what killed you, which
+matters with flyers, casters and off-screen blasts.
+
+Acceptance criteria:
+- Each hit on the player records its source: the creature and the attack
+  (strike, bolt, slam, plague burst, blast). The death screen names the killing
+  blow (for example "Slain by a Grave Crawler's strike") and the creature that
+  dealt the most damage over the run.
+- Death and victory screens show a run summary: kills, headshots, damage
+  dealt, damage taken, soul level, the equipped weapon and the run time.
+- The statistics are saved with the run. Older saves load with zeros. Practice
+  never adds to them.
+- Both screens fit at 1440×900 and 960×600.
+
+Verification: unit tests that each attack family records the right cause, that
+the killing blow and the top source are reported, that hits and kills add to
+the statistics, that a legacy save loads, and that practice leaves the run
+untouched. Text-review captures of the death and victory screens at both
+sizes.
+
+### C. GPU-resident corpse sections (backlog #10)
+
+Corpse sections keep fixed body-space vertices, but each frame the CPU
+transforms every vertex and re-uploads them (about 527k vertices with 14
+corpses). That makes the corpse benchmark the slowest scene.
+
+Acceptance criteria:
+- In the optimized renderer, each body piece (intact sections and fracture
+  fragments) uploads its vertices to a resident GPU buffer once, when it first
+  appears. Each frame writes one transform per visible piece. Frustum culling,
+  the end-of-life shrink and ground shadows are unchanged. The buffer reuses
+  space as pieces expire, and compacts when it fills.
+- The CPU reference path (benchmark reference scenes, `--model-cpu`) is
+  unchanged.
+- The corpse scene renders the same as the CPU path: a pixel difference of the
+  two captures is reviewed, and the mean difference is under 1/255.
+- In the corpse benchmark, mesh CPU time falls by at least 80%. Frame rates
+  are reported with the machine's load.
+
+Verification: unit tests that the instance transform reproduces the CPU
+expansion (rotation, translation, shrink and normals) and that the allocator
+appends, reuses space and compacts without losing a live piece. A native
+`--benchmark` before and after, paired captures of the CPU and GPU paths with
+a difference image, and the anatomy review (fractures, explosions and expiry)
+must pass.
+
+### D. Status and known issues in the README
+
+The README has no single place that says what is verified, what isn't, and
+what is known to be wrong.
+
+Acceptance criteria: a "Status and known issues" section listing the tested
+platforms, what has never been verified (macOS runs since round 1, Windows,
+X11, NVIDIA, a physical controller, a listening test), and known limitations.
+
+### Deferred this round
+
+- Windows validation (#12): nothing here to test on.
+- Elite modifiers (rest of #8): balance needs playtests.
+- Controller remapping, HUD scale and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.
