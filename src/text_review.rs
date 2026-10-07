@@ -640,6 +640,8 @@ impl Review {
                         ..Default::default()
                     };
                 } else {
+                    game.notice = "CONTROLLER DISCONNECTED / PAUSED".into();
+                    game.notice_time = 2.;
                     game.run.armor = 30.;
                     game.run.hp = 164.;
                     game.run.weapon.paths = [5, 5, 3];

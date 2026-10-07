@@ -3269,14 +3269,14 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     (&arena, c.h * 0.72)
                 };
                 let alpha = (g.notice_time.min(1.) * 245.) as u8;
-                c.layout("notice", 310., y - 17., 820., 35.);
-                c.fill(
-                    310.,
-                    y - 17.,
-                    820.,
-                    35.,
-                    C::from_black_alpha(alpha.min(210)),
-                );
+                // Over the pause menu, keep between the ledger's panels.
+                let (x, w) = if g.mode == Mode::Paused && !g.settings {
+                    (LEDGER_LEFT + LEDGER_WIDTH + 4., LEDGER_RIGHT - LEDGER_LEFT - LEDGER_WIDTH - 8.)
+                } else {
+                    (310., 820.)
+                };
+                c.layout("notice", x, y - 17., w, 35.);
+                c.fill(x, y - 17., w, 35., C::from_black_alpha(alpha.min(210)));
                 c.center(
                     720.,
                     y,
@@ -3833,6 +3833,8 @@ mod tests {
                 } else {
                     g.run.survival.ranks[6] = 1;
                 }
+                // The notice a lost controller leaves over the pause menu.
+                g.notify("CONTROLLER DISCONNECTED / PAUSED");
                 let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height));
                 for _ in 0..2 {
                     let input = egui::RawInput {
@@ -3851,8 +3853,11 @@ mod tests {
                 assert_eq!((folio.len(), panels.len()), (1, 2), "{width}x{height}");
                 // The run's rows plus one block per power held.
                 assert_eq!(text.len(), 1 + if full { 10 } else { 1 });
+                let notice = of("notice");
+                assert_eq!(notice.len(), 1);
                 for panel in &panels {
                     assert!(!panel.intersects(folio[0]), "{panel:?} at {width}x{height}");
+                    assert!(!panel.intersects(notice[0]), "{panel:?} at {width}x{height}");
                     assert!(screen.contains_rect(*panel), "{panel:?} at {width}x{height}");
                 }
                 for block in &text {
