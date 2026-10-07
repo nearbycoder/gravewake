@@ -89,6 +89,8 @@ pub struct Frame {
     pub held: Vec<Button>,
     pub pressed: Vec<Button>,
     pub released: Vec<Button>,
+    /// The controller driving the game disconnected this update.
+    pub lost: bool,
 }
 impl Frame {
     pub fn held(&self, b: Button) -> bool {
@@ -460,6 +462,7 @@ impl Pad {
                 gilrs::EventType::Disconnected => {
                     if self.active == Some(id) {
                         self.active = None;
+                        frame.lost = true;
                     }
                     self.notices.push("CONTROLLER DISCONNECTED".into());
                 }

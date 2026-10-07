@@ -911,6 +911,10 @@ impl App {
         for notice in self.pad.notices.drain(..) {
             self.game.notify(&notice);
         }
+        if pad_frame.lost && !self.smoke && !self.review && self.game.controller_lost() {
+            self.mouse_fire = false;
+            self.sync_cursor();
+        }
         if pad_frame.deliberate() {
             self.game.device = controls::Device::Controller;
         }

@@ -1043,6 +1043,19 @@ impl Game {
             Device::Controller => self.prefs.pad_bindings.label(PadAction::Fire),
         }
     }
+    /// The controller driving the game disconnected. A fight played with it
+    /// pauses, as losing focus does; returns whether it paused.
+    pub fn controller_lost(&mut self) -> bool {
+        if self.mode != Mode::Arena || self.device != Device::Controller {
+            return false;
+        }
+        self.back();
+        self.input = Input::default();
+        if self.mode == Mode::Paused {
+            self.notify("CONTROLLER DISCONNECTED  /  PAUSED");
+        }
+        true
+    }
     pub fn notify(&mut self, s: &str) {
         self.notice = s.into();
         self.notice_time = 3.4;
@@ -2354,6 +2367,40 @@ mod tests {
             "gravewake-quit-save-{label}-{}-{stamp}",
             std::process::id()
         ))
+    }
+    #[test]
+    fn losing_the_controller_pauses_only_a_fight_played_with_it() {
+        let mut game = Game::new(false);
+        game.new_run();
+        game.mode = Mode::Arena;
+        game.device = Device::Controller;
+        game.input = Input {
+            forward: 1.,
+            right: -0.5,
+            sprint: true,
+            fire: true,
+        };
+        assert!(game.controller_lost());
+        assert_eq!(game.mode, Mode::Paused);
+        assert_eq!(game.input.forward, 0.);
+        assert_eq!(game.input.right, 0.);
+        assert!(!game.input.sprint && !game.input.fire);
+        assert_eq!(game.notice, "CONTROLLER DISCONNECTED  /  PAUSED");
+        // Playing with keyboard and mouse: an idle controller dropping out
+        // doesn't interrupt the fight.
+        game.mode = Mode::Arena;
+        game.device = Device::Keyboard;
+        game.input.fire = true;
+        assert!(!game.controller_lost());
+        assert_eq!(game.mode, Mode::Arena);
+        assert!(game.input.fire);
+        // Menus are already still.
+        game.device = Device::Controller;
+        for mode in [Mode::Shop, Mode::Paused, Mode::LevelUp, Mode::Title] {
+            game.mode = mode;
+            assert!(!game.controller_lost());
+            assert_eq!(game.mode, mode);
+        }
     }
     #[test]
     fn quit_save_paused_run_restores_arena_progress() {
