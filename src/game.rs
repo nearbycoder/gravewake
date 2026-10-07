@@ -441,6 +441,9 @@ pub struct Preferences {
     pub fullscreen: bool,
     /// Right-stick turn rate, relative to `gamepad::LOOK_SPEED`.
     pub stick_speed: f32,
+    /// A sprint press starts sprinting and the next stops it, instead of
+    /// sprinting while held.
+    pub toggle_sprint: bool,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -470,6 +473,7 @@ impl Default for Preferences {
             hud_scale: 1.,
             fullscreen: false,
             stick_speed: 1.,
+            toggle_sprint: false,
         }
     }
 }
@@ -517,6 +521,7 @@ impl Preferences {
             ),
             fullscreen: self.fullscreen,
             stick_speed: clean(self.stick_speed, Self::STICK_SPEED_RANGE, d.stick_speed),
+            toggle_sprint: self.toggle_sprint,
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -639,6 +644,10 @@ pub struct Game {
     /// The journal's Fullscreen switch changed `prefs.fullscreen`; the
     /// window applies it on the next frame.
     pub fullscreen_changed: bool,
+    /// Sprint switched on by a press, with Toggle sprint on.
+    sprint_latched: bool,
+    /// Whether a sprint binding was held on the last update.
+    sprint_held: bool,
     pub confirm_new_run: bool,
     pub has_save: bool,
     pub bestiary_index: usize,
@@ -740,6 +749,8 @@ impl Game {
             controls_note: String::new(),
             quit_requested: false,
             fullscreen_changed: false,
+            sprint_latched: false,
+            sprint_held: false,
             confirm_new_run: false,
             has_save: Self::load_path("run.json").exists(),
             bestiary_index: 0,
@@ -1018,6 +1029,26 @@ impl Game {
             self.reload = self.run.weapon.reload_time();
             self.sound_events.push("cloth");
         }
+    }
+    /// Set `input.sprint` from whether a sprint key or button is held, after
+    /// the movement input. With Toggle sprint, each press starts or stops
+    /// sprinting, and stopping or leaving the arena ends it.
+    pub fn sprint_input(&mut self, held: bool) {
+        let pressed = held && !self.sprint_held;
+        self.sprint_held = held;
+        if !self.prefs.toggle_sprint {
+            self.sprint_latched = false;
+            self.input.sprint = held;
+            return;
+        }
+        if pressed {
+            self.sprint_latched = !self.sprint_latched;
+        }
+        let moving = self.input.forward != 0. || self.input.right != 0.;
+        if !moving || self.mode != Mode::Arena {
+            self.sprint_latched = false;
+        }
+        self.input.sprint = self.sprint_latched;
     }
     pub fn dodge(&mut self) {
         if self.mode == Mode::Arena && self.dash_cd <= 0. {
@@ -2327,6 +2358,51 @@ mod tests {
             seen.push(prefs.hud_scale);
         }
         assert_eq!(seen, [1.1, 1.2, 1.3, 0.8, 0.9, 1.]);
+    }
+    #[test]
+    fn toggle_sprint_latches_on_a_press_and_ends_when_movement_stops() {
+        let mut g = Game::new(false);
+        g.mode = Mode::Arena;
+        g.input.forward = 1.;
+        // Hold: sprint follows the key.
+        for held in [true, true, false, true] {
+            g.sprint_input(held);
+            assert_eq!(g.input.sprint, held);
+        }
+        g.sprint_input(false);
+        // Toggle: a press starts it, releasing keeps it, the next press stops it.
+        g.prefs.toggle_sprint = true;
+        let mut steps = vec![];
+        for held in [true, true, false, false, true, false, true] {
+            g.sprint_input(held);
+            steps.push(g.input.sprint);
+        }
+        assert_eq!(steps, [true, true, true, true, false, false, true]);
+        // Stopping ends it, and moving again doesn't restart it.
+        g.input.forward = 0.;
+        g.sprint_input(false);
+        assert!(!g.input.sprint);
+        g.input.right = -1.;
+        g.sprint_input(false);
+        assert!(!g.input.sprint);
+        // Leaving the arena ends it too.
+        g.sprint_input(true);
+        assert!(g.input.sprint);
+        g.mode = Mode::Paused;
+        g.sprint_input(false);
+        g.mode = Mode::Arena;
+        g.sprint_input(false);
+        assert!(!g.input.sprint);
+        // The first-run note says how sprint works.
+        assert!(crate::tips::Tip::Move.text(&g).contains("Press SHIFT to sprint"));
+        g.prefs.toggle_sprint = false;
+        assert!(crate::tips::Tip::Move.text(&g).contains("Hold SHIFT to sprint"));
+        // Saved, and older files load as hold.
+        let mut prefs = Preferences::default();
+        prefs.toggle_sprint = true;
+        let bytes = serde_json::to_vec(&prefs).unwrap();
+        assert!(Preferences::from_json(&bytes).unwrap().toggle_sprint);
+        assert!(!Preferences::from_json(br#"{"volume":0.5}"#).unwrap().toggle_sprint);
     }
     #[test]
     fn rebinding_waits_for_a_usable_key_and_reports_swaps() {

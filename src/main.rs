@@ -940,7 +940,8 @@ impl App {
             use controls::Action;
             self.game.input.forward = axis(Action::Forward, Action::Back, pad.forward);
             self.game.input.right = axis(Action::Right, Action::Left, pad.right);
-            self.game.input.sprint = down(Action::Sprint) || pad.sprint;
+            let sprint = down(Action::Sprint) || pad.sprint;
+            self.game.sprint_input(sprint);
             let menus =
                 self.game.mode != Mode::Arena || self.game.settings || self.game.confirm_new_run;
             if menus && self.game.pad_rebinding.is_some() {

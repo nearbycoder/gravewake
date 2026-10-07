@@ -3531,6 +3531,22 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         g.prefs.fullscreen = !fullscreen;
         g.fullscreen_changed = true;
     }
+    let toggle = g.prefs.toggle_sprint;
+    if c.button(
+        "toggle_sprint",
+        734.,
+        JOURNAL_TOGGLES_Y + 132.,
+        310.,
+        35.,
+        if toggle {
+            "SPRINT / TOGGLE"
+        } else {
+            "SPRINT / HOLD"
+        },
+        false,
+    ) {
+        g.prefs.toggle_sprint = !toggle;
+    }
     if c.button(
         "vsync",
         392.,

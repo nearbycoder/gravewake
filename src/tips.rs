@@ -62,8 +62,9 @@ impl Tip {
         let key = |action| g.prompt(action);
         match self {
             Tip::Move => format!(
-                "{} to move. Hold {} to sprint. {} dodges, and nothing can hurt you mid-dodge.",
+                "{} to move. {} {} to sprint. {} dodges, and nothing can hurt you mid-dodge.",
                 g.movement_prompt(),
+                if g.prefs.toggle_sprint { "Press" } else { "Hold" },
                 key(Action::Sprint),
                 key(Action::Dodge)
             ),
