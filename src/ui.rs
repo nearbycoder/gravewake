@@ -3230,3 +3230,45 @@ pub const JOURNAL_SLIDER_Y: f32 = 312.;
 /// Top of the Preferences page switches: invert and flashes, then the
 /// presentation row (VSync, FPS), then field tips and HUD size, 44 apart.
 pub const JOURNAL_TOGGLES_Y: f32 = 560.;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// Run `f` with a canvas filling a window of the given logical size.
+    fn with_canvas(width: f32, height: f32, f: impl FnOnce(&Canvas)) {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height))),
+            ..Default::default()
+        };
+        let mut f = Some(f);
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(ctx, |ui| (f.take().unwrap())(&Canvas::new(ui, 0.)));
+        });
+    }
+    #[test]
+    fn hud_groups_scale_around_their_anchors() {
+        for (width, height) in [(1440., 900.), (960., 600.), (1920., 1080.)] {
+            with_canvas(width, height, |base| {
+                let h = base.h;
+                for k in Preferences::HUD_SCALES {
+                    for (ax, ay) in [(0., 0.), (720., 0.), (1440., h), (720., h)] {
+                        let c = base.anchored(k, ax, ay);
+                        // The anchor stays put and distances from it scale by k.
+                        assert!((c.pt(ax, ay) - base.pt(ax, ay)).length() < 1e-3);
+                        let moved = c.pt(ax - 100., ay - 50.) - c.pt(ax, ay);
+                        let unscaled = base.pt(ax - 100., ay - 50.) - base.pt(ax, ay);
+                        assert!((moved - unscaled * k).length() < 1e-3, "{k} at ({ax}, {ay})");
+                        // Text never grows below its normal floor, and shrinks with the HUD.
+                        assert_eq!(c.floor, 13.5 * k.min(1.));
+                    }
+                }
+                let shifted = base.shifted(10., -4.);
+                let gap = shifted.pt(0., 0.) - base.pt(0., 0.);
+                assert!((gap - Vec2::new(10., -4.) * base.s).length() < 1e-3);
+            });
+        }
+    }
+}
