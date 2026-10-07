@@ -85,6 +85,30 @@ tar -xzf dist/gravewake-linux-x86_64.tar.gz -C ~/Games
 
 The tarball contains the self-contained executable, a desktop entry, an icon and the font and audio notices. `install.sh` installs for the current user under `~/.local`; `install.sh --uninstall` removes it and keeps saves. The executable requires the glibc version it was built against (or newer); the bundled `README.txt` records it. No prebuilt downloads are published yet.
 
+## Status and known issues
+
+This is a playable development build. What has and hasn't been checked:
+
+**Tested**
+- **Linux:** one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland. Every change since October 2026 was run there: unit tests, smoke runs with keyboard and with simulated controller input, the review galleries and the benchmark.
+- **macOS:** Apple Silicon with Metal was the original platform. Since the Linux work began, CI builds and runs the unit tests on macOS for every push, but the game itself hasn't been run on a Mac.
+
+**Never verified**
+- Windows (never built or run), X11, NVIDIA or Intel GPUs, and other Linux distributions.
+- A physical controller. Controller play, prompts and menus are tested only with simulated input, so real sticks, triggers and hot-plugging are unverified.
+- Listening. The music, positional audio and warning cues were checked with spectrograms and level measurements, not by ear.
+- Real key presses on the Controls page, and field notes triggering in a hand-played run. Tests and review fixtures drive the same code paths.
+
+**Known issues and limitations**
+- No prebuilt downloads yet: build from source, or package locally. The macOS app is ad-hoc signed, not notarized, so Gatekeeper warns.
+- On non-QWERTY layouts, a key shows its own character only after you've pressed it once.
+- Controller buttons can't be remapped, and menus use a virtual cursor rather than focus navigation.
+- The damage-per-second line on cards is single-target, so splash and elemental weapons look weaker than they are.
+- Balance hasn't been tuned through long playtests.
+- An intermittent start-up stall (about 5 of 60 scripted controller launches during early Linux testing) hasn't recurred in 362 launches since. Its cause is unknown; scripted runs now abort with a core dump if it happens.
+- The anatomy review's fracture scene isn't deterministic from run to run. It doesn't affect play, and the cause hasn't been investigated.
+- There is no browser build.
+
 ## Controls
 
 Default keys are listed below. Rebind them on the **Controls** page of **Settings & Controls**.
