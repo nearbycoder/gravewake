@@ -106,7 +106,6 @@ This is a playable development build. What has and hasn't been checked:
 - The damage-per-second line on cards is single-target, so splash and elemental weapons look weaker than they are.
 - Balance hasn't been tuned through long playtests.
 - An intermittent start-up stall (about 5 of 60 scripted controller launches during early Linux testing) hasn't recurred in 362 launches since. Its cause is unknown; scripted runs now abort with a core dump if it happens.
-- The anatomy review's fracture scene isn't deterministic from run to run. It doesn't affect play, and the cause hasn't been investigated.
 - There is no browser build.
 
 ## Controls
