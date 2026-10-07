@@ -808,3 +808,56 @@ the world review's captures are unchanged.
 - The browser build (#15).
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 5 results
+
+All four scoped items shipped on `improvements-5`, plus two fixes found while
+verifying them. Native checks ran on the same CachyOS / Radeon 8060S / KDE
+Wayland machine, with a throwaway `XDG_DATA_HOME` for every run.
+`~/.local/share/gravewake` didn't exist before or after the round. Load
+averages on the shared machine were 16–45. Timing- and input-sensitive runs
+waited for a load below 24.
+
+| Item | Verification |
+| --- | --- |
+| D. Dead-code warning (`9463e70`) | The three unused meshes are no longer embedded. `cargo build` and `cargo test` print no warnings, and the executable is about 1 MB smaller. All nine world-review captures are pixel-identical before and after (ImageMagick AE = 0). |
+| A. Off-screen attack warnings (`9a8e1de`) | Unit tests: every attack family aimed at the player shows a pointer when it winds up behind the player; summons, in-view casts and a burst the player has left don't; bearings are right in all four quadrants and under rotation; urgency rises through the warning, and a dive in flight is 1; four at most, the most urgent kept. The `hud-offscreen-warnings` fixture (1440×900 and 960×600) shows pointers to the right, behind and behind-left, sized by urgency, next to a damage arc, and none for an in-view cast (`round5/hud-offscreen-warnings*.jpg`). The scope wrongly named the Iron Penitent; the slam is the Tithekeeper's. |
+| B. HUD size (`c08c235`, `9f9392a`) | **Range changed from the plan:** 80, 90, 100 and 110%, not up to 130%. At 1440 design units, the bottom row (vitality, armor, dodge and weapon) only fits up to about 115%, and at 115% a damage arc pointing straight ahead reaches the boss bar. The reticle group keeps its size so it can't run into the boss bar or the notes. Unit tests cover the round-trip, clamping, the cycle, and, in a real egui frame at three window sizes, that each anchor stays put while distances scale. Busy-HUD fixtures (every power, boss bar under the last-threat bearing, chalice, the longest field note under a notice, a damage arc, an off-screen dive) at 80, 100 and 110% at both sizes show no panel overlaps (`round5/hud-size-*.jpg`). The journal switch fits at 960×600. Arena field notes now end above the weapon and chalice panels: before, a two-line note in a 960×600 window overlapped the weapon panel's corner by a few pixels. At 80% in a 960×600 window, HUD text is about 11 points. |
+| C. Controller remapping (`8350a68`) | Unit tests: each prompt names a button that performs its action, with default and remapped bindings (including fire); swaps; an emptied main slot taking the second button; reserved Start and D-pad refused; leaving an action bare refused with no change; every bindable button usable; serde round-trip; damaged entries (reserved, empty, too many, duplicate or unknown) restore the defaults without touching other preferences; files from before remapping load the defaults; trigger pulls become presses and releases at the threshold; the waiting state keeps waiting through refusals and reports swaps. Captures of the Controller page, the waiting state and a remapped page with its note, and a HUD and opening reminder with remapped prompts, at both sizes (`round5/controller-*.jpg`, `round5/hud-controller-remapped.jpg`). `--smoke --gamepad` passes. **No physical controller was available**, so live button presses on the Controller page are unverified. That the choosing press can't bind relies on egui registering a click when A is released; a test checks that a release-only frame binds nothing. |
+| Watchdog fix (`269a176`) | Steps inside a frame no longer count as watchdog progress, and a lost or outdated surface no longer counts as a presented frame. A temporary injected outdated surface (not committed) now aborts with status 134, names the step, logs the surface error once and leaves a core; before, those failed frames counted as progress. |
+| Physics determinism (`af9ddeb`) | The anatomy review's nondeterminism (open since round 4) came from Parry's hash maps, which use a hasher seeded randomly for each process unless Rapier's `enhanced-determinism` feature is on. Two baseline runs first differed at capture 287 (round 4 saw 503). With the feature, three runs gave identical captures for all 720 frames and identical logs, and the CPU and GPU corpse paths now produce identical logs, with a worst normalised RMSE of 0.00056 over every tenth frame of the whole review, fracture scenes included. In alternating benchmark runs (load 20–29), corpse-scene simulation time was 2.18 and 2.08 ms with the feature and 2.11 and 2.09 ms without, so no measurable cost. `Cargo.lock` gains four dependency edges, to crates it already pinned. |
+
+Final state: 128 unit tests pass (122 before the round), with no warnings.
+On the final binary, `--smoke` and `--smoke --gamepad` (twice each),
+`--text-review` (normal and `--review-small`, 98 captures across 95
+fixtures), `--shader-review`, `--armory-review`, `--survival-review` and
+`--world-review` exited with status 0. `--anatomy-review` (three runs, plus
+one on the CPU corpse path) and `--benchmark` (twice) ran on the same code.
+Benchmark (four runs, load 20–29): 72–167 FPS for 12 enemies, 82–175 for 48
+and 106–165 for the corpse scene. The spread comes from the shared desktop's
+presentation, not game code.
+
+Notes:
+- **One controller smoke stall.** Early in the round, a `--smoke --gamepad`
+  launch started immediately after a plain smoke run stalled after start-up
+  with no captures, and `timeout` killed it at 600 s (status 124). Its
+  watchdog never printed or aborted, so the whole process, watchdog thread
+  included, stopped making progress. That looks like the process being
+  stopped or hung outside the game loop, not a game-loop stall, but the cause
+  isn't established and no stack was kept. An immediate rerun passed in
+  9 s, a 30-launch stall hunt (15 plain, 15 controller) passed every run, and
+  so did the four final smoke runs.
+- The watchdog's abort test left one core dump (about 79 MB) in
+  systemd-coredump's store; it will be rotated out normally.
+
+Not verified: macOS (CI builds and runs the unit tests after the push), Windows,
+X11, NVIDIA and Intel GPUs, a physical controller (including live remapping),
+and how 80% and 110% HUD sizes feel in a hand-played run.
+
+Deferred, with reasons:
+- HUD sizes above 110%: they need a different bottom-row layout.
+- Windows validation (#12): nothing here to test on.
+- Elite modifiers (rest of #8): balance needs playtests.
+- Focus-based controller menu navigation and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.

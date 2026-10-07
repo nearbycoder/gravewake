@@ -105,7 +105,7 @@ This is a playable development build. What has and hasn't been checked:
 - Menus use a virtual cursor for controllers rather than focus navigation.
 - The damage-per-second line on cards is single-target, so splash and elemental weapons look weaker than they are.
 - Balance hasn't been tuned through long playtests.
-- An intermittent start-up stall (about 5 of 60 scripted controller launches during early Linux testing) hasn't recurred in 362 launches since. Its cause is unknown; scripted runs now abort with a core dump if it happens.
+- An intermittent stall (about 5 of 60 scripted controller launches during early Linux testing) has recurred once since, in one of about 400 scripted launches (October 2026). Its cause is unknown; scripted runs now abort with a core dump if it happens.
 - There is no browser build.
 
 ## Controls
