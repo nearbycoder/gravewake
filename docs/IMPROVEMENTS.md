@@ -1367,3 +1367,97 @@ Deferred, with reasons:
   stays. New: whether aim assist should default to on (it does, as in most
   console shooters) and whether its strength (half speed) should be
   adjustable rather than on/off.
+
+## Round 9 scope
+
+Round 8 was merged and pushed on 2026-10-07. This round takes three things
+a player notices and one long-standing gap in what has been checked.
+Presentation is unlocked by default, so the title, the Collector's table and
+the journal draw as fast as the GPU allows, and they keep doing so when the
+window is in the background: on a laptop that means fan noise and battery
+drain while nothing moves. Records keep only bests, so a player can't look
+back at how their last few runs went. The aim sensitivity slider is the only
+one without a value. And every round since round 3 has reported that real
+key presses were never exercised: toggle sprint, key rebinding and F11 have
+only been driven through the code behind the handler. Elite enemy variants
+stay deferred: they need playtests, and none are possible here.
+
+### A. A frame limit, and a lower rate in the background
+
+Acceptance criteria:
+- The journal's Preferences page gets a **Frame limit** control: Off, 30,
+  60, 90, 120, 144, 165 or 240 frames per second, saved in `settings.json`
+  (`frame_limit`, 0 for Off). Older files load as Off, so nothing changes
+  unless the player chooses it. It applies with VSync on or off.
+- While the window is visible but not focused, the game draws at most 30
+  frames per second (combat is already paused then). Minimized or hidden
+  windows keep waiting as before.
+- The limiter keeps an average close to the limit (within 2%) without
+  spinning the CPU, and scripted runs ignore it.
+- The page still fits at 960×600.
+
+Verification: unit tests for the pacing schedule (steady rate, catching up
+after a long frame without a burst, Off), the preference round-trip,
+clamping to the listed values and an older file. A scripted measurement in
+the private KWin (`--pacing-review`) on the title screen at Off, 30, 60
+and 144 and in the background, reporting frames per second, the 95th
+percentile frame time and the process's CPU time, with the load noted.
+Captures of the Preferences page at both sizes.
+
+### B. The chronicle: your last runs, on the title
+
+Acceptance criteria:
+- `records.json` keeps the last ten runs (`history`): run number, descent
+  reached, how it ended (slain, and by what; victory; or abandoned when a
+  new run replaced it), souls, time, soul level and the weapon held. A run
+  that continues into endless survival after a victory updates its own entry
+  instead of adding one. Older files load with an empty history, and
+  practice and scripted runs never add to it.
+- The title shows the latest five in a panel beside the scene once there is
+  one, clear of the menu, the records line and the logo, at 960×600 and
+  1440×900.
+
+Verification: unit tests for death, victory, endless after victory,
+abandoning, the ten-entry cap, practice, and an older file. A layout test in
+a real egui frame (the panel stays on screen and clear of every title
+button). Text-review captures of the title with a full chronicle at both
+sizes.
+
+### C. A value on the aim sensitivity slider
+
+Acceptance criteria:
+- The slider shows its value as a percentage of the default (100% at the
+  default, 28–280% across its range), like the other sliders.
+
+Verification: the Preferences captures from A at both sizes.
+
+### D. Real key presses, in the private compositor
+
+Acceptance criteria:
+- A scripted review (`--input-review`, run by `scripts/input-review.sh`)
+  runs inside the private KWin and sends real Wayland key and mouse-button
+  events through KWin's fake-input protocol, so they arrive through winit
+  and `main.rs`'s handlers exactly as a keyboard's would. It checks: Escape
+  pauses and resumes; with toggle sprint, a Shift press starts sprinting,
+  survives the release and the next press stops it; with hold, sprint lasts
+  only while Shift is down; rebinding Reload on the Keyboard page to a
+  pressed key (and the swap with the action that held it) and then reloading
+  with that key; F11 switches fullscreen and back.
+- Like the fullscreen review, it refuses to run outside the private
+  compositor or without a throwaway data folder. The fake-input permission
+  is opened only inside that compositor.
+
+Verification: the script's run must exit 0, with its log and captures in
+`captures/input/`. The real `~/.local/share/gravewake` is checked before and
+after. This still isn't a physical keyboard on a real Plasma session (KWin
+injects the events), and controller buttons stay unexercised.
+
+### Deferred this round
+
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12) and the browser build (#15).
+- Crowd-aware damage estimates on cards: no data on how many creatures a
+  splash or chain typically reaches.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  and aim assist's default and strength.
