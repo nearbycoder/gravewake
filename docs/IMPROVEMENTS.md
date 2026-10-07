@@ -653,3 +653,53 @@ X11, NVIDIA, a physical controller, a listening test), and known limitations.
 - Controller remapping, HUD scale and the browser build (#15).
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 4 results
+
+All four scoped items shipped on `improvements-4`. Native checks ran on the
+same CachyOS / Radeon 8060S / KDE Wayland machine, with a throwaway
+`XDG_DATA_HOME` for every run. `~/.local/share/gravewake` didn't exist before
+or after the round. Load averages on the shared machine were 19–29 during the
+round. Timing- and input-sensitive runs waited for a load below 24.
+
+| Item | Verification |
+| --- | --- |
+| A. Controller-aware prompts (`27ef2b0`) | Unit tests check every action's controller label against the real arena mapping (pressing the named button performs the action), that stick drift, light trigger pressure and held buttons don't switch prompts while presses, trigger pulls and stick pushes do, and every tip's text on both devices. New text-review fixtures show the controller HUD with the movement tip and a melee weapon, the controller opening reminder and the controller level-up line at 1440×900 and 960×600 (`round4/hud-controller-*.jpg`, `round4/powers-controller-960x600.jpg`). `--smoke --gamepad` still passes. **The switch itself hasn't been seen with a real controller**: none is exposed on this machine, so the live gilrs-to-prompt path is unverified. |
+| B. Death recap and run summary (`cc28d3f`) | Unit tests: a strike, a bolt, a slam and a burst each record the right creature and attack; the blow that empties vitality is the one named; damage taken stops at the vitality left; simultaneous hits share the loss by raw damage; the top source and its share are right; bullet and projectile hits add damage dealt (without overkill) and headshots; statistics survive a save round-trip; a save without them loads with zeros; and practice leaves the run's statistics unchanged. Text-review captures of a late death, a victory and a first-descent death at both sizes (`round4/death-recap.jpg`, `round4/victory-summary.jpg`, `round4/death-first-descent-960x600.jpg`). The recap wasn't seen after a hand-played death. |
+| C. GPU-resident corpse sections (`059a90c`, `f613d8d`) | A unit test runs `scene::dynamic` both ways on the benchmark's corpse scene and checks that, for every visible vertex, the instance transform reproduces the CPU expansion (position, normal and all other attributes), including two shrinking pieces. Another drives the buffer through appends, holes, compaction, growth, 400 steps of churn and a device limit, checking that no live piece is lost or overlapped. In the benchmark (three alternating runs per path, one binary, load 18–23), corpse-scene mesh CPU time fell from 5.5–7.4 ms to 0.65–0.90 ms (−87 to −88%), submit time from 2.7–4.0 ms to 0.3–0.8 ms, and per-frame dynamic vertices from 527,310 to 41,790. In the two busiest pairs, presentation capped every scene and frame rates moved little. In the third pair, the corpse scene ran at 46% of the same run's 12-enemy frame rate with CPU expansion and 80% with resident sections, and its p95 fell from 30.1 ms to 3.6 ms. Absolute frame rates varied about threefold between runs because of the shared desktop, so they aren't compared directly. Images: the benchmark's corpse capture differs by at most 2/255 on 0.009% of pixels. In the anatomy review, every frame before the fracture scene has an MSE under 0.005 between the paths. From there, two runs of the same path also diverge at the same frame, so the review's physics isn't deterministic (pre-existing, cause not investigated). The anatomy review passes on both paths. |
+| D. Status and known issues (`145d289`) | A new README section lists what was tested, what never was (Windows, X11, NVIDIA/Intel, a physical controller, a listening test, live key presses and live tip triggers) and the known limitations. |
+
+Final state: 122 unit tests pass (114 before the round). `--smoke` and
+`--smoke --gamepad` (twice each), `--text-review` (normal and
+`--review-small`, 90 captures across 87 fixtures), `--shader-review`,
+`--armory-review`, `--survival-review`, `--world-review`, `--anatomy-review`
+(on both corpse paths) and `--benchmark` all exited with status 0 on the final
+binary. The final benchmark (load 19) measured 275, 257 and 223 FPS for the
+optimized 12-enemy, 48-enemy and corpse scenes; round 3 measured 110, 106 and
+80 under heavier load.
+
+Notes:
+- The anatomy review isn't deterministic from run to run: two runs of the
+  same build first differ in its fracture scene (frame 503 of 720), and their
+  logged joint gaps and final speeds differ. Rendering can't affect physics,
+  so this predates the round. The benchmark's corpse scene is deterministic
+  (repeat captures are identical).
+- The repository isn't rustfmt-clean on `main` (34 differing hunks), so this
+  round didn't reformat files. New code follows the surrounding style.
+- The dead-code warning (backlog #16) remains. Clearing it means removing
+  three embedded meshes and shifting asset indices, which isn't worth the risk
+  without a reason to touch that file.
+
+Not verified: macOS (CI builds and runs the unit tests after the push; the new
+shader stage uses only standard WGSL vertex inputs), Windows, X11, NVIDIA and
+Intel GPUs, a physical controller (including the live prompt switch), and
+a hand-played death to see the recap.
+
+Deferred, with reasons:
+- Windows validation (#12): nothing here to test on.
+- Elite modifiers (rest of #8): balance needs playtests.
+- Controller remapping, HUD scale and the browser build (#15).
+- The anatomy review's nondeterminism: worth a look if exact replays matter,
+  but it doesn't affect play.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.

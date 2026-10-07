@@ -2,16 +2,18 @@
 
 Corpse sections (intact ragdoll sections and fracture fragments) keep fixed body-space vertices. Until round 4 the optimized renderer still transformed every one of those vertices on the CPU each frame and re-uploaded them: about 527,000 vertices with 14 corpses. Now each section's vertices are uploaded once, when it appears, into a resident vertex buffer, and each frame writes one matrix per visible section: the rigid-body pose plus the end-of-life shrink. `piece_vs` in `shaders/world.wgsl` applies it, and turns normals without the shrink's scale, as the CPU path did. Ground shadows, frustum culling and lifetimes are unchanged. Expired sections leave holes in the buffer. When it fills, the live sections are packed again from the start, and the buffer doubles if they need more than half of it, up to the device's buffer size limit (256 MB with wgpu's default limits, about 4.4 million vertices). If live sections ever exceeded that limit, those that don't fit would be skipped rather than crash the renderer. The 144-section pool makes that unlikely: the 14-corpse scene uses about 0.5 million. Section ids are unique per process, so a reset `Bones` can't reuse stale geometry.
 
-Measured on the Linux test machine (Radeon 8060S, Vulkan, Wayland, 1440 × 900 logical) in one release binary, alternating `GRAVEWAKE_CPU_CORPSES=1` (the old CPU expansion, kept as a diagnostic switch) with the default path. The shared machine's load average was 20–23 throughout.
+Measured on the Linux test machine (Radeon 8060S, Vulkan, Wayland, 1440 × 900 logical) in one release binary, alternating `GRAVEWAKE_CPU_CORPSES=1` (the old CPU expansion, kept as a diagnostic switch) with the default path. The shared machine was busy: load averages were 20–23 for the first two pairs and 18 for the third.
 
-| Optimized corpse scene (24 enemies + 14 corpses) | CPU expansion (2 runs) | Resident sections (2 runs) |
+| Optimized corpse scene (24 enemies + 14 corpses) | CPU expansion (3 runs) | Resident sections (3 runs) |
 | --- | ---: | ---: |
-| Mean dynamic mesh CPU time | 7.44 / 6.46 ms | 0.90 / 0.85 ms |
-| Mean submit time (uploads, encoding, UI) | 3.97 / 2.86 ms | 0.78 / 0.78 ms |
+| Mean dynamic mesh CPU time | 7.44 / 6.46 / 5.51 ms | 0.90 / 0.85 / 0.65 ms |
+| Mean submit time (uploads, encoding, UI) | 3.97 / 2.86 / 2.67 ms | 0.78 / 0.78 / 0.33 ms |
 | Dynamic vertices uploaded per frame | 527,310 | 41,790 |
-| Mean frame rate | 61.2 / 66.2 FPS | 65.9 / 73.5 FPS |
+| Mean frame rate | 61.2 / 66.2 / 68.1 FPS | 65.9 / 73.5 / 344.2 FPS |
+| Frame rate relative to the 12-enemy scene in the same run | 73% / 99% / 46% | 71% / 91% / 80% |
+| p95 frame interval | 24.0 / 21.8 / 30.1 ms | 35.0 / 26.6 / 3.6 ms |
 
-The CPU cost of the corpse scene now matches the 12- and 48-enemy scenes (0.70–0.97 ms mesh time). Frame rates barely moved because, at this load, presentation dominated: surface acquisition took 2–12 ms per frame and varied between runs. GPU time wasn't measured separately. Sources: `captures/performance/round4-{cpu,gpu}{1,2}.json`.
+The CPU cost of the corpse scene now matches the 12- and 48-enemy scenes (0.5–1.0 ms mesh time). Frame rates depended mostly on presentation, which varied from run to run on the shared desktop: in the first two pairs, surface acquisition took 2–12 ms per frame and capped every scene, so the corpse path made little difference. In the third pair, presentation was fast (1.3 ms acquisition in the resident run). There, even the corpse-free 12-enemy scene ran at 147 FPS in the CPU run and 432 FPS in the resident run, so compare the corpse scene with the 12-enemy scene in the same run: it ran at 46% of that scene's rate with CPU expansion and 80% with resident sections, and its p95 frame interval fell from 30.1 ms to 3.6 ms. The final verification benchmark (resident path, load 19) measured 275, 257 and 223 FPS for the 12-enemy, 48-enemy and corpse scenes. The remaining corpse-scene cost is mostly physics (about 1.8 ms). GPU time wasn't measured separately. Sources: `captures/performance/round4-{cpu,gpu}{1,2,3}.json` and `round4-final.json`.
 
 The two paths render the same image. In the benchmark's corpse capture, the mean pixel difference is under 0.0001/255, and 0.009% of pixels differ by at most 2/255. Across the anatomy review (decapitation, disarm, limp and crawl, a ten-body collapse, then fractures and an explosion), every frame up to the fracture scene has an MSE under 0.005 between the two paths. After that, the physics itself diverges: two runs of the same path also first differ at the same frame, so the anatomy review's fracture scene isn't deterministic run to run (a pre-existing issue). A unit test checks the instance transform against the CPU expansion for every visible vertex, and another drives the buffer through 400 steps of piece churn.
 
