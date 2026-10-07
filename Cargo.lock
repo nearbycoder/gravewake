@@ -1077,6 +1077,8 @@ dependencies = [
  "rodio",
  "serde",
  "serde_json",
+ "wayland-client",
+ "wayland-protocols-plasma",
  "wgpu",
  "winit",
 ]

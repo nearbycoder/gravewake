@@ -6,6 +6,7 @@ mod controls;
 mod dismemberment;
 mod encounters;
 mod fullscreen_review;
+mod input_review;
 mod enemy_assets;
 mod environment_assets;
 mod game;
@@ -80,6 +81,7 @@ struct App {
     world_review: Option<world_review::Review>,
     fullscreen_review: Option<fullscreen_review::Review>,
     pacing_review: Option<pacing_review::Review>,
+    input_review: Option<input_review::Review>,
     /// The frame limit's schedule.
     pacer: pacing::Pacer,
     benchmark: bool,
@@ -151,7 +153,10 @@ impl App {
             bones: scene::Bones::new(),
             audio: audio::Audio::new(),
             held: HashSet::new(),
-            pad: gamepad::Pad::new(!smoke && !review),
+            // The input review keeps a physical controller out of its checks.
+            pad: gamepad::Pad::new(
+                !smoke && !review && !std::env::args().any(|a| a == "--input-review"),
+            ),
             pad_events: vec![],
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
             mouse_fire: false,
@@ -186,6 +191,9 @@ impl App {
             fullscreen_review: std::env::args()
                 .any(|a| a == "--fullscreen-review")
                 .then(fullscreen_review::Review::new),
+            input_review: std::env::args()
+                .any(|a| a == "--input-review")
+                .then(input_review::Review::new),
             pacing_review: std::env::args()
                 .any(|a| a == "--pacing-review")
                 .then(pacing_review::Review::new),
@@ -844,6 +852,8 @@ impl App {
                 return;
             }
             path
+        } else if self.input_review.is_some() {
+            self.input_step()
         } else if self.fullscreen_review.is_some() {
             let path = self.fullscreen_step();
             if self.fullscreen_review.as_ref().is_some_and(|r| r.finished) {
@@ -1786,6 +1796,13 @@ fn main() {
             std::process::exit(2);
         }
     }
+    let input_review = std::env::args().any(|a| a == "--input-review");
+    if input_review {
+        if let Some(reason) = input_review::refusal() {
+            eprintln!("Refusing to run: {reason}.");
+            std::process::exit(2);
+        }
+    }
     if std::env::args().any(|a| a == "--anatomy-review") {
         std::fs::create_dir_all("captures/anatomy").unwrap();
     }
@@ -1814,7 +1831,7 @@ fn main() {
         music::export("captures/audio").unwrap();
         return;
     }
-    if smoke || review {
+    if smoke || review || input_review {
         // Scripted runs report progress; a long silence aborts with a core
         // dump. GRAVEWAKE_WATCHDOG_SECS overrides the limit.
         let limit = std::env::var("GRAVEWAKE_WATCHDOG_SECS")
