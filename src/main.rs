@@ -97,6 +97,18 @@ impl App {
         println!("QUIT: save completed; closing game");
         event_loop.exit();
     }
+    /// Match the window to `prefs.fullscreen`. Scripted runs never save
+    /// preferences, so they keep their fixed window sizes.
+    fn apply_fullscreen(&self) {
+        if let Some(w) = &self.window {
+            w.set_fullscreen(
+                self.game
+                    .prefs
+                    .fullscreen
+                    .then_some(winit::window::Fullscreen::Borderless(None)),
+            );
+        }
+    }
     fn new(smoke: bool, review: bool) -> Self {
         let ctx = egui::Context::default();
         ui::configure(&ctx);
@@ -1379,6 +1391,9 @@ impl App {
             watchdog::frame();
         }
         window.request_redraw();
+        if std::mem::take(&mut self.game.fullscreen_changed) {
+            self.apply_fullscreen();
+        }
         if self.game.quit_requested {
             self.quit_game(event_loop);
         }
@@ -1419,6 +1434,10 @@ impl ApplicationHandler for App {
                             },
                         )
                         .with_min_inner_size(LogicalSize::new(960., 600.))
+                        .with_fullscreen(
+                            (self.game.save_enabled && self.game.prefs.fullscreen)
+                                .then_some(winit::window::Fullscreen::Borderless(None)),
+                        )
                         .with_app_identity(),
                 )
                 .expect("create window"),
@@ -1542,11 +1561,9 @@ impl ApplicationHandler for App {
                         }
                         KeyCode::F11 => {
                             let w = self.window.as_ref().unwrap();
-                            w.set_fullscreen(if w.fullscreen().is_some() {
-                                None
-                            } else {
-                                Some(winit::window::Fullscreen::Borderless(None))
-                            });
+                            self.game.prefs.fullscreen = w.fullscreen().is_none();
+                            self.apply_fullscreen();
+                            self.game.save_preferences();
                         }
                         _ => {
                             // Power choices only apply while leveling and

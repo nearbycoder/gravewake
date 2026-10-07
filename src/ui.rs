@@ -3247,6 +3247,23 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     ) {
         g.prefs.hud_scale = g.prefs.next_hud_scale();
     }
+    let fullscreen = g.prefs.fullscreen;
+    if c.button(
+        "fullscreen",
+        392.,
+        JOURNAL_TOGGLES_Y + 132.,
+        310.,
+        35.,
+        if fullscreen {
+            "F11 / FULLSCREEN ON"
+        } else {
+            "F11 / FULLSCREEN OFF"
+        },
+        false,
+    ) {
+        g.prefs.fullscreen = !fullscreen;
+        g.fullscreen_changed = true;
+    }
     if c.button(
         "vsync",
         392.,
@@ -3431,7 +3448,8 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
 /// Top row of the Preferences page sliders; the Hollowlight slider is row 4.
 pub const JOURNAL_SLIDER_Y: f32 = 312.;
 /// Top of the Preferences page switches: invert and flashes, then the
-/// presentation row (VSync, FPS), then field tips and HUD size, 44 apart.
+/// presentation row (VSync, FPS), then field tips and HUD size, then
+/// fullscreen, 44 apart.
 pub const JOURNAL_TOGGLES_Y: f32 = 560.;
 
 #[cfg(test)]

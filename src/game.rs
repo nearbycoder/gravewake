@@ -437,6 +437,8 @@ pub struct Preferences {
     pub tips_seen: u32,
     /// HUD size relative to the window: one of `HUD_SCALES`.
     pub hud_scale: f32,
+    /// Open in borderless fullscreen; F11 and the journal switch it.
+    pub fullscreen: bool,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -464,6 +466,7 @@ impl Default for Preferences {
             field_tips: true,
             tips_seen: 0,
             hud_scale: 1.,
+            fullscreen: false,
         }
     }
 }
@@ -508,6 +511,7 @@ impl Preferences {
                 (Self::HUD_SCALES[0], Self::HUD_SCALES[5]),
                 d.hud_scale,
             ),
+            fullscreen: self.fullscreen,
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -627,6 +631,9 @@ pub struct Game {
     /// The Keyboard or Controller page's latest confirmation or refusal.
     pub controls_note: String,
     pub quit_requested: bool,
+    /// The journal's Fullscreen switch changed `prefs.fullscreen`; the
+    /// window applies it on the next frame.
+    pub fullscreen_changed: bool,
     pub confirm_new_run: bool,
     pub has_save: bool,
     pub bestiary_index: usize,
@@ -727,6 +734,7 @@ impl Game {
             pad_rebinding: None,
             controls_note: String::new(),
             quit_requested: false,
+            fullscreen_changed: false,
             confirm_new_run: false,
             has_save: Self::load_path("run.json").exists(),
             bestiary_index: 0,
@@ -2259,6 +2267,7 @@ mod tests {
             fov: 85.,
             invert_y: true,
             reduce_flashes: true,
+            fullscreen: true,
             ..Preferences::default()
         };
         let bytes = serde_json::to_vec(&custom).unwrap();
@@ -2268,6 +2277,7 @@ mod tests {
         assert_eq!(partial.volume, 0.2);
         assert_eq!(partial.fov, Preferences::default().fov);
         assert!(!partial.invert_y);
+        assert!(!partial.fullscreen, "files from before the switch open windowed");
         let clamped =
             Preferences::from_json(br#"{"sensitivity":1.0,"volume":-3,"fov":200}"#).unwrap();
         assert_eq!(clamped.sensitivity, Preferences::SENSITIVITY_RANGE.1);
