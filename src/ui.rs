@@ -3438,7 +3438,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             &mut prefs.sensitivity,
             min_sens,
             max_sens,
-            None,
+            Some("%"),
         ),
         (
             1,
@@ -3481,7 +3481,12 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
         c.slider(id, 615., y + 1., 360., value, min, max);
         if let Some(unit) = readout {
-            let shown = if unit == "%" { *value * 100. } else { *value };
+            // Sensitivity reads as a share of the default.
+            let shown = match (id, unit) {
+                ("sensitivity", _) => *value / Preferences::default().sensitivity * 100.,
+                (_, "%") => *value * 100.,
+                _ => *value,
+            };
             c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
         }
     }
