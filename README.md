@@ -90,7 +90,7 @@ The tarball contains the self-contained executable, a desktop entry, an icon and
 This is a playable development build. What has and hasn't been checked:
 
 **Tested**
-- **Linux:** one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland. Every change since October 2026 was run there: unit tests, smoke runs with keyboard and with simulated controller input, the review galleries and the benchmark.
+- **Linux:** one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland. Every change since Linux support was added in October 2026 was run there: unit tests, smoke runs with keyboard and with simulated controller input, the review galleries and the benchmark.
 - **macOS:** Apple Silicon with Metal was the original platform. Since the Linux work began, CI builds and runs the unit tests on macOS for every push, but the game itself hasn't been run on a Mac.
 
 **Never verified**

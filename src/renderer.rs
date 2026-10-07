@@ -10,12 +10,13 @@ use winit::window::Window;
 /// Placement of resident corpse geometry inside one vertex buffer. Pieces are
 /// appended once, when they first appear. Expired pieces leave holes, and
 /// when the buffer fills, every live piece is packed again from the start,
-/// growing the buffer if needed.
-#[derive(Default)]
+/// growing the buffer if needed, up to the device's buffer size limit.
 struct PieceSlab {
     ranges: std::collections::HashMap<u64, std::ops::Range<u32>>,
     used: u32,
     capacity: u32,
+    /// The most vertices one buffer may hold on this device.
+    limit: u32,
 }
 /// What `PieceSlab::admit` needs the GPU to do.
 #[derive(Debug, PartialEq)]
@@ -28,7 +29,16 @@ struct Admission {
 }
 impl PieceSlab {
     const MIN_CAPACITY: u32 = 1 << 16;
-    /// Make every live piece, given as (id, vertex count), resident.
+    fn new(limit: u32) -> Self {
+        Self {
+            ranges: Default::default(),
+            used: 0,
+            capacity: 0,
+            limit,
+        }
+    }
+    /// Make every live piece, given as (id, vertex count), resident. Pieces
+    /// that would exceed the device limit get no range and aren't drawn.
     fn admit(&mut self, live: &[(u64, u32)]) -> Admission {
         self.ranges
             .retain(|id, _| live.iter().any(|(live_id, _)| live_id == id));
@@ -49,21 +59,23 @@ impl PieceSlab {
             return Admission { grow: None, uploads };
         }
         // Full: pack every live piece again, with room to spare for new ones.
-        let total: u32 = live.iter().map(|piece| piece.1).sum();
-        let grow = (total > self.capacity / 2).then(|| {
-            self.capacity = (total * 2).next_power_of_two().max(Self::MIN_CAPACITY);
+        let total: u64 = live.iter().map(|piece| piece.1 as u64).sum();
+        let grow = (total > self.capacity as u64 / 2 && self.capacity < self.limit).then(|| {
+            self.capacity = (total * 2)
+                .next_power_of_two()
+                .clamp(Self::MIN_CAPACITY as u64, self.limit as u64) as u32;
             self.capacity
         });
         self.ranges.clear();
         self.used = 0;
-        let uploads = (0..live.len())
-            .map(|i| {
-                let start = self.used;
-                self.used += live[i].1;
-                self.ranges.insert(live[i].0, start..self.used);
-                (i, start)
-            })
-            .collect();
+        let mut uploads = vec![];
+        for (i, &(id, len)) in live.iter().enumerate() {
+            if self.capacity - self.used >= len {
+                uploads.push((i, self.used));
+                self.ranges.insert(id, self.used..self.used + len);
+                self.used += len;
+            }
+        }
         Admission { grow, uploads }
     }
 }
@@ -194,7 +206,7 @@ mod model_tests {
     }
     #[test]
     fn corpse_slab_appends_reuses_space_and_compacts_without_losing_a_piece() {
-        let mut slab = PieceSlab::default();
+        let mut slab = PieceSlab::new(u32::MAX);
         // The first corpse sizes the buffer and uploads everything.
         let mut live = vec![(1, 40_000), (2, 9_000)];
         let first = slab.admit(&live);
@@ -236,6 +248,15 @@ mod model_tests {
             }
             check(&slab, &live);
         }
+        // A device that can't hold every piece draws those that fit, without
+        // growing past its limit.
+        let mut small = PieceSlab::new(100_000);
+        let live = [(1, 40_000), (2, 70_000), (3, 50_000)];
+        let admission = small.admit(&live);
+        assert_eq!(admission.grow, Some(100_000));
+        assert_eq!(admission.uploads, vec![(0, 0), (2, 40_000)]);
+        assert!(!small.ranges.contains_key(&2) && small.used == 90_000);
+        assert_eq!(small.admit(&live).grow, None);
     }
 
     #[test]
@@ -730,6 +751,8 @@ impl Renderer {
             true,
             &layout,
         );
+        let piece_limit = (device.limits().max_buffer_size / std::mem::size_of::<Vertex>() as u64)
+            .min(u32::MAX as u64) as u32;
         // Placeholders until the first corpse appears; both grow on demand.
         let piece_geometry = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Resident corpse sections"),
@@ -860,7 +883,7 @@ impl Renderer {
             enemy_layout,
             piece_pipeline,
             pieces: ResidentPieces {
-                slab: PieceSlab::default(),
+                slab: PieceSlab::new(piece_limit),
                 geometry: piece_geometry,
                 instances: piece_instances,
             },
@@ -1366,8 +1389,9 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.pieces.geometry.slice(..));
                 pass.set_vertex_buffer(1, self.pieces.instances.slice(..));
                 for (index, id) in mesh.pieces.iter().enumerate() {
-                    let range = self.pieces.slab.ranges[id].clone();
-                    pass.draw(range, index as u32..index as u32 + 1);
+                    if let Some(range) = self.pieces.slab.ranges.get(id) {
+                        pass.draw(range.clone(), index as u32..index as u32 + 1);
+                    }
                 }
                 pass.set_pipeline(&self.world);
             }
