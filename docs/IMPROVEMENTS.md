@@ -861,3 +861,122 @@ Deferred, with reasons:
 - Focus-based controller menu navigation and the browser build (#15).
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 6 scope
+
+Round 5 was merged and pushed on 2026-10-07. Rounds 1–5 made the game
+playable with a controller, but its menus still need the stick-driven cursor,
+and nothing happens when the controller drops out mid-fight. This round takes
+five items: two for controller players, one for players on large screens, one
+for the shop decision, and one aimed at the stall that has never been caught.
+The two layout-heavy items (D and E) go last, so the smaller ones ship even if
+those slip.
+
+### A. Pause when the controller disconnects
+
+If the controller you're playing with runs out of battery or is unplugged
+mid-fight, the game shows a notice but keeps running, so the player takes
+damage they can't answer.
+
+Acceptance criteria:
+- When the controller driving the game disconnects during arena play and the
+  last input came from a controller, the game pauses (as losing focus does),
+  releases held inputs and shows "CONTROLLER DISCONNECTED". Another
+  controller's disconnect, or a disconnect while playing with keyboard and
+  mouse, doesn't pause. Smoke and review runs never pause this way.
+
+Verification: unit tests for the decision (driving vs other controller,
+controller vs keyboard device, arena vs menus) and that the game ends up
+paused with no held fire or movement. **No physical controller** is exposed
+here, so the gilrs disconnect event itself can't be produced live.
+
+### B. Honest damage estimate on cards
+
+The "EST. DPS" line on pack and Collector cards counts only direct hits, so
+burning and venom weapons look weaker than they are, and splash, chain and
+piercing weapons don't say they hit more than one target.
+
+Acceptance criteria:
+- The estimate adds burn (18 per second for 3 s after each hit) and venom
+  (12 per second, 1.8 s per hit, up to 6 s) damage over a full magazine and
+  reload cycle, single target.
+- Cards for weapons that hit several targets (splash, chain lightning,
+  piercing) say so after the estimate, within the card at 960×600.
+
+Verification: unit tests that burn and venom estimates match a simulated
+magazine cycle, that other weapons are unchanged, and that every one of the
+33 weapons gets a finite estimate. Text-review captures of a pack with a burn
+weapon and an area weapon at both sizes.
+
+### C. A watchdog that can't be silenced by its own output
+
+In round 5, one controller smoke run hung with the watchdog silent: the whole
+process stopped. One way that happens is the watchdog thread blocking on its
+own report, for example when stdout and stderr are a pipe that has stopped
+draining. The stall hunt also kills a hung run without recording what state
+it was in.
+
+Acceptance criteria:
+- The watchdog writes its report without waiting on stderr (and to a file in
+  the capture folder) and aborts within a few seconds of the limit even if
+  stderr is blocked.
+- `scripts/stall-hunt.sh`, when its outer timeout fires, records the process
+  state, kernel wait channel and per-thread states from `/proc`, then sends
+  SIGABRT so a core is kept, before falling back to SIGKILL.
+
+Verification: a temporary injected stall (not committed) run with stdout and
+stderr into a pipe that is never read: before the change the process hangs
+past the limit, after it the process aborts. The hunt script's timeout path is
+exercised with a temporary short timeout. A short hunt then runs, and the
+report gives the count.
+
+### D. Controller menu navigation with the D-pad
+
+Menus use a free virtual cursor, which is slow and fiddly for picking small
+buttons such as the upgrade medallions and journal rows.
+
+Acceptance criteria:
+- In menus, a D-pad press moves the controller cursor to the nearest control
+  in that direction (buttons, cards' actions, upgrade medallions, the
+  equipped card, journal sliders and rows). The first D-pad press in a screen
+  picks the control nearest the screen centre. A still selects and B still
+  goes back, and the left stick still moves the cursor freely.
+- Holding the D-pad repeats after a short delay. On a slider, left and right
+  adjust its value in twentieths, and up and down leave it.
+- Controls hidden behind a dialog or the journal can't be reached. The
+  level-up screen keeps the D-pad for choosing powers, and the Controller
+  page's waiting state is unchanged.
+
+Verification: unit tests for the directional choice (straight, diagonal,
+nothing in that direction, first press), repeat timing and slider steps. The
+controller smoke run drives part of its pack flow with D-pad presses only.
+Text-review captures of the snapped cursor in the shop and the journal at both
+sizes. Live presses on a physical controller stay unverified.
+
+### E. Larger HUD sizes: 120% and 130%
+
+Round 5 stopped at 110% because the bottom row ran out of room and the boss
+bar met the damage arcs.
+
+Acceptance criteria:
+- **HUD size** cycles 80, 90, 100, 110, 120 and 130%. At 100% and below,
+  and at 110%, the layout is unchanged.
+- Above 110%, a compact layout applies: armor moves into the vitality plate,
+  the chalice bar narrows to the plate, the dodge readout narrows, the
+  Tithekeeper's health joins the descent panel, and the top-centre panels
+  narrow so they clear the status panel.
+- With the busiest HUD (every power, boss, chalice, a long note, a damage arc
+  pointing ahead and an off-screen warning), no HUD panels overlap at 120%
+  and 130% in 1440×900 and 960×600 windows.
+
+Verification: unit tests for the setting's cycle and clamping and, in a real
+egui frame, that the compact panels' rectangles don't intersect at both
+sizes. Busy-HUD captures at 120% and 130% at both window sizes, inspected by
+eye. If 130% can't be made to fit, it's dropped and the report says why.
+
+### Deferred this round
+
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12) and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.
