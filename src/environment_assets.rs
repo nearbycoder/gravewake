@@ -13,9 +13,6 @@ pub enum Asset {
     Grave0,
     Grave1,
     Grave2,
-    Wall,
-    Buttress,
-    Gate,
     Brazier,
 }
 struct AssetVertex {
@@ -43,8 +40,8 @@ fn decode(bytes: &[u8]) -> Vec<AssetVertex> {
         })
         .collect()
 }
-fn assets() -> &'static [Vec<AssetVertex>; 11] {
-    static ASSETS: OnceLock<[Vec<AssetVertex>; 11]> = OnceLock::new();
+fn assets() -> &'static [Vec<AssetVertex>; 8] {
+    static ASSETS: OnceLock<[Vec<AssetVertex>; 8]> = OnceLock::new();
     ASSETS.get_or_init(|| {
         [
             decode(include_bytes!("../assets/environment/spruce-0.gwe")),
@@ -54,9 +51,6 @@ fn assets() -> &'static [Vec<AssetVertex>; 11] {
             decode(include_bytes!("../assets/environment/grave-0.gwe")),
             decode(include_bytes!("../assets/environment/grave-1.gwe")),
             decode(include_bytes!("../assets/environment/grave-2.gwe")),
-            decode(include_bytes!("../assets/environment/wall.gwe")),
-            decode(include_bytes!("../assets/environment/buttress.gwe")),
-            decode(include_bytes!("../assets/environment/gate.gwe")),
             decode(include_bytes!("../assets/environment/brazier.gwe")),
         ]
     })
