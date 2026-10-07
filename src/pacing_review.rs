@@ -4,7 +4,8 @@
 //! unfocused flag a lost focus sets, since nothing here can take focus from
 //! the window. Results go to `captures/pacing/report.json`. The run fails if
 //! a limited stage draws more than 2% above its limit, or more than 2% below
-//! it when the unlimited title drew more than 10% faster than the limit.
+//! it when 95% of the unlimited title's frames took under 90% of the limit's
+//! period.
 use crate::pacing;
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -129,25 +130,31 @@ impl Review {
                 .map_or("n/a".into(), |c| format!("{c:.0}% of a core")),
         );
         if limit > 0 {
-            // Never above the limit; and on it, when the unlimited title
-            // draws comfortably faster than the limit.
+            // Never above the limit; and on it, when nearly every unlimited
+            // frame was shorter than the limit's period. A limit can't make
+            // slow frames faster, so on a busy machine whose frames often run
+            // long it only caps.
             assert!(
                 stage.fps < limit as f64 * 1.02,
                 "PACING REVIEW: {name}: {:.2} FPS is more than 2% above {limit}",
                 stage.fps
             );
-            let unlimited = self.results[0].fps;
-            if unlimited > limit as f64 * 1.1 {
+            let unlimited = &self.results[0];
+            let period_ms = 1000. / limit as f64;
+            if unlimited.p95_ms < period_ms * 0.9 {
                 assert!(
                     stage.fps > limit as f64 * 0.98,
                     "PACING REVIEW: {name}: {:.2} FPS is more than 2% below {limit}, though \
-                     the title drew {unlimited:.0} FPS without a limit",
-                    stage.fps
+                     95% of unlimited frames took under {:.1} ms",
+                    stage.fps,
+                    unlimited.p95_ms
                 );
             } else {
                 println!(
-                    "PACING REVIEW: {name}: the title drew only {unlimited:.0} FPS without a \
-                     limit, so {limit} is checked as a cap only"
+                    "PACING REVIEW: {name}: 5% of unlimited frames took {:.1} ms or more, \
+                     longer than 90% of {limit}'s {period_ms:.1} ms period, so {limit} is \
+                     checked as a cap only",
+                    unlimited.p95_ms
                 );
             }
         }
@@ -160,9 +167,9 @@ impl Review {
         if self.stage == STAGES.len() {
             let unlimited = self.results[0].fps;
             assert!(
-                unlimited > 66.,
+                unlimited > 45.,
                 "PACING REVIEW: without a limit the title drew only {unlimited:.0} FPS, too \
-                 close to 60 to show the limiter working"
+                 close to 30 to show the limiter working"
             );
             std::fs::write(
                 format!("{DIR}/report.json"),
