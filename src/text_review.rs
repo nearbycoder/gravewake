@@ -13,6 +13,8 @@ use glam::Vec3;
 enum Screen {
     Title(bool),
     TitleRecords,
+    /// The title with records and a chronicle of five runs.
+    TitleChronicle,
     Hud(u8),
     /// A Bell Gargoyle's first-sighting note, in the fourth descent.
     CreatureNote,
@@ -75,6 +77,7 @@ impl Review {
             ("title-new".into(), Screen::Title(false)),
             ("title-continue".into(), Screen::Title(true)),
             ("title-records".into(), Screen::TitleRecords),
+            ("title-chronicle".into(), Screen::TitleChronicle),
             ("hud-new-run".into(), Screen::Hud(0)),
             ("hud-all-powers-boss".into(), Screen::Hud(1)),
             ("hud-reloading".into(), Screen::Hud(2)),
@@ -361,6 +364,42 @@ impl Review {
                     most_souls: 1834,
                     victories: 2,
                     fastest_victory: Some(1694.),
+                    ..Default::default()
+                };
+            }
+            Screen::TitleChronicle => {
+                use crate::game::{Attack, Card, Cause, Ending, PastRun, WeaponKind};
+                game.mode = Mode::Title;
+                game.has_save = true;
+                let past = |number, descent, ending, souls, time, level, kind, rarity| PastRun {
+                    number,
+                    descent,
+                    ending,
+                    endless: descent > crate::survival::DESCENTS,
+                    souls,
+                    time,
+                    level,
+                    weapon: Card {
+                        kind,
+                        rarity,
+                        ..Card::starter()
+                    }
+                    .name(),
+                };
+                let blow = |kind, attack| Ending::Slain(Some(Cause { kind, attack }));
+                game.records = Records {
+                    runs: 14,
+                    deepest: 19,
+                    most_souls: 1834,
+                    victories: 2,
+                    fastest_victory: Some(1694.),
+                    history: vec![
+                        past(14, 7, blow(8, Attack::Bolt), 412, 1102., 11, WeaponKind::Repeater, 1),
+                        past(13, 3, Ending::Abandoned, 96, 388., 4, WeaponKind::Pistol, 0),
+                        past(12, 19, blow(3, Attack::Slam), 1834, 3311., 31, WeaponKind::Double, 3),
+                        past(11, 12, Ending::Victory, 1240, 1694., 24, WeaponKind::Double, 2),
+                        past(10, 2, blow(5, Attack::Strike), 38, 241., 2, WeaponKind::Pistol, 0),
+                    ],
                 };
             }
             Screen::Hud(kind) => {

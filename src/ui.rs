@@ -1,6 +1,7 @@
 use crate::controls::{Action, Device};
 use crate::game::{
-    Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, JournalPage, Mode, Preferences,
+    Card, DAMAGE_MARK_LIFE, Ending, Game, HIT_MARKER_LIFE, HitKind, JournalPage, Mode, PastRun,
+    Preferences,
 };
 use crate::gamepad::{Button, PadAction, Target};
 use crate::weapons::Effect;
@@ -289,6 +290,15 @@ impl<'a> Canvas<'a> {
             );
         }
         self.p.text(anchor, align, &text, font, color);
+    }
+    /// The width in design units of `text` as `Canvas::text` draws it.
+    fn text_width(&self, text: &str, size: f32) -> f32 {
+        let galley = self.p.layout_no_wrap(
+            text.into(),
+            TypeRole::Reading.font((size.max(18.) * self.s).max(self.floor)),
+            IVORY,
+        );
+        galley.size().x / self.s
     }
     fn fit_type(&self, text: &str, role: TypeRole, size: f32, width: f32) -> f32 {
         let galley =
@@ -934,7 +944,7 @@ fn title(c: &Canvas, g: &mut Game) {
     if c.button("quit_title", 98., 789., 355., 41., "QUIT GAME", false) {
         g.quit_requested = true;
     }
-    let r = g.records;
+    let r = &g.records;
     if r.runs > 0 {
         let fastest = r.fastest_victory.map_or("NONE YET".into(), |t| {
             format!("{:02}:{:02}", t as u32 / 60, t as u32 % 60)
@@ -954,6 +964,79 @@ fn title(c: &Canvas, g: &mut Game) {
             false,
             Align2::LEFT_CENTER,
         );
+    }
+    chronicle(c, &r.history);
+}
+/// Runs the title's chronicle shows.
+const CHRONICLE_SHOWN: usize = 5;
+/// The chronicle panel: left edge, width and height of each run's rows.
+const CHRONICLE_X: f32 = 898.;
+const CHRONICLE_W: f32 = 490.;
+const CHRONICLE_ROW: f32 = 58.;
+/// How a past run ended, and its colour.
+fn ending_line(past: &PastRun) -> (String, C) {
+    match past.ending {
+        Ending::Slain(Some(cause)) => (format!("SLAIN BY {}", cause.describe()), BLOOD),
+        Ending::Slain(None) => ("SLAIN".into(), BLOOD),
+        Ending::Victory => ("THE DEBT IS PAID".into(), GOLD),
+        Ending::Abandoned => ("ABANDONED".into(), MUTED),
+    }
+}
+/// A past run's time, souls, level and weapon, dropping the level and then
+/// the weapon until the line fits `width`.
+fn chronicle_details(c: &Canvas, past: &PastRun, width: f32) -> String {
+    let time = format!("{:02}:{:02}", past.time as u32 / 60, past.time as u32 % 60);
+    let souls = format!("{} SOULS", grouped(past.souls));
+    let level = format!("LEVEL {}", past.level);
+    let options = [
+        vec![time.clone(), souls.clone(), level.clone(), past.weapon.clone()],
+        vec![time.clone(), souls.clone(), past.weapon.clone()],
+        vec![time.clone(), souls.clone(), level],
+        vec![time, souls],
+    ];
+    let lines: Vec<String> = options.iter().map(|parts| parts.join("  /  ")).collect();
+    lines
+        .iter()
+        .find(|line| c.text_width(line, 18.) <= width)
+        .unwrap_or(&lines[3])
+        .clone()
+}
+/// The latest runs, newest first, in a panel beside the scene: how each
+/// ended and the descent it reached, then its time, souls, level and weapon.
+fn chronicle(c: &Canvas, history: &[PastRun]) {
+    if history.is_empty() {
+        return;
+    }
+    let shown = &history[..history.len().min(CHRONICLE_SHOWN)];
+    let (x, w, row) = (CHRONICLE_X, CHRONICLE_W, CHRONICLE_ROW);
+    let height = 66. + shown.len() as f32 * row;
+    let y = 838. - height;
+    c.hud_panel(x, y, w, height);
+    let right = x + w - 20.;
+    c.text(x + 20., y + 28., "THE CHRONICLE", 19., GOLD, false, Align2::LEFT_CENTER);
+    c.text(right, y + 28., "LAST RUNS", 18., MUTED, false, Align2::RIGHT_CENTER);
+    c.line((x + 20., y + 50.), (right, y + 50.), GOLD.gamma_multiply(0.5), 1.);
+    for (i, past) in shown.iter().enumerate() {
+        let ty = y + 68. + i as f32 * row;
+        let descent = if past.endless && past.descent > crate::survival::DESCENTS {
+            format!("ENDLESS {:02}", past.descent)
+        } else {
+            format!("DESCENT {:02}", past.descent)
+        };
+        let (ending, color) = ending_line(past);
+        let details = chronicle_details(c, past, w - 40.);
+        // Each line's extent, for the layout test.
+        let dw = c.text_width(&descent, 18.);
+        c.layout("chronicle_descent", right - dw, ty - 10., dw, 20.);
+        c.layout("chronicle_line", x + 20., ty - 10., c.text_width(&ending, 18.), 20.);
+        c.layout("chronicle_line", x + 20., ty + 14., c.text_width(&details, 18.), 20.);
+        c.text(right, ty, descent, 18., IVORY, false, Align2::RIGHT_CENTER);
+        c.text(x + 20., ty, ending, 18., color, false, Align2::LEFT_CENTER);
+        c.text(x + 20., ty + 24., details, 18., MUTED, false, Align2::LEFT_CENTER);
+        if i + 1 < shown.len() {
+            let ly = ty + row - 18.;
+            c.line((x + 20., ly), (right, ly), GOLD.gamma_multiply(0.18), 0.8);
+        }
     }
 }
 fn house(c: &Canvas, g: &mut Game) {
@@ -3963,6 +4046,102 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn the_chronicle_fits_beside_the_title_menu() {
+        use crate::game::{Attack, Cause, WeaponKind};
+        // The longest blow and weapon names there are.
+        let cause = (0..12)
+            .flat_map(|kind| {
+                [Attack::Strike, Attack::Bolt, Attack::Slam, Attack::Burst]
+                    .map(|attack| Cause { kind, attack })
+            })
+            .max_by_key(|c| c.describe().len())
+            .unwrap();
+        let weapon = WeaponKind::ALL
+            .iter()
+            .flat_map(|&kind| (0..4).map(move |rarity| Card { kind, rarity, ..Card::starter() }))
+            .map(|card| card.name())
+            .max_by_key(|name| name.len())
+            .unwrap();
+        let past = |ending, descent, endless| PastRun {
+            number: 9999,
+            descent,
+            ending,
+            endless,
+            souls: 123_456,
+            time: 35_999.,
+            level: 199,
+            weapon: weapon.clone(),
+        };
+        let history = vec![
+            past(Ending::Slain(Some(cause)), 9999, true),
+            past(Ending::Victory, 12, false),
+            past(Ending::Slain(Some(cause)), 11, false),
+            past(Ending::Abandoned, 3, false),
+            past(Ending::Slain(None), 1, false),
+            past(Ending::Abandoned, 2, false),
+        ];
+        for (width, height) in [(1440., 900.), (960., 600.), (1920., 1080.)] {
+            let ctx = egui::Context::default();
+            configure(&ctx);
+            let mut g = Game::new(false);
+            g.mode = Mode::Title;
+            g.has_save = true;
+            g.records.runs = 9999;
+            g.records.deepest = 9999;
+            g.records.most_souls = 123_456;
+            g.records.fastest_victory = Some(35_999.);
+            g.records.history = history.clone();
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height));
+            for _ in 0..2 {
+                let input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                let _ = ctx.run(input, |ctx| draw(ctx, &mut g, Mat4::IDENTITY));
+            }
+            let layout = ctx
+                .data(|d| d.get_temp::<Vec<(&'static str, Rect)>>(Id::new(HUD_LAYOUT)))
+                .unwrap();
+            let of = |name: &str| -> Vec<Rect> {
+                layout.iter().filter(|(n, _)| *n == name).map(|(_, r)| *r).collect()
+            };
+            let (panels, lines, descents) =
+                (of("panel"), of("chronicle_line"), of("chronicle_descent"));
+            assert_eq!(panels.len(), 1, "{width}x{height}");
+            assert_eq!((lines.len(), descents.len()), (2 * CHRONICLE_SHOWN, CHRONICLE_SHOWN));
+            let panel = panels[0];
+            assert!(screen.contains_rect(panel), "{panel:?} at {width}x{height}");
+            // Clear of every title button, the logo and the records line.
+            for target in pad_targets(&ctx) {
+                assert!(!panel.intersects(target.rect), "{:?} at {width}x{height}", target.rect);
+            }
+            let mut left = Rect::NOTHING;
+            with_canvas(width, height, |c| left = c.rect(0., 100., 640., 800.));
+            assert!(!panel.intersects(left), "{panel:?} at {width}x{height}");
+            for (i, line) in lines.iter().enumerate() {
+                assert!(panel.contains_rect(line.shrink(0.5)), "{line:?} at {width}x{height}");
+                // A run's ending stays clear of the descent on its right.
+                if i % 2 == 0 {
+                    let descent = descents[i / 2];
+                    assert!(line.max.x + 8. < descent.min.x, "{line:?} {descent:?} at {width}x{height}");
+                }
+            }
+            for descent in &descents {
+                assert!(panel.contains_rect(descent.shrink(0.5)));
+            }
+        }
+        // No panel before the first run ends.
+        let ctx = egui::Context::default();
+        configure(&ctx);
+        let mut g = Game::new(false);
+        g.mode = Mode::Title;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| draw(ctx, &mut g, Mat4::IDENTITY));
+        let layout = ctx
+            .data(|d| d.get_temp::<Vec<(&'static str, Rect)>>(Id::new(HUD_LAYOUT)))
+            .unwrap();
+        assert!(layout.iter().all(|(n, _)| *n != "panel"));
     }
     #[test]
     fn hud_groups_scale_around_their_anchors() {

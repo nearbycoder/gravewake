@@ -552,8 +552,9 @@ pub enum JournalPage {
     Keyboard,
     Controller,
 }
-/// Lifetime bests, stored in records.json beside the run save.
-#[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize)]
+/// Lifetime bests, stored in records.json beside the run save, with the
+/// chronicle of recent runs.
+#[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Records {
     pub runs: u32,
@@ -563,8 +564,65 @@ pub struct Records {
     pub victories: u32,
     /// Fastest twelve-descent victory, in seconds of run time.
     pub fastest_victory: Option<f32>,
+    /// The latest runs, newest first, at most `Records::HISTORY`.
+    pub history: Vec<PastRun>,
+}
+/// How a run in the chronicle ended.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub enum Ending {
+    /// Killed, by this blow when one was recorded.
+    Slain(Option<Cause>),
+    Victory,
+    /// A new run replaced it before it ended.
+    Abandoned,
+}
+/// One run in the chronicle.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct PastRun {
+    /// Its place in `Records::runs`.
+    pub number: u32,
+    pub descent: u32,
+    pub ending: Ending,
+    /// It cleared the twelve descents and went on into endless survival.
+    pub endless: bool,
+    pub souls: u32,
+    pub time: f32,
+    pub level: u32,
+    /// The weapon held at the end, as the cards name it.
+    pub weapon: String,
+}
+impl PastRun {
+    fn of(number: u32, run: &Run, ending: Ending) -> Self {
+        Self {
+            number,
+            descent: run.wave,
+            ending,
+            endless: run.survival.endless,
+            souls: run.kills,
+            time: run.time,
+            level: run.survival.level,
+            weapon: run.weapon.name(),
+        }
+    }
 }
 impl Records {
+    /// Runs the chronicle keeps.
+    pub const HISTORY: usize = 10;
+    /// Add a run to the chronicle. A run that went on into endless survival
+    /// replaces its own victory instead of adding a second entry.
+    pub fn chronicle(&mut self, entry: PastRun) {
+        let continued = entry.endless
+            && self
+                .history
+                .first()
+                .is_some_and(|last| last.number == entry.number && last.ending == Ending::Victory);
+        if continued {
+            self.history[0] = entry;
+        } else {
+            self.history.insert(0, entry);
+            self.history.truncate(Self::HISTORY);
+        }
+    }
     /// Fold a run's progress in and return the names of records it beat.
     pub fn record(
         &mut self,
@@ -890,18 +948,19 @@ impl Game {
             }
         }
     }
-    pub fn resume_save(&mut self) {
-        self.run_records.clear();
-        match std::fs::read(Self::load_path("run.json"))
+    /// The saved run, if it loads.
+    fn read_save() -> Option<Save> {
+        std::fs::read(Self::load_path("run.json"))
             .ok()
             .and_then(|b| serde_json::from_slice::<Save>(&b).ok())
-        {
-            Some(s)
-                if s.version == 1
-                    && s.run.weapon.rarity < 4
-                    && s.run.wave >= 1
-                    && s.run.wave <= 10000 =>
-            {
+            .filter(|s| {
+                s.version == 1 && s.run.weapon.rarity < 4 && s.run.wave >= 1 && s.run.wave <= 10000
+            })
+    }
+    pub fn resume_save(&mut self) {
+        self.run_records.clear();
+        match Self::read_save() {
+            Some(s) => {
                 self.run = s.run;
                 self.run.pos = world_layout::resolve_position(self.run.pos, PLAYER_RADIUS);
                 for enemy in &mut self.run.enemies {
@@ -938,6 +997,13 @@ impl Game {
         self.spell_cd = 0.;
     }
     pub fn new_run(&mut self) {
+        // The saved run this one replaces goes into the chronicle, unless it
+        // already ended there.
+        if self.save_enabled && self.has_save {
+            if let Some(saved) = Self::read_save() {
+                self.abandon(saved.mode, &saved.run);
+            }
+        }
         // Player runs get their own seed; tests, smoke and reviews disable
         // saving and keep the fixed default seed so they stay reproducible.
         let seed = if self.save_enabled {
@@ -964,6 +1030,23 @@ impl Game {
             }
         }
         self.save_records();
+    }
+    /// Add the current run to the chronicle; practice never counts.
+    fn chronicle(&mut self, ending: Ending) {
+        if self.practice_backup.is_some() {
+            return;
+        }
+        let entry = PastRun::of(self.records.runs, &self.run, ending);
+        self.records.chronicle(entry);
+        self.save_records();
+    }
+    /// A run left unfinished in `mode` is replaced by a new one.
+    fn abandon(&mut self, mode: Mode, run: &Run) {
+        if matches!(mode, Mode::Dead | Mode::Victory) {
+            return;
+        }
+        let entry = PastRun::of(self.records.runs, run, Ending::Abandoned);
+        self.records.chronicle(entry);
     }
     fn save_records(&self) {
         if self.save_enabled {
@@ -2049,6 +2132,7 @@ impl Game {
             self.run.hp = 0.;
             self.mode = Mode::Dead;
             self.track_records(None);
+            self.chronicle(Ending::Slain(self.run.stats.last_hit));
             self.save();
         } else if self.run.survival.pending > 0 {
             self.offer_power();
@@ -2069,6 +2153,7 @@ impl Game {
         if self.run.wave == crate::survival::DESCENTS && !self.run.survival.endless {
             self.mode = Mode::Victory;
             self.track_records(Some(self.run.time));
+            self.chronicle(Ending::Victory);
         } else {
             self.track_records(None);
             let reward = 85 + self.run.wave * 5;
@@ -3314,11 +3399,92 @@ mod tests {
         assert!(!path.with_extension("tmp").exists());
         std::fs::remove_dir_all(directory).unwrap();
         // Practice never counts.
-        let before = g.records;
+        let before = g.records.clone();
         g.practice_backup = Some(g.run.clone());
         g.run.wave = 40;
         g.next_wave();
         assert_eq!(g.records, before);
+    }
+    #[test]
+    fn the_chronicle_keeps_the_last_ten_runs_and_how_they_ended() {
+        let mut g = Game::new(false);
+        // Death: the run's figures and the killing blow.
+        g.new_run();
+        g.run.wave = 3;
+        g.run.kills = 41;
+        g.run.time = 312.;
+        g.run.survival.level = 4;
+        let blow = Cause {
+            kind: 4,
+            attack: Attack::Strike,
+        };
+        g.run.stats.last_hit = Some(blow);
+        g.run.hp = -1.;
+        g.mode = Mode::Arena;
+        g.update(0.01);
+        assert_eq!(g.mode, Mode::Dead);
+        let first = &g.records.history[0];
+        assert_eq!(g.records.history.len(), 1);
+        assert_eq!(
+            (first.number, first.descent, first.souls, first.level),
+            (1, 3, 41, 4)
+        );
+        assert!((first.time - 312.).abs() < 0.02, "the death's update adds 0.01 s");
+        assert_eq!(first.ending, Ending::Slain(Some(blow)));
+        assert_eq!(first.weapon, Card::starter().name());
+        assert!(!first.endless);
+        // Victory, then the same run dies in endless survival: one entry.
+        g.new_run();
+        g.run.wave = crate::survival::DESCENTS;
+        g.run.enemies.clear();
+        g.run.survival.remaining = 0;
+        g.run.survival.orbs.clear();
+        g.complete_wave();
+        assert_eq!(g.mode, Mode::Victory);
+        assert_eq!(g.records.history.len(), 2);
+        assert_eq!(g.records.history[0].ending, Ending::Victory);
+        g.run.survival.endless = true;
+        g.next_wave();
+        g.run.hp = -1.;
+        g.mode = Mode::Arena;
+        g.update(0.01);
+        assert_eq!(g.records.history.len(), 2, "endless replaces its own victory");
+        let endless = &g.records.history[0];
+        assert_eq!((endless.number, endless.descent), (2, 13));
+        assert!(endless.endless && matches!(endless.ending, Ending::Slain(_)));
+        // A run replaced while unfinished is abandoned; one that ended isn't
+        // entered twice.
+        g.new_run();
+        g.run.wave = 5;
+        let unfinished = g.run.clone();
+        g.abandon(Mode::Shop, &unfinished);
+        assert_eq!(g.records.history[0].ending, Ending::Abandoned);
+        assert_eq!((g.records.history[0].number, g.records.history[0].descent), (3, 5));
+        let length = g.records.history.len();
+        g.abandon(Mode::Dead, &unfinished);
+        g.abandon(Mode::Victory, &unfinished);
+        assert_eq!(g.records.history.len(), length);
+        // Ten at most, newest first.
+        for wave in 0..12 {
+            g.new_run();
+            g.run.wave = 20 + wave;
+            g.run.hp = -1.;
+            g.mode = Mode::Arena;
+            g.update(0.01);
+        }
+        assert_eq!(g.records.history.len(), Records::HISTORY);
+        assert_eq!(g.records.history[0].descent, 31);
+        assert_eq!(g.records.history[9].descent, 22);
+        // Practice never enters it.
+        let before = g.records.history.clone();
+        g.practice_backup = Some(g.run.clone());
+        g.chronicle(Ending::Victory);
+        assert_eq!(g.records.history, before);
+        // Saved with the records; older files load with an empty chronicle.
+        let json = serde_json::to_vec(&g.records).unwrap();
+        assert_eq!(serde_json::from_slice::<Records>(&json).unwrap(), g.records);
+        let old: Records = serde_json::from_slice(br#"{"runs":4,"deepest":6}"#).unwrap();
+        assert!(old.history.is_empty());
     }
     #[test]
     fn special_attack_warnings_emit_a_positional_cue() {
