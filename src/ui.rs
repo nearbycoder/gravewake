@@ -2695,10 +2695,234 @@ fn field_tip(c: &Canvas, text: &str, y: f32, width: f32, alpha: f32) {
         true,
     );
 }
+/// Where the pause screen's side panels sit, in design units: left and
+/// right of the 512-wide folio, which spans 464 to 976.
+const LEDGER_WIDTH: f32 = 384.;
+const LEDGER_LEFT: f32 = 52.;
+const LEDGER_RIGHT: f32 = 1004.;
+/// The pause screen's side panels: the run so far, and the powers bound
+/// with what each does at its rank.
+fn pause_ledger(c: &Canvas, g: &Game) {
+    let practice = g.practice_backup.is_some();
+    let run = &g.run;
+    let stats = &run.stats;
+    let mut rows: Vec<(&str, String)> = vec![];
+    if !practice {
+        rows.extend([
+            (
+                "DESCENT",
+                if run.survival.endless {
+                    format!("ENDLESS / {:02}", run.wave)
+                } else {
+                    format!("{:02} / {}", run.wave, crate::survival::DESCENTS)
+                },
+            ),
+            (
+                "TIME",
+                format!("{:02}:{:02}", run.time as u32 / 60, run.time as u32 % 60),
+            ),
+            (
+                "VITALITY",
+                format!(
+                    "{} / {:.0}{}",
+                    run.hp.max(0.).ceil() as u32,
+                    g.max_hp(),
+                    if run.armor > 0. {
+                        format!("  +{:.0} ARMOR", run.armor)
+                    } else {
+                        String::new()
+                    }
+                ),
+            ),
+            ("SOULS", grouped(run.kills)),
+            ("HEADSHOTS", grouped(stats.headshots)),
+            ("DAMAGE DEALT", grouped(stats.damage_dealt.round() as u32)),
+            ("DAMAGE TAKEN", grouped(stats.damage_taken.round() as u32)),
+            ("GOLD", grouped(run.gold)),
+            (
+                "SOUL LEVEL",
+                format!(
+                    "{}  ({} / {})",
+                    run.survival.level,
+                    run.survival.xp,
+                    run.survival.threshold()
+                ),
+            ),
+        ]);
+    }
+    let card = &run.weapon;
+    let paths = card.paths;
+    let weapon_lines = [
+        (rarity_line(card), GOLD),
+        (
+            format!(
+                "{:.0} DAMAGE  /  EST. {:.0} DPS",
+                card.damage(),
+                card.estimated_dps()
+            ),
+            IVORY,
+        ),
+        (
+            format!(
+                "BINDING  {} / {} / {}{}",
+                paths[0],
+                paths[1],
+                paths[2],
+                if card.major { "  +  SOUL SIPHON" } else { "" }
+            ),
+            MUTED,
+        ),
+    ];
+    let row = 34.;
+    let height = 70. + rows.len() as f32 * row + if rows.is_empty() { 0. } else { 18. } + 160.;
+    let x = LEDGER_LEFT;
+    let y = 472. - height / 2.;
+    c.hud_panel(x, y, LEDGER_WIDTH, height);
+    let right = x + LEDGER_WIDTH - 22.;
+    c.text(
+        x + 22.,
+        y + 32.,
+        if practice { "PRACTICE GROUNDS" } else { "THE RUN SO FAR" },
+        19.,
+        GOLD,
+        false,
+        Align2::LEFT_CENTER,
+    );
+    c.line((x + 22., y + 56.), (right, y + 56.), GOLD.gamma_multiply(0.6), 1.);
+    let mut ty = y + 56. + row / 2. + 6.;
+    for (label, value) in &rows {
+        c.text(x + 22., ty, *label, 15., MUTED, false, Align2::LEFT_CENTER);
+        c.text_role(
+            right,
+            ty,
+            value.clone(),
+            18.,
+            IVORY,
+            TypeRole::Strong,
+            Align2::RIGHT_CENTER,
+        );
+        ty += row;
+    }
+    if !rows.is_empty() {
+        ty += 2.;
+        c.line((x + 22., ty), (right, ty), GOLD.gamma_multiply(0.35), 0.8);
+        ty += 16.;
+    }
+    c.text(x + 22., ty + 4., "WIELDING", 13., MUTED, false, Align2::LEFT_CENTER);
+    let name = card.name();
+    let fitted = c.fit_type(&name, TypeRole::Engraved, 21., LEDGER_WIDTH - 44.);
+    c.text_role(
+        x + 22.,
+        ty + 36.,
+        name,
+        fitted,
+        IVORY,
+        TypeRole::Engraved,
+        Align2::LEFT_CENTER,
+    );
+    for (i, (line, color)) in weapon_lines.into_iter().enumerate() {
+        c.text(
+            x + 22.,
+            ty + 70. + i as f32 * 30.,
+            line,
+            15.,
+            color,
+            false,
+            Align2::LEFT_CENTER,
+        );
+    }
+    // The run's rows and the weapon's last line, for the layout test.
+    c.layout("ledger_text", x + 22., y + 56., LEDGER_WIDTH - 44., ty + 145. - (y + 56.));
+    if practice {
+        return;
+    }
+    // Bound powers, each with what it does at its rank. The effect lines are
+    // measured first, so the panel fits however they wrap.
+    let held: Vec<(usize, u8)> = run
+        .survival
+        .ranks
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| **r > 0)
+        .map(|(i, r)| (i, *r))
+        .collect();
+    let text_width = LEDGER_WIDTH - 44.;
+    let effects: Vec<(String, f32)> = held
+        .iter()
+        .map(|&(p, rank)| {
+            let text = crate::survival::power::effect(p, rank);
+            let height = ledger_layout(c, &text, text_width).size().y / c.s;
+            (text, height)
+        })
+        .collect();
+    let empty = held.is_empty();
+    let height = 70.
+        + if empty {
+            90.
+        } else {
+            effects.iter().map(|(_, h)| 30. + h + 10.).sum::<f32>()
+        };
+    let x = LEDGER_RIGHT;
+    let y = 472. - height / 2.;
+    let right = x + LEDGER_WIDTH - 22.;
+    c.hud_panel(x, y, LEDGER_WIDTH, height);
+    c.text(x + 22., y + 32., "BOUND POWERS", 19., GOLD, false, Align2::LEFT_CENTER);
+    c.line((x + 22., y + 56.), (right, y + 56.), GOLD.gamma_multiply(0.6), 1.);
+    if empty {
+        c.paragraph(
+            x + 22.,
+            y + 72.,
+            "None yet. Gather souls to reach the next soul level, then choose a power.",
+            text_width,
+            15.,
+            MUTED,
+            false,
+        );
+        return;
+    }
+    let mut ty = y + 66.;
+    for (&(p, rank), (effect, h)) in held.iter().zip(effects) {
+        c.text(
+            x + 22.,
+            ty + 13.,
+            crate::survival::POWERS[p].0,
+            17.,
+            IVORY,
+            false,
+            Align2::LEFT_CENTER,
+        );
+        c.text_role(
+            right,
+            ty + 13.,
+            format!("{rank}/5"),
+            17.,
+            GOLD,
+            TypeRole::Strong,
+            Align2::RIGHT_CENTER,
+        );
+        c.p.galley(
+            c.pt(x + 22., ty + 30.),
+            ledger_layout(c, &effect, text_width),
+            MUTED,
+        );
+        c.layout("ledger_text", x + 22., ty, text_width, 30. + h);
+        ty += 30. + h + 10.;
+    }
+}
+fn ledger_layout(c: &Canvas, text: &str, width: f32) -> std::sync::Arc<egui::Galley> {
+    c.p.layout_job(egui::text::LayoutJob::simple(
+        text.into(),
+        TypeRole::Reading.font((18. * c.s).max(c.floor)),
+        MUTED,
+        width * c.s,
+    ))
+}
 fn pause(c: &Canvas, g: &mut Game) {
     c.fill(-100., 0., 1640., c.h, C::from_black_alpha(165));
+    pause_ledger(c, g);
     let x = 464.;
     let y = 215.;
+    c.layout("pause_folio", x, y, 512., 515.);
     c.folio(x, y, 512., 515.);
     c.flourish(720., y + 140., 330., INK);
     c.text(
@@ -3005,6 +3229,9 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
         ctx.data_mut(|d| d.insert_temp(Id::new("mode_transition"), (g.mode, g.elapsed)));
     }
     clear_pad_targets(ctx);
+    if cfg!(test) {
+        ctx.data_mut(|d| d.insert_temp(Id::new(HUD_LAYOUT), Vec::<(&'static str, Rect)>::new()));
+    }
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
         .show(ctx, |ui| {
@@ -3018,11 +3245,9 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                 Mode::Tree => tree(&c, g),
                 Mode::Collection => collection(&c, g),
                 Mode::Bestiary => bestiary(&c, g),
-                Mode::Paused => {
-                    hud(&c, g, vp);
-                    combat_feedback(&c, g);
-                    pause(&c, g);
-                }
+                // The pause ledger carries what the HUD shows, so the HUD
+                // stays hidden behind it.
+                Mode::Paused => pause(&c, g),
                 Mode::Dead | Mode::Victory => ending(&c, g),
             }
             if g.notice_time > 0.
@@ -3571,6 +3796,56 @@ mod tests {
                             "{a} {ra:?} overlaps {b} {rb:?} at {k} in {width}x{height}"
                         );
                     }
+                }
+            }
+        }
+    }
+    #[test]
+    fn the_pause_ledger_fits_beside_the_menu() {
+        for (width, height) in [(1440., 900.), (960., 600.), (1920., 1080.)] {
+            for full in [false, true] {
+                let ctx = egui::Context::default();
+                configure(&ctx);
+                let mut g = Game::new(false);
+                g.mode = Mode::Paused;
+                if full {
+                    g.run.survival.ranks = [5; 10];
+                    g.run.armor = 30.;
+                    g.run.gold = 98765;
+                    g.run.kills = 12345;
+                    g.run.time = 3894.;
+                    g.run.weapon.paths = [5, 5, 3];
+                    g.run.weapon.major = true;
+                } else {
+                    g.run.survival.ranks[6] = 1;
+                }
+                let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height));
+                for _ in 0..2 {
+                    let input = egui::RawInput {
+                        screen_rect: Some(screen),
+                        ..Default::default()
+                    };
+                    let _ = ctx.run(input, |ctx| draw(ctx, &mut g, Mat4::IDENTITY));
+                }
+                let layout = ctx
+                    .data(|d| d.get_temp::<Vec<(&'static str, Rect)>>(Id::new(HUD_LAYOUT)))
+                    .unwrap();
+                let of = |name: &str| -> Vec<Rect> {
+                    layout.iter().filter(|(n, _)| *n == name).map(|(_, r)| *r).collect()
+                };
+                let (folio, panels, text) = (of("pause_folio"), of("panel"), of("ledger_text"));
+                assert_eq!((folio.len(), panels.len()), (1, 2), "{width}x{height}");
+                // The run's rows plus one block per power held.
+                assert_eq!(text.len(), 1 + if full { 10 } else { 1 });
+                for panel in &panels {
+                    assert!(!panel.intersects(folio[0]), "{panel:?} at {width}x{height}");
+                    assert!(screen.contains_rect(*panel), "{panel:?} at {width}x{height}");
+                }
+                for block in &text {
+                    assert!(
+                        panels.iter().any(|p| p.contains_rect(*block)),
+                        "{block:?} leaves its panel at {width}x{height}"
+                    );
                 }
             }
         }

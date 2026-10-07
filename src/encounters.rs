@@ -473,7 +473,7 @@ impl Game {
                     attack: Attack::Strike,
                 };
                 hits.push((e.pos, cause, amount));
-                e.hp -= self.run.survival.ranks[8] as f32 * 12.;
+                e.hp -= crate::survival::power::thorns(self.run.survival.ranks[8]);
             }
         }
         self.world_sounds.extend(sounds);

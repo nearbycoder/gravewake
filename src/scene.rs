@@ -1369,8 +1369,9 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
         }
         let rank = game.run.survival.ranks[6];
         if rank > 0 {
-            for j in 0..rank + 1 {
-                let a = game.run.time * 2.7 + j as f32 * std::f32::consts::TAU / (rank + 1) as f32;
+            let blades = crate::survival::power::halo(rank).0;
+            for j in 0..blades {
+                let a = game.run.time * 2.7 + j as f32 * std::f32::consts::TAU / blades as f32;
                 let p = game.run.pos + Vec3::new(a.cos() * 2.5, -0.45, a.sin() * 2.5);
                 m.taper(
                     p - Vec3::Y * 0.3,

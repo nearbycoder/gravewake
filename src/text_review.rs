@@ -26,6 +26,9 @@ enum Screen {
     /// A level-up while the controller is the last input used.
     PowersController,
     Pause,
+    /// The pause ledger: 0 an early run with one power, 1 every power at
+    /// full rank with a bound weapon, 2 practice.
+    PauseLedger(u8),
     Settings,
     /// The controller cursor after D-pad presses: 0 the Collector, 1 the
     /// journal's sliders.
@@ -117,6 +120,9 @@ impl Review {
         screens.push(("powers-controller".into(), Screen::PowersController));
         screens.extend([
             ("pause".into(), Screen::Pause),
+            ("pause-ledger-early".into(), Screen::PauseLedger(0)),
+            ("pause-ledger-full".into(), Screen::PauseLedger(1)),
+            ("pause-ledger-practice".into(), Screen::PauseLedger(2)),
             ("settings".into(), Screen::Settings),
             ("pad-collector-dpad".into(), Screen::PadMenu(0)),
             ("pad-journal-slider".into(), Screen::PadMenu(1)),
@@ -592,6 +598,51 @@ impl Review {
                 game.run.survival.choices = vec![0, 6, 9];
             }
             Screen::Pause => game.mode = Mode::Paused,
+            Screen::PauseLedger(n) => {
+                use crate::game::RunStats;
+                game.mode = Mode::Paused;
+                game.run.survival = Default::default();
+                if n == 0 {
+                    game.run.wave = 2;
+                    game.run.kills = 41;
+                    game.run.time = 263.;
+                    game.run.gold = 135;
+                    game.run.weapon = Card::starter();
+                    game.run.survival.level = 2;
+                    game.run.survival.xp = 9;
+                    game.run.survival.ranks[6] = 1;
+                    game.run.stats = RunStats {
+                        headshots: 12,
+                        damage_dealt: 2604.,
+                        damage_taken: 57.,
+                        ..Default::default()
+                    };
+                } else {
+                    game.run.armor = 30.;
+                    game.run.hp = 164.;
+                    game.run.weapon.paths = [5, 5, 3];
+                    game.run.weapon.major = true;
+                    game.run.survival.level = 52;
+                    game.run.survival.xp = 311;
+                    game.run.survival.ranks = [5; 10];
+                    game.run.stats = RunStats {
+                        headshots: 2876,
+                        damage_dealt: 912345.,
+                        damage_taken: 3530.,
+                        ..Default::default()
+                    };
+                }
+                if n == 2 {
+                    let card = Card {
+                        kind: WeaponKind::ALL[20],
+                        rarity: 2,
+                        ..Card::starter()
+                    };
+                    game.practice(card);
+                    game.mode = Mode::Paused;
+                    game.notice_time = 0.;
+                }
+            }
             Screen::PadMenu(0) => {
                 game.mode = Mode::Shop;
                 game.run.offer = game.run.weapon.clone();

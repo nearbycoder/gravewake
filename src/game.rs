@@ -1922,7 +1922,7 @@ impl Game {
         };
         self.run.pos = world_layout::move_body(
             self.run.pos,
-            movement * dt * speed * (1. + self.run.survival.ranks[9] as f32 * 0.08),
+            movement * dt * speed * crate::survival::power::wraith(self.run.survival.ranks[9]),
             PLAYER_RADIUS,
         );
         self.tick_enemies(dt);

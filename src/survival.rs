@@ -35,6 +35,82 @@ pub const POWERS: [(&str, &str); 10] = [
     ),
     ("WRAITH STEP", "Movement speed +8% per rank."),
 ];
+/// Each power's numbers at a rank. The powers themselves and the pause
+/// screen's description both read these, so the text can't drift.
+pub mod power {
+    /// Blood Oath: weapon damage multiplier.
+    pub fn oath(rank: u8) -> f32 {
+        1. + rank as f32 * 0.15
+    }
+    /// Quickening: fire and melee recovery speed multiplier.
+    pub fn quickening(rank: u8) -> f32 {
+        1. + rank as f32 * 0.1
+    }
+    /// Soul Magnet: pickup radius in metres.
+    pub fn magnet(rank: u8) -> f32 {
+        2.2 + rank as f32 * 1.3
+    }
+    /// Undying Heart: maximum vitality.
+    pub fn heart(rank: u8) -> f32 {
+        100. + rank as f32 * 20.
+    }
+    /// Soul Sipper: vitality restored per collected orb.
+    pub fn sipper(rank: u8) -> f32 {
+        rank as f32 * 0.6
+    }
+    /// Storm Familiar reaches enemies within this many metres.
+    pub const STORM_RANGE: f32 = 14.;
+    /// Storm Familiar: seconds between strikes, damage, and enemies struck.
+    pub fn storm(rank: u8) -> (f32, f32, usize) {
+        (2.8 - rank as f32 * 0.22, 22. + rank as f32 * 9., rank as usize)
+    }
+    /// Grave Halo: blades, and damage per cut.
+    pub fn halo(rank: u8) -> (u8, f32) {
+        (rank + 1, 10. + rank as f32 * 4.)
+    }
+    /// Winter Pulse fires this often, in seconds.
+    pub const FROST_INTERVAL: f32 = 5.;
+    /// Winter Pulse: radius in metres, and damage.
+    pub fn frost(rank: u8) -> (f32, f32) {
+        (3.5 + rank as f32 * 0.7, 18. + rank as f32 * 8.)
+    }
+    /// Thorn Covenant: damage to each melee attacker.
+    pub fn thorns(rank: u8) -> f32 {
+        rank as f32 * 12.
+    }
+    /// Wraith Step: movement speed multiplier.
+    pub fn wraith(rank: u8) -> f32 {
+        1. + rank as f32 * 0.08
+    }
+    /// What power `p` does at `rank`, for the pause screen.
+    pub fn effect(p: usize, rank: u8) -> String {
+        let percent = |k: f32| ((k - 1.) * 100.).round();
+        match p {
+            0 => format!("+{}% weapon damage", percent(oath(rank))),
+            1 => format!("Attacks recover {}% faster", percent(quickening(rank))),
+            2 => format!("Draws in souls from {:.1} m", magnet(rank)),
+            3 => format!("{} maximum vitality", heart(rank)),
+            4 => format!("+{:.1} vitality per soul", sipper(rank)),
+            5 => {
+                let (every, damage, count) = storm(rank);
+                format!(
+                    "{damage} damage to {count} {} within {STORM_RANGE} m every {every:.1} s",
+                    if count == 1 { "foe" } else { "foes" }
+                )
+            }
+            6 => {
+                let (blades, damage) = halo(rank);
+                format!("{blades} blades, {damage} damage per cut")
+            }
+            7 => {
+                let (radius, damage) = frost(rank);
+                format!("{damage} damage and slow within {radius:.1} m every {FROST_INTERVAL} s")
+            }
+            8 => format!("Melee attackers take {} damage", thorns(rank)),
+            _ => format!("+{}% movement speed", percent(wraith(rank))),
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Orb {
     pub pos: Vec3,
@@ -89,15 +165,15 @@ impl Survival {
         12 + self.level * 8
     }
     pub fn max_hp(&self) -> f32 {
-        100. + self.ranks[3] as f32 * 20.
+        power::heart(self.ranks[3])
     }
 }
 impl Game {
     pub fn damage_multiplier(&self) -> f32 {
-        1. + self.run.survival.ranks[0] as f32 * 0.15
+        power::oath(self.run.survival.ranks[0])
     }
     pub fn haste(&self) -> f32 {
-        1. + self.run.survival.ranks[1] as f32 * 0.1
+        power::quickening(self.run.survival.ranks[1])
     }
     pub fn max_hp(&self) -> f32 {
         self.run.survival.max_hp()
@@ -201,7 +277,7 @@ impl Game {
         }
     }
     pub fn tick_orbs(&mut self, dt: f32) {
-        let magnet = 2.2 + self.run.survival.ranks[2] as f32 * 1.3;
+        let magnet = power::magnet(self.run.survival.ranks[2]);
         let vacuum = self.run.enemies.is_empty() && self.run.survival.remaining == 0;
         let target = self.run.pos - Vec3::Y * 0.7;
         let mut xp = 0;
@@ -234,7 +310,7 @@ impl Game {
         self.run.survival.orbs.retain(|o| o.value > 0);
         if count > 0 {
             self.add_xp(xp);
-            self.run.hp = (self.run.hp + count as f32 * self.run.survival.ranks[4] as f32 * 0.6)
+            self.run.hp = (self.run.hp + count as f32 * power::sipper(self.run.survival.ranks[4]))
                 .min(self.max_hp());
             self.sound_events.push("soul");
         }
@@ -294,7 +370,8 @@ impl Game {
         self.run.survival.halo_cd -= dt;
         self.run.survival.frost_cd -= dt;
         if ranks[5] > 0 && self.run.survival.storm_cd <= 0. {
-            self.run.survival.storm_cd = 2.8 - ranks[5] as f32 * 0.22;
+            let (every, damage, count) = power::storm(ranks[5]);
+            self.run.survival.storm_cd = every;
             let mut targets: Vec<_> = self
                 .run
                 .enemies
@@ -302,10 +379,10 @@ impl Game {
                 .enumerate()
                 .filter(|(_, e)| e.hp > 0.)
                 .map(|(i, e)| (i, e.pos.distance_squared(self.run.pos)))
-                .filter(|(_, d)| *d < 196.)
+                .filter(|(_, d)| *d < power::STORM_RANGE * power::STORM_RANGE)
                 .collect();
             targets.sort_by(|a, b| a.1.total_cmp(&b.1));
-            for &(i, _) in targets.iter().take(ranks[5] as usize) {
+            for &(i, _) in targets.iter().take(count) {
                 let p = Pose::for_enemy(&self.run.enemies[i], self.run.pos).anchor(
                     if encounters::head_only(self.run.enemies[i].kind) {
                         Part::Head
@@ -314,36 +391,33 @@ impl Game {
                     },
                 );
                 self.trail(p + Vec3::Y * 5., p, [0.4, 1.5, 3.]);
-                self.damage_enemy(i, 22. + ranks[5] as f32 * 9., -Vec3::Y);
+                self.damage_enemy(i, damage, -Vec3::Y);
             }
         }
         if ranks[6] > 0 && self.run.survival.halo_cd <= 0. {
             self.run.survival.halo_cd = 0.22;
+            let (blades, damage) = power::halo(ranks[6]);
             for i in 0..self.run.enemies.len() {
-                for blade in 0..ranks[6] + 1 {
+                for blade in 0..blades {
                     let a = self.run.time * 2.7
-                        + blade as f32 * std::f32::consts::TAU / (ranks[6] + 1) as f32;
+                        + blade as f32 * std::f32::consts::TAU / blades as f32;
                     let p = self.run.pos + Vec3::new(a.cos() * 2.5, -0.45, a.sin() * 2.5);
                     let e = &self.run.enemies[i];
                     if e.hp > 0. && e.pos.distance(p) < 1.65 {
-                        self.damage_enemy(
-                            i,
-                            10. + ranks[6] as f32 * 4.,
-                            (e.pos - self.run.pos).normalize_or_zero(),
-                        );
+                        self.damage_enemy(i, damage, (e.pos - self.run.pos).normalize_or_zero());
                         break;
                     }
                 }
             }
         }
         if ranks[7] > 0 && self.run.survival.frost_cd <= 0. {
-            self.run.survival.frost_cd = 5.;
-            let radius = 3.5 + ranks[7] as f32 * 0.7;
+            self.run.survival.frost_cd = power::FROST_INTERVAL;
+            let (radius, damage) = power::frost(ranks[7]);
             for i in 0..self.run.enemies.len() {
                 let e = &self.run.enemies[i];
                 if e.hp > 0. && e.pos.distance(self.run.pos) < radius {
                     self.run.enemies[i].slow = 3.;
-                    self.damage_enemy(i, 18. + ranks[7] as f32 * 8., Vec3::ZERO);
+                    self.damage_enemy(i, damage, Vec3::ZERO);
                 }
             }
             for j in 0..64 {
@@ -365,6 +439,42 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn power_descriptions_follow_the_powers_numbers() {
+        use super::power::effect;
+        assert_eq!(effect(0, 1), "+15% weapon damage");
+        assert_eq!(effect(0, 5), "+75% weapon damage");
+        assert_eq!(effect(1, 3), "Attacks recover 30% faster");
+        assert_eq!(effect(2, 1), "Draws in souls from 3.5 m");
+        assert_eq!(effect(3, 2), "140 maximum vitality");
+        assert_eq!(effect(4, 5), "+3.0 vitality per soul");
+        assert_eq!(effect(5, 1), "31 damage to 1 foe within 14 m every 2.6 s");
+        assert_eq!(effect(5, 5), "67 damage to 5 foes within 14 m every 1.7 s");
+        assert_eq!(effect(6, 1), "2 blades, 14 damage per cut");
+        assert_eq!(effect(7, 1), "26 damage and slow within 4.2 m every 5 s");
+        assert_eq!(effect(8, 4), "Melee attackers take 48 damage");
+        assert_eq!(effect(9, 5), "+40% movement speed");
+        // The game reads the same numbers.
+        let mut g = Game::new(false);
+        g.new_run();
+        g.run.survival.ranks = [2, 3, 0, 2, 0, 0, 0, 0, 0, 0];
+        assert_eq!(g.damage_multiplier(), power::oath(2));
+        assert_eq!(g.haste(), power::quickening(3));
+        assert_eq!(g.max_hp(), 140.);
+        // Winter Pulse at rank 1 reaches 4.2 m: a creature at 4 m is hit and
+        // slowed, one at 4.4 m isn't.
+        g.run.enemies = vec![
+            Enemy::spawn(0, g.run.pos + Vec3::new(4., 0., 0.), 1, 0.),
+            Enemy::spawn(0, g.run.pos + Vec3::new(-4.4, 0., 0.), 1, 0.),
+        ];
+        g.run.survival.ranks = [0, 0, 0, 0, 0, 0, 0, 1, 0, 0];
+        g.run.survival.frost_cd = 0.;
+        let before: Vec<f32> = g.run.enemies.iter().map(|e| e.hp).collect();
+        g.tick_powers(0.01);
+        assert!(g.run.enemies[0].hp < before[0] && g.run.enemies[0].slow > 0.);
+        assert_eq!(g.run.enemies[1].hp, before[1]);
+        assert_eq!(g.run.survival.frost_cd, power::FROST_INTERVAL);
+    }
     fn arena() -> Game {
         let mut g = Game::new(false);
         g.new_run();
