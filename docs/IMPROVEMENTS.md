@@ -1191,3 +1191,124 @@ Deferred, with reasons:
   creature behind a wall.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 8 scope
+
+Round 7 was merged and pushed on 2026-10-07. This round fixes the one
+known flaw in round 7's creature notes, gives the Collector's table a look
+at what's coming, adds two common input options (toggle sprint and
+controller aim assist), and finally exercises fullscreen switching while the
+game runs, which round 7 shipped but couldn't try. Elite enemy variants stay
+deferred: they need playtests, and none are possible here.
+
+Test runs this round never touch the shared desktop's fullscreen: the live
+fullscreen check runs inside a private, virtual KWin (`kwin_wayland
+--virtual` on its own D-Bus session), which a probe confirmed can run the
+game on the Radeon through Vulkan (`--smoke` passed inside it).
+
+### A. Creature notes respect walls
+
+A first-sighting note (round 7) can name a creature standing behind a wall,
+because the check is only a cone and a distance.
+
+Acceptance criteria:
+- A creature counts as seen only if the line from the player's eye to its
+  body is clear of the masonry and trees that stop shots
+  (`world_layout::obstruction`, the same test bullets use). The cone and
+  30 m range are unchanged.
+- A creature hidden when it first comes into range is noted once the player
+  can see it.
+
+Verification: unit tests with a creature in the cone behind a chapel wall
+(no note), the same creature beside the wall in the open (note), and a
+creature that steps out from behind cover (note on the first clear frame).
+The existing creature-note tests still pass.
+
+### B. The next descent, at the Collector's table
+
+The Collector's **Enter descent** button says only "SAME FOREST. HIGHER
+STAKES." A player choosing between armor, a chalice and a pack can't see
+that the Tithekeeper waits below or that new creatures join the next wave.
+
+Acceptance criteria:
+- Beside the button, the table names what the next descent holds: how many
+  creatures (before summons), whether the Tithekeeper returns, and which
+  species appear for the first time in the run ("NEW: GRAVE CRAWLER, PLAGUE
+  VESSEL"). After descent twelve it describes the endless descent.
+- The figures come from the same tables the encounter director spawns from,
+  so they can't drift from the game.
+- The text fits at 960×600 and doesn't collide with the field note shown on
+  the first shop visit.
+
+Verification: unit tests that the preview's count, boss flag and new
+species match what `seed_encounter` and the reinforcements actually spawn
+for descents 1 to 13. Text-review captures of the Collector before descents
+2, 4 and 13 at both sizes.
+
+### C. Toggle sprint
+
+Sprint must be held (Shift, or LT on a controller). Holding a key or
+trigger through a whole fight is tiring, and many players prefer a press to
+start and stop.
+
+Acceptance criteria:
+- Preferences gets a **Sprint: hold / toggle** switch, saved in
+  `settings.json` (`toggle_sprint`); older files load as hold.
+- With toggle on, pressing any sprint binding (keyboard or controller)
+  starts sprinting and pressing it again stops; sprint also stops when the
+  player stops moving or leaves the arena. With hold, nothing changes.
+- The first-run movement note and prompts say "press" instead of "hold"
+  when toggle is on.
+
+Verification: unit tests for the latch (press, release, press again; stops
+when movement stops; leaving the arena clears it; hold mode unchanged) and
+the preference round-trip. A capture of the Preferences page at both sizes.
+
+### D. Controller aim assist
+
+Aiming a thumbstick at small flyers is much harder than aiming a mouse, and
+the game gives controller players no help.
+
+Acceptance criteria:
+- With a controller driving the arena, the right stick turns more slowly
+  (about half rate) while the reticle is on or just beside a living
+  creature that the player can see (within 40 m, line of sight clear). It
+  never turns the view by itself, and the mouse is never affected.
+- The Controller page gets an **Aim assist** switch, on by default, saved
+  in `settings.json` (`aim_assist`); older files load with it on.
+
+Verification: unit tests: slowed with a creature under the reticle, not
+with it well off-centre, behind a wall, dead or beyond range, not with the
+switch off; the mouse path never reads it; the preference round-trips.
+Captures of the Controller page at both sizes. `--smoke --gamepad` must
+still pass. **No physical controller**, so how it feels is unverified.
+
+### E. Fullscreen switched while the game runs
+
+Round 7 checked launching into fullscreen, but not switching with F11 or
+the journal mid-game, which resizes the surface and the depth targets live.
+
+Acceptance criteria:
+- A scripted review (`--fullscreen-review`) starts windowed, switches to
+  fullscreen through the same function F11 calls, then back through the
+  journal's switch clicked with real egui pointer input, and checks after
+  each that the window's size followed (the output's size, then the
+  original size), that frames keep rendering, and that the setting is saved
+  to its throwaway data folder.
+- The mode refuses to run unless the script that starts the private
+  virtual KWin asked for it, so it can't take over the shared desktop.
+- Anything broken along the way is fixed.
+
+Verification: `scripts/fullscreen-review.sh` runs the review in a private
+virtual KWin and records its captures and log; the run must exit 0. The
+real `~/.local/share/gravewake` is checked before and after.
+
+### Deferred this round
+
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12) and the browser build (#15).
+- Crowd-aware damage estimates on cards: any number for splash or chains
+  would depend on how many creatures a player tends to hit, which nothing
+  here measures.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.
