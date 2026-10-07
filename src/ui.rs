@@ -2971,12 +2971,30 @@ fn grouped(n: u32) -> String {
     }
     out
 }
-/// The controller's virtual pointer, drawn above every menu and modal.
+/// The controller's virtual pointer, drawn above every menu and modal, with
+/// a brass focus frame around the control it rests on.
 pub fn pad_cursor(ctx: &egui::Context, pos: Pos2) {
     let p = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Tooltip,
         Id::new("pad_cursor"),
     ));
+    let targets = pad_targets(ctx);
+    if let Some(i) = crate::gamepad::focused(pos, &targets) {
+        let r = targets[i].rect.expand(5.);
+        p.rect_stroke(r, 5., Stroke::new(5., C::from_black_alpha(150)), egui::StrokeKind::Middle);
+        p.rect_stroke(r, 5., Stroke::new(2., GOLD), egui::StrokeKind::Middle);
+        // Corner marks keep the frame legible against gold-trimmed buttons.
+        for (corner, dx, dy) in [
+            (r.left_top(), 1., 1.),
+            (r.right_top(), -1., 1.),
+            (r.left_bottom(), 1., -1.),
+            (r.right_bottom(), -1., -1.),
+        ] {
+            let stroke = Stroke::new(3., IVORY);
+            p.line_segment([corner, corner + Vec2::new(dx * 12., 0.)], stroke);
+            p.line_segment([corner, corner + Vec2::new(0., dy * 12.)], stroke);
+        }
+    }
     p.circle_stroke(pos, 11., Stroke::new(4.5, C::from_black_alpha(170)));
     p.circle_stroke(pos, 11., Stroke::new(2., GOLD));
     p.circle_filled(pos, 2.5, IVORY);

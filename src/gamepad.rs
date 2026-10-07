@@ -398,6 +398,17 @@ pub fn neighbour(from: Pos2, dir: egui::Vec2, targets: &[Target]) -> Option<usiz
     best.map(|(_, _, i)| i)
 }
 
+/// The control the cursor rests on, for the focus frame: the smallest
+/// target containing `at`, so a button on a card wins over the card.
+pub fn focused(at: Pos2, targets: &[Target]) -> Option<usize> {
+    targets
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.rect.contains(at))
+        .min_by(|(_, a), (_, b)| a.rect.area().total_cmp(&b.rect.area()))
+        .map(|(i, _)| i)
+}
+
 /// Stick-driven pointer for menus. `pos` is `None` until the stick, the
 /// D-pad or A is used, and again after the real mouse moves.
 #[derive(Default, Debug)]
@@ -992,6 +1003,34 @@ mod tests {
         ];
         assert_eq!(neighbour(Pos2::new(400., 700.), egui::vec2(0., -1.), &side), Some(0));
         assert_eq!(neighbour(Pos2::new(420., 400.), egui::vec2(0., -1.), &side), Some(1));
+    }
+    #[test]
+    fn the_focus_frame_marks_the_smallest_control_under_the_cursor() {
+        // A card (the equipped card is a target) with a button on it, and a
+        // separate button beside it.
+        let targets = [
+            Target::button(rect(100., 100., 300., 420.)),
+            Target::button(rect(140., 440., 220., 40.)),
+            Target::button(rect(500., 440., 220., 40.)),
+        ];
+        assert_eq!(focused(Pos2::new(200., 200.), &targets), Some(0));
+        assert_eq!(focused(Pos2::new(250., 460.), &targets), Some(1), "the button on the card");
+        assert_eq!(focused(targets[2].point, &targets), Some(2));
+        // Between controls, or with none on screen, there's no frame.
+        assert_eq!(focused(Pos2::new(450., 460.), &targets), None);
+        assert_eq!(focused(Pos2::new(250., 460.), &[]), None);
+        // Wherever a D-pad press lands, that control is the one framed.
+        let mut cursor = Cursor::default();
+        let screen = rect(0., 0., 1440., 900.);
+        cursor.step(&tap(Button::DPadRight), 0.016, screen, &targets);
+        cursor.step(&Frame::default(), 0.016, screen, &targets);
+        let first = focused(cursor.pos.unwrap(), &targets).unwrap();
+        assert_eq!(cursor.pos, Some(targets[first].point));
+        assert_eq!(first, 2, "the control nearest the centre");
+        cursor.step(&tap(Button::DPadLeft), 0.016, screen, &targets);
+        let next = focused(cursor.pos.unwrap(), &targets).unwrap();
+        assert_eq!(next, 1, "the button on the card, in line, not the card");
+        assert_eq!(cursor.pos, Some(targets[next].point));
     }
     #[test]
     fn first_dpad_press_lands_near_the_centre_and_holding_repeats() {
