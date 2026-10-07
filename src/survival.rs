@@ -8,6 +8,44 @@ use crate::{
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 pub const DESCENTS: u32 = 12;
+/// The Tithekeeper's `encounters::ROSTER` index.
+pub const TITHEKEEPER: usize = 3;
+/// Creatures a descent brings before summons, counting the Tithekeeper.
+pub fn descent_quota(wave: u32) -> u32 {
+    (14 + wave * 5).min(180)
+}
+/// The species a descent's reinforcements are drawn from.
+pub fn descent_pool(wave: u32) -> &'static [usize] {
+    match wave {
+        1 => &[0, 1, 4, 5],
+        2 => &[0, 1, 2, 4, 5, 7],
+        3 => &[0, 1, 2, 4, 5, 6, 7, 8],
+        _ => &[0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11],
+    }
+}
+/// Every fourth descent, endless ones included, opens with the Tithekeeper.
+pub fn boss_descent(wave: u32) -> bool {
+    wave % 4 == 0
+}
+/// What a descent holds, for the Collector's table.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preview {
+    pub foes: u32,
+    pub boss: bool,
+    /// The Tithekeeper fought in an earlier descent of this run.
+    pub boss_returns: bool,
+    /// Species that no earlier descent brought, in roster order.
+    pub new: Vec<usize>,
+}
+pub fn preview(wave: u32) -> Preview {
+    let earlier = |kind: &usize| (1..wave).any(|w| descent_pool(w).contains(kind));
+    Preview {
+        foes: descent_quota(wave),
+        boss: boss_descent(wave),
+        boss_returns: boss_descent(wave) && wave > 4,
+        new: descent_pool(wave).iter().copied().filter(|k| !earlier(k)).collect(),
+    }
+}
 pub const POWERS: [(&str, &str); 10] = [
     ("BLOOD OATH", "All weapon damage +15% per rank."),
     ("QUICKENING", "Fire and melee recovery 10% faster per rank."),
@@ -179,7 +217,7 @@ impl Game {
         self.run.survival.max_hp()
     }
     pub fn seed_encounter(&mut self) {
-        self.run.survival.remaining = (14 + self.run.wave * 5).min(180);
+        self.run.survival.remaining = descent_quota(self.run.wave);
         self.run.survival.spawned = 0;
         self.run.survival.wave_clock = 0.;
         self.run.survival.spawn_timer = 4.;
@@ -195,16 +233,11 @@ impl Game {
         }
         let n = self.run.survival.spawned;
         let wave = self.run.wave;
-        let pool: &[usize] = match wave {
-            1 => &[0, 1, 4, 5],
-            2 => &[0, 1, 2, 4, 5, 7],
-            3 => &[0, 1, 2, 4, 5, 6, 7, 8],
-            _ => &[0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11],
-        };
+        let pool = descent_pool(wave);
         // Each pass through the pool brings every species once, in a seeded
         // random order, so a wave's mix matches the old round-robin.
-        let kind = if wave % 4 == 0 && n == 0 {
-            3
+        let kind = if boss_descent(wave) && n == 0 {
+            TITHEKEEPER
         } else {
             if self.run.survival.bag.is_empty() {
                 let mut bag = pool.to_vec();
@@ -439,6 +472,36 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_descent_preview_matches_what_the_descent_spawns() {
+        let mut g = Game::new(false);
+        g.new_run();
+        let mut met = std::collections::BTreeSet::new();
+        for wave in 1..=17 {
+            g.run.wave = wave;
+            g.start_wave();
+            while g.run.survival.remaining > 0 {
+                g.spawn_reinforcement();
+            }
+            let kinds: Vec<usize> = g.run.enemies.iter().map(|e| e.kind).collect();
+            let p = preview(wave);
+            assert_eq!(p.foes as usize, kinds.len(), "descent {wave}");
+            assert_eq!(p.boss, kinds.contains(&TITHEKEEPER), "descent {wave}");
+            assert_eq!(p.boss_returns, p.boss && met.contains(&TITHEKEEPER), "descent {wave}");
+            let fresh: std::collections::BTreeSet<usize> = kinds
+                .iter()
+                .copied()
+                .filter(|k| *k != TITHEKEEPER && !met.contains(k))
+                .collect();
+            assert_eq!(p.new, fresh.into_iter().collect::<Vec<_>>(), "descent {wave}");
+            met.extend(kinds);
+        }
+        assert_eq!(preview(2).new, [2, 7]);
+        assert_eq!(preview(4).new, [9, 10, 11]);
+        assert!(preview(4).boss && !preview(4).boss_returns && preview(8).boss_returns);
+        assert!(preview(5).new.is_empty() && !preview(13).boss && preview(16).boss);
+        assert_eq!(preview(40).foes, 180);
+    }
     #[test]
     fn power_descriptions_follow_the_powers_numbers() {
         use super::power::effect;

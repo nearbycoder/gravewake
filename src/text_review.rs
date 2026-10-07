@@ -19,6 +19,8 @@ enum Screen {
     /// The Collector, with the chalice bound, or with the first-visit tip.
     Shop(bool, bool),
     Pack,
+    /// The Collector after this descent, previewing the next one.
+    ShopNext(u32),
     /// The Collector offering an area weapon with damage over time.
     ShopOffer,
     Binding(u8),
@@ -96,6 +98,9 @@ impl Review {
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
+            ("collector-next-descent-04".into(), Screen::ShopNext(3)),
+            ("collector-next-descent-08".into(), Screen::ShopNext(7)),
+            ("collector-next-descent-14".into(), Screen::ShopNext(13)),
             ("pack".into(), Screen::Pack),
             ("collector-venom-splash-offer".into(), Screen::ShopOffer),
             ("binding-available-tooltip".into(), Screen::Binding(0)),
@@ -535,6 +540,14 @@ impl Review {
                         life: 20.,
                     });
                 }
+                game.run.offer = game.run.weapon.clone();
+                game.run.draws = 12;
+                game.run.pack_buys = 8;
+            }
+            Screen::ShopNext(wave) => {
+                game.mode = Mode::Shop;
+                game.run.wave = wave;
+                game.run.survival.endless = wave > crate::survival::DESCENTS;
                 game.run.offer = game.run.weapon.clone();
                 game.run.draws = 12;
                 game.run.pack_buys = 8;

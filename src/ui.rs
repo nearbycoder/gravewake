@@ -1195,15 +1195,36 @@ fn deck(c: &Canvas, g: &mut Game) {
     if c.button(
         "next",
         1080.,
-        y + 27.,
+        y + 14.,
         292.,
-        59.,
+        56.,
         &format!("ENTER DESCENT {:02}  >", g.run.wave + 1),
         true,
     ) {
         g.next_wave();
     }
-    c.center(1226., y + 108., "SAME FOREST. HIGHER STAKES.", 9., MUTED);
+    // What waits below: the count, the Tithekeeper, and first-time species.
+    let next = crate::survival::preview(g.run.wave + 1);
+    let mut stakes = format!("{} FOES", next.foes);
+    if next.boss {
+        stakes += if next.boss_returns {
+            "  /  THE TITHEKEEPER RETURNS"
+        } else {
+            "  /  THE TITHEKEEPER WAITS"
+        };
+    }
+    c.center(1226., y + 88., stakes, 11., if next.boss { BLOOD } else { GOLD });
+    let names: Vec<&str> = next
+        .new
+        .iter()
+        .map(|&k| crate::encounters::species(k).name)
+        .collect();
+    let new = if names.is_empty() {
+        "SAME FOREST. HIGHER STAKES.".into()
+    } else {
+        format!("NEW: {}", names.join(", "))
+    };
+    c.center(1226., y + 110., new, 9., MUTED);
 }
 #[derive(Clone)]
 struct PackUi {
