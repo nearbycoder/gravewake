@@ -534,6 +534,21 @@ impl<'a> Canvas<'a> {
         }
     }
     fn slider(&self, id: &str, x: f32, y: f32, w: f32, value: &mut f32, min: f32, max: f32) {
+        self.stepped_slider(id, x, y, w, value, min, max, crate::gamepad::SLIDER_STEP);
+    }
+    /// A slider whose D-pad presses move `step` of its track.
+    #[allow(clippy::too_many_arguments)]
+    fn stepped_slider(
+        &self,
+        id: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        value: &mut f32,
+        min: f32,
+        max: f32,
+        step: f32,
+    ) {
         let r = self.ui.interact(
             self.rect(x - 12., y - 15., w + 24., 30.),
             Id::new(id),
@@ -551,6 +566,7 @@ impl<'a> Canvas<'a> {
             rect: r.rect,
             point: self.pt(x + w * t, y),
             track: Some((self.pt(x, y).x, self.pt(x + w, y).x)),
+            step,
         });
         self.line((x, y), (x + w, y), C::from_rgb(91, 66, 40), 5.);
         self.line((x, y - 1.), (x + w * t, y - 1.), GOLD, 2.);
@@ -3469,6 +3485,27 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
         }
     }
+    // The frame limit steps through its listed rates.
+    let limits = crate::pacing::FRAME_LIMITS;
+    let y = JOURNAL_SLIDER_Y + 5. * 44.;
+    let mut stop = limits
+        .iter()
+        .position(|&l| l == g.prefs.frame_limit)
+        .unwrap_or(0) as f32;
+    c.text(392., y, "Frame limit", 17., INK, true, Align2::LEFT_CENTER);
+    let last = (limits.len() - 1) as f32;
+    c.stepped_slider("frame_limit", 615., y + 1., 360., &mut stop, 0., last, 1. / last);
+    g.prefs.frame_limit = limits[stop.round() as usize];
+    c.center(
+        1010.,
+        y + 1.,
+        match g.prefs.frame_limit {
+            0 => "OFF".to_string(),
+            fps => format!("{fps} FPS"),
+        },
+        12.,
+        INK,
+    );
     for (id, x, y, label, on) in [
         ("invert_y", 392., JOURNAL_TOGGLES_Y, "INVERT LOOK", g.prefs.invert_y),
         (

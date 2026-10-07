@@ -14,6 +14,8 @@ mod guns;
 mod model_review;
 mod motion;
 mod music;
+mod pacing;
+mod pacing_review;
 mod perf;
 mod renderer;
 mod scene;
@@ -72,6 +74,9 @@ struct App {
     model_review: Option<model_review::Review>,
     world_review: Option<world_review::Review>,
     fullscreen_review: Option<fullscreen_review::Review>,
+    pacing_review: Option<pacing_review::Review>,
+    /// The frame limit's schedule.
+    pacer: pacing::Pacer,
     benchmark: bool,
     perf: perf::Benchmark,
     shader_frame_times: Vec<f32>,
@@ -118,6 +123,17 @@ impl App {
         self.apply_fullscreen();
         self.game.save_preferences();
     }
+    /// Frames per second the loop may draw now; 0 for no limit. Scripted
+    /// runs draw unlimited, apart from the pacing review's stages.
+    fn frame_limit(&self) -> u32 {
+        if let Some(review) = &self.pacing_review {
+            return review.limit();
+        }
+        if self.smoke || self.review {
+            return 0;
+        }
+        pacing::effective_limit(self.game.prefs.frame_limit, self.focused)
+    }
     fn new(smoke: bool, review: bool) -> Self {
         let ctx = egui::Context::default();
         ui::configure(&ctx);
@@ -163,6 +179,10 @@ impl App {
             fullscreen_review: std::env::args()
                 .any(|a| a == "--fullscreen-review")
                 .then(fullscreen_review::Review::new),
+            pacing_review: std::env::args()
+                .any(|a| a == "--pacing-review")
+                .then(pacing_review::Review::new),
+            pacer: pacing::Pacer::default(),
             benchmark: std::env::args().any(|a| a == "--benchmark"),
             perf: perf::Benchmark::default(),
             shader_frame_times: vec![],
@@ -737,6 +757,15 @@ impl App {
         if event_loop.exiting() || (self.occluded && !self.smoke && !self.review) {
             return;
         }
+        let started = Instant::now();
+        self.pacer.started(started, self.frame_limit());
+        if let Some(review) = &mut self.pacing_review {
+            review.frame(started);
+            if review.finished {
+                event_loop.exit();
+                return;
+            }
+        }
         let frame_interval = self.last.elapsed().as_secs_f64() * 1000.;
         // Smooth frame duration, not reciprocal FPS, to avoid overstating uneven pacing.
         let averaged_ms = if self.game.fps > 0. {
@@ -841,6 +870,7 @@ impl App {
         };
         let capture = if self.benchmark
             || self.fullscreen_review.is_some()
+            || self.pacing_review.is_some()
             || self.text_review.is_some()
             || self.model_review.is_some()
             || self.world_review.is_some()
@@ -1433,7 +1463,11 @@ impl App {
                 review.rendered += 1;
             }
         }
-        window.request_redraw();
+        // With a frame limit, `about_to_wait` asks for the next frame when
+        // it's due.
+        if self.frame_limit() == 0 {
+            window.request_redraw();
+        }
         if std::mem::take(&mut self.game.fullscreen_changed) {
             self.apply_fullscreen();
         }
@@ -1671,12 +1705,19 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if event_loop.exiting() {
+        if event_loop.exiting() || self.occluded {
             return;
         }
-        if !self.occluded {
-            if let Some(w) = &self.window {
-                w.request_redraw();
+        // Sleep until the frame limit's next deadline, or draw now.
+        match self.pacer.wait_until(Instant::now(), self.frame_limit()) {
+            Some(deadline) => {
+                event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(deadline))
+            }
+            None => {
+                event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
             }
         }
     }
@@ -1718,6 +1759,7 @@ fn main() {
             || a == "--model-review"
             || a == "--world-review"
             || a == "--fullscreen-review"
+            || a == "--pacing-review"
     });
     if std::env::args().any(|a| a == "--fullscreen-review") {
         if let Some(reason) = fullscreen_review::refusal() {

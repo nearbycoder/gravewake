@@ -454,6 +454,8 @@ pub struct Preferences {
     pub toggle_sprint: bool,
     /// Slow the right stick while the reticle is on a creature.
     pub aim_assist: bool,
+    /// Most frames per second, one of `pacing::FRAME_LIMITS`; 0 is Off.
+    pub frame_limit: u32,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -485,6 +487,7 @@ impl Default for Preferences {
             stick_speed: 1.,
             toggle_sprint: false,
             aim_assist: true,
+            frame_limit: 0,
         }
     }
 }
@@ -534,6 +537,7 @@ impl Preferences {
             stick_speed: clean(self.stick_speed, Self::STICK_SPEED_RANGE, d.stick_speed),
             toggle_sprint: self.toggle_sprint,
             aim_assist: self.aim_assist,
+            frame_limit: crate::pacing::nearest_limit(self.frame_limit),
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -2457,6 +2461,18 @@ mod tests {
         let bytes = serde_json::to_vec(&prefs).unwrap();
         assert!(!Preferences::from_json(&bytes).unwrap().aim_assist);
         assert!(Preferences::from_json(br#"{"volume":0.5}"#).unwrap().aim_assist);
+    }
+    #[test]
+    fn the_frame_limit_is_saved_off_by_default_and_snaps_to_a_listed_rate() {
+        let mut prefs = Preferences::default();
+        assert_eq!(prefs.frame_limit, 0);
+        prefs.frame_limit = 144;
+        let bytes = serde_json::to_vec(&prefs).unwrap();
+        assert_eq!(Preferences::from_json(&bytes).unwrap().frame_limit, 144);
+        // Older files load as Off; hand-edited values snap to the list.
+        assert_eq!(Preferences::from_json(br#"{"volume":0.5}"#).unwrap().frame_limit, 0);
+        assert_eq!(Preferences::from_json(br#"{"frame_limit":75}"#).unwrap().frame_limit, 60);
+        assert_eq!(Preferences::from_json(br#"{"frame_limit":5000}"#).unwrap().frame_limit, 240);
     }
     #[test]
     fn toggle_sprint_latches_on_a_press_and_ends_when_movement_stops() {

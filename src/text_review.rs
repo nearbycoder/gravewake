@@ -697,6 +697,7 @@ impl Review {
                 game.settings = true;
                 game.show_fps = true;
                 game.prefs.volume = 1.;
+                game.prefs.frame_limit = 144;
             }
             Screen::Controls(kind) => {
                 use crate::controls::{Action, Trigger};

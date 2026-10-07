@@ -198,6 +198,14 @@ Reinforcements arrive in batches, with new enemy types introduced over the openi
 
 The renderer now instances repeated enemy shapes on the GPU, caches primitive geometry, reuses frame buffers, and skips offscreen rendering while preserving gameplay simulation. Unlocked presentation is the default. **F7** toggles VSync; **F8** shows the FPS counter. Both are also in Settings & Controls and are saved between launches. Minimized/occluded windows suspend continuous rendering.
 
+**Frame limit** in Settings & Controls (`frame_limit` in `settings.json`: 0 for Off, or 30, 60, 90, 120, 144, 165 or 240; older files load as Off, other values snap to the nearest) caps the frame rate with VSync on or off, and while the window is visible but not focused the game draws at most 30 frames per second (`pacing::effective_limit`). Minimized or hidden windows still stop drawing. `pacing::Pacer` sleeps the event loop until each deadline (`ControlFlow::WaitUntil`) instead of spinning, and schedules each deadline from the previous one, so a late wake-up is made up on the next frame; a frame longer than a whole period starts a fresh schedule rather than a burst. The slider steps one listed rate per D-pad press (`gamepad::Target::step`). Scripted runs ignore the limit.
+
+`--pacing-review` measures it on the title screen: five seconds each with no limit, 30, 60 and 144, and in the background (the unfocused flag set directly, since nothing in a scripted run can take focus from the window), reporting frames per second, mean, 95th-percentile and longest frame times and the process's CPU time to `captures/pacing/report.json`. It fails if a limited stage draws more than 2% above its limit, or more than 2% below it when the unlimited title drew over 10% faster. Run it in the private compositor:
+
+```sh
+XDG_DATA_HOME=$PWD/captures/home scripts/nested-kwin.sh -- target/release/gravewake --pacing-review
+```
+
 Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance results and methodology](PERFORMANCE.md) for measured frame times, matched reference images, and limitations.
 
 ## Controllers

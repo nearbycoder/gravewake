@@ -351,6 +351,9 @@ pub struct Target {
     pub point: Pos2,
     /// A slider's track ends (x), which left and right step along.
     pub track: Option<(f32, f32)>,
+    /// The share of the track one left or right press moves: `SLIDER_STEP`,
+    /// or one stop of a slider with a few listed values.
+    pub step: f32,
 }
 impl Target {
     pub fn button(rect: Rect) -> Self {
@@ -358,6 +361,7 @@ impl Target {
             rect,
             point: rect.center(),
             track: None,
+            step: 0.,
         }
     }
 }
@@ -502,9 +506,10 @@ impl Cursor {
             let slider = targets
                 .iter()
                 .find(|t| t.track.is_some() && t.rect.contains(here));
-            if let (Some(&Target { track: Some((x0, x1)), .. }), true) = (slider, dir.y == 0.) {
+            if let (Some(&Target { track: Some((x0, x1)), step, .. }), true) = (slider, dir.y == 0.)
+            {
                 // Step along the slider, then click there to set it.
-                pos.x = (pos.x + dir.x * (x1 - x0) * SLIDER_STEP).clamp(x0, x1);
+                pos.x = (pos.x + dir.x * (x1 - x0) * step).clamp(x0, x1);
                 slid = true;
             } else if let Some(i) = neighbour(here, dir, targets) {
                 *pos = targets[i].point;
@@ -1127,6 +1132,7 @@ mod tests {
             rect: rect(588., 285., 224., 30.),
             point: Pos2::new(650., 300.),
             track: Some(track),
+            step: SLIDER_STEP,
         };
         let below = Target::button(rect(600., 400., 200., 40.));
         let targets = [slider, below];
@@ -1155,6 +1161,22 @@ mod tests {
         let (events, _) = cursor.step(&tap(Button::DPadDown), 0.01, screen(), &targets);
         assert_eq!(cursor.pos, Some(below.point));
         assert!(matches!(events[..], [Event::PointerMoved(_)]));
+        // A slider of eight listed values steps one value per press.
+        let stops = Target {
+            point: Pos2::new(600., 300.),
+            step: 1. / 7.,
+            ..slider
+        };
+        let mut cursor = Cursor {
+            pos: Some(stops.point),
+            ..Default::default()
+        };
+        for stop in 1..=3 {
+            cursor.step(&Frame::default(), 0.01, screen(), &[stops]);
+            cursor.step(&tap(Button::DPadRight), 0.01, screen(), &[stops]);
+            let x = cursor.pos.unwrap().x;
+            assert!((x - (600. + 200. * stop as f32 / 7.)).abs() < 0.01, "stop {stop}: {x}");
+        }
         // Without targets the D-pad still nudges the cursor.
         let mut cursor = Cursor::default();
         cursor.step(&tap(Button::DPadRight), 0.1, screen(), &[]);
