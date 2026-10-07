@@ -97,7 +97,7 @@ This is a playable development build. What has and hasn't been checked:
 - Windows (never built or run), X11, NVIDIA or Intel GPUs, and other Linux distributions.
 - A physical controller. Controller play, prompts, menus (including D-pad navigation and the focus frame), button remapping, stick look speed and the pause when a controller disconnects are tested only with simulated input, so real sticks, triggers, hot-plugging and live remapping are unverified.
 - Listening. The music, positional audio and warning cues were checked with spectrograms and level measurements, not by ear.
-- Real key presses on the Keyboard page, real button presses on the Controller page, switching fullscreen with F11 or the journal while the game runs (launching into fullscreen was checked), and field or creature notes triggering in a hand-played run. Tests and review fixtures drive the same code paths.
+- Real key presses on the Keyboard page, real button presses on the Controller page, and field or creature notes triggering in a hand-played run. Tests and review fixtures drive the same code paths. Switching fullscreen while the game runs (F11 and the journal, both ways) was checked by a scripted run in a private virtual KWin, not in a real Plasma session, and not with fractional scaling.
 
 **Known issues and limitations**
 - No prebuilt downloads yet: build from source, or package locally. The macOS app is ad-hoc signed, not notarized, so Gatekeeper warns.

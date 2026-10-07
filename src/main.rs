@@ -5,6 +5,7 @@ mod audio;
 mod controls;
 mod dismemberment;
 mod encounters;
+mod fullscreen_review;
 mod enemy_assets;
 mod environment_assets;
 mod game;
@@ -70,6 +71,7 @@ struct App {
     text_review: Option<text_review::Review>,
     model_review: Option<model_review::Review>,
     world_review: Option<world_review::Review>,
+    fullscreen_review: Option<fullscreen_review::Review>,
     benchmark: bool,
     perf: perf::Benchmark,
     shader_frame_times: Vec<f32>,
@@ -108,6 +110,13 @@ impl App {
                     .then_some(winit::window::Fullscreen::Borderless(None)),
             );
         }
+    }
+    /// F11: switch the window in or out of fullscreen and save the choice.
+    fn toggle_fullscreen(&mut self) {
+        let Some(w) = &self.window else { return };
+        self.game.prefs.fullscreen = w.fullscreen().is_none();
+        self.apply_fullscreen();
+        self.game.save_preferences();
     }
     fn new(smoke: bool, review: bool) -> Self {
         let ctx = egui::Context::default();
@@ -151,6 +160,9 @@ impl App {
             world_review: std::env::args()
                 .any(|a| a == "--world-review")
                 .then(world_review::Review::new),
+            fullscreen_review: std::env::args()
+                .any(|a| a == "--fullscreen-review")
+                .then(fullscreen_review::Review::new),
             benchmark: std::env::args().any(|a| a == "--benchmark"),
             perf: perf::Benchmark::default(),
             shader_frame_times: vec![],
@@ -791,6 +803,13 @@ impl App {
                 return;
             }
             path
+        } else if self.fullscreen_review.is_some() {
+            let path = self.fullscreen_step();
+            if self.fullscreen_review.as_ref().is_some_and(|r| r.finished) {
+                event_loop.exit();
+                return;
+            }
+            path
         } else if self.benchmark && self.frames % 420 == 60 {
             Some(format!(
                 "captures/performance/{}-{}.png",
@@ -821,6 +840,7 @@ impl App {
             None
         };
         let capture = if self.benchmark
+            || self.fullscreen_review.is_some()
             || self.text_review.is_some()
             || self.model_review.is_some()
             || self.world_review.is_some()
@@ -1171,6 +1191,21 @@ impl App {
                 modifiers: egui::Modifiers::NONE,
             });
         }
+        if let Some(((x, y), pressed)) = self.fullscreen_review.as_ref().and_then(|r| r.pointer()) {
+            let r = input.screen_rect.unwrap();
+            let s = (r.width() / 1440.).min(r.height() / 900.);
+            let pos = egui::pos2(
+                r.min.x + (r.width() - 1440. * s) * 0.5 + x * s,
+                r.min.y + y * s,
+            );
+            input.events.push(egui::Event::PointerMoved(pos));
+            input.events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
         // Exercise egui's real hit testing and handlers in the native render loop.
         if (self.smoke
             && !self.gamepad_smoke
@@ -1394,6 +1429,9 @@ impl App {
         }
         if rendered {
             watchdog::frame();
+            if let Some(review) = &mut self.fullscreen_review {
+                review.rendered += 1;
+            }
         }
         window.request_redraw();
         if std::mem::take(&mut self.game.fullscreen_changed) {
@@ -1564,12 +1602,7 @@ impl ApplicationHandler for App {
                             };
                             self.game.save_preferences();
                         }
-                        KeyCode::F11 => {
-                            let w = self.window.as_ref().unwrap();
-                            self.game.prefs.fullscreen = w.fullscreen().is_none();
-                            self.apply_fullscreen();
-                            self.game.save_preferences();
-                        }
+                        KeyCode::F11 => self.toggle_fullscreen(),
                         _ => {
                             // Power choices only apply while leveling and
                             // actions only in the arena, so a digit can be both.
@@ -1684,7 +1717,14 @@ fn main() {
             || a == "--text-review"
             || a == "--model-review"
             || a == "--world-review"
+            || a == "--fullscreen-review"
     });
+    if std::env::args().any(|a| a == "--fullscreen-review") {
+        if let Some(reason) = fullscreen_review::refusal() {
+            eprintln!("Refusing to run: {reason}.");
+            std::process::exit(2);
+        }
+    }
     if std::env::args().any(|a| a == "--anatomy-review") {
         std::fs::create_dir_all("captures/anatomy").unwrap();
     }
@@ -1726,6 +1766,11 @@ fn main() {
     watchdog::milestone("event loop created");
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let mut app = App::new(smoke, review);
+    // The fullscreen review checks that switches are saved, in the throwaway
+    // data folder `fullscreen_review::refusal` insists on.
+    if app.fullscreen_review.is_some() {
+        app.game.save_enabled = true;
+    }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         event_loop.run_app(&mut app)
     }));
