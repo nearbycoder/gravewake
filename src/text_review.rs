@@ -27,6 +27,9 @@ enum Screen {
     PowersController,
     Pause,
     Settings,
+    /// The controller cursor after D-pad presses: 0 the Collector, 1 the
+    /// journal's sliders.
+    PadMenu(u8),
     Controls(u8),
     Confirmation,
     Ending(bool),
@@ -113,6 +116,8 @@ impl Review {
         screens.extend([
             ("pause".into(), Screen::Pause),
             ("settings".into(), Screen::Settings),
+            ("pad-collector-dpad".into(), Screen::PadMenu(0)),
+            ("pad-journal-slider".into(), Screen::PadMenu(1)),
             ("controls".into(), Screen::Controls(0)),
             ("controls-waiting-for-key".into(), Screen::Controls(1)),
             ("controls-azerty-swap".into(), Screen::Controls(2)),
@@ -220,8 +225,35 @@ impl Review {
         self.finished
     }
 
+    /// Controller D-pad presses for this frame on the controller-cursor
+    /// fixtures, or `None` on other fixtures (no controller cursor).
+    pub fn pad_presses(&self) -> Option<Vec<crate::gamepad::Button>> {
+        use crate::gamepad::Button::*;
+        let Screen::PadMenu(kind) = self.screens.get(self.index)?.1 else {
+            return None;
+        };
+        let presses: &[(u32, crate::gamepad::Button)] = match kind {
+            // The first press lands near the centre; then over and down.
+            0 => &[(8, DPadDown), (14, DPadRight), (20, DPadDown)],
+            // Onto the Hollowlight slider, up to field of view, then two
+            // steps along it (70° to 73°).
+            _ => &[(8, DPadDown), (13, DPadUp), (18, DPadRight), (23, DPadRight)],
+        };
+        Some(
+            presses
+                .iter()
+                .filter(|(frame, _)| *frame == self.frame)
+                .map(|(_, button)| *button)
+                .collect(),
+        )
+    }
+
     pub fn input(&self, input: &mut egui::RawInput) {
         let screen = self.screens[self.index].1;
+        if matches!(screen, Screen::PadMenu(_)) {
+            // The controller cursor is the only pointer.
+            return;
+        }
         let click = match screen {
             Screen::Title(_) if self.quit_check && matches!(self.frame, 32 | 33) => {
                 Some((275.5, 809.5, self.frame == 32))
@@ -550,6 +582,18 @@ impl Review {
                 game.run.survival.choices = vec![0, 6, 9];
             }
             Screen::Pause => game.mode = Mode::Paused,
+            Screen::PadMenu(0) => {
+                game.mode = Mode::Shop;
+                game.run.offer = game.run.weapon.clone();
+                game.run.draws = 12;
+                game.run.pack_buys = 8;
+                game.device = crate::controls::Device::Controller;
+            }
+            Screen::PadMenu(_) => {
+                game.mode = Mode::Paused;
+                game.settings = true;
+                game.device = crate::controls::Device::Controller;
+            }
             Screen::Settings => {
                 game.mode = Mode::Paused;
                 game.settings = true;

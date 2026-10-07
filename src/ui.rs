@@ -2,7 +2,7 @@ use crate::controls::{Action, Device};
 use crate::game::{
     Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, JournalPage, Mode, Preferences,
 };
-use crate::gamepad::{Button, PadAction};
+use crate::gamepad::{Button, PadAction, Target};
 use crate::weapons::Effect;
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
@@ -138,6 +138,18 @@ impl TypeRole {
         FontId::new(size, FontFamily::Name("gravewake".into()))
     }
 }
+/// Controls drawn this frame that the controller's D-pad can reach. Each
+/// frame starts empty, and a dialog or the journal empties it again, so
+/// controls it hides can't be reached.
+const PAD_TARGETS: &str = "pad_targets";
+fn clear_pad_targets(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(Id::new(PAD_TARGETS), Vec::<Target>::new()));
+}
+/// The controls the last frame drew, for the controller cursor.
+pub fn pad_targets(ctx: &egui::Context) -> Vec<Target> {
+    ctx.data(|d| d.get_temp(Id::new(PAD_TARGETS)))
+        .unwrap_or_default()
+}
 struct Canvas<'a> {
     ui: &'a egui::Ui,
     p: egui::Painter,
@@ -176,6 +188,15 @@ impl<'a> Canvas<'a> {
             h: self.h,
             time: self.time,
             floor: self.floor * k.min(1.),
+        }
+    }
+    /// Let the D-pad reach a control drawn this frame.
+    fn target(&self, target: Target) {
+        if self.ui.ctx().screen_rect().intersects(target.rect) {
+            self.ui.ctx().data_mut(|d| {
+                d.get_temp_mut_or_default::<Vec<Target>>(Id::new(PAD_TARGETS))
+                    .push(target)
+            });
         }
     }
     /// The same canvas moved by design units.
@@ -351,6 +372,7 @@ impl<'a> Canvas<'a> {
         let r = self
             .ui
             .interact(self.rect(x, y, w, h), Id::new(id), Sense::click());
+        self.target(Target::button(r.rect));
         let hover = self
             .ui
             .ctx()
@@ -511,6 +533,12 @@ impl<'a> Canvas<'a> {
             }
         }
         let t = (*value - min) / (max - min);
+        // The D-pad rests on the knob, so A there keeps the value.
+        self.target(Target {
+            rect: r.rect,
+            point: self.pt(x + w * t, y),
+            track: Some((self.pt(x, y).x, self.pt(x + w, y).x)),
+        });
         self.line((x, y), (x + w, y), C::from_rgb(91, 66, 40), 5.);
         self.line((x, y - 1.), (x + w * t, y - 1.), GOLD, 2.);
         for i in 0..=10 {
@@ -1100,14 +1128,13 @@ fn deck(c: &Canvas, g: &mut Game) {
     let card = g.run.weapon.clone();
     card_base(c, 280., y + 16., 70., 103., card.rarity, false);
     weapon_art(c, 311., y + 69., 54., &card, 0.);
-    if c.ui
-        .interact(
-            c.rect(280., y + 16., 70., 103.),
-            Id::new("equipped"),
-            Sense::click(),
-        )
-        .clicked()
-    {
+    let equipped = c.ui.interact(
+        c.rect(280., y + 16., 70., 103.),
+        Id::new("equipped"),
+        Sense::click(),
+    );
+    c.target(Target::button(equipped.rect));
+    if equipped.clicked() {
         g.mode = Mode::Tree;
     }
     c.paragraph_role(
@@ -1641,6 +1668,7 @@ fn tree(c: &Canvas, g: &mut Game) {
                 Id::new(("node", path, level)),
                 Sense::click(),
             );
+            c.target(Target::button(r.rect));
             c.medallion(x, y, 23., bought || available || r.hovered());
             match path {
                 0 => {
@@ -2887,6 +2915,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
     if old.is_none_or(|(mode, _)| mode != g.mode) {
         ctx.data_mut(|d| d.insert_temp(Id::new("mode_transition"), (g.mode, g.elapsed)));
     }
+    clear_pad_targets(ctx);
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
         .show(ctx, |ui| {
@@ -2947,6 +2976,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
             )
             .backdrop_color(C::from_black_alpha(180))
             .show(ctx, |ui| {
+                clear_pad_targets(ctx);
                 let size = ctx.screen_rect().size();
                 ui.set_min_size(size);
                 ui.set_max_size(size);

@@ -556,7 +556,7 @@ impl App {
                         self.pad.cursor.pos.is_some(),
                         "controller cursor drove the pack"
                     );
-                    println!("SMOKE: controller cursor and A button drove the pack UI");
+                    println!("SMOKE: controller stick, D-pad and A button drove the pack UI");
                 }
                 self.game.mode = Mode::Tree;
                 self.game.upgrade(0);
@@ -946,7 +946,13 @@ impl App {
                     egui::Pos2::ZERO,
                     egui::vec2(size.width as f32, size.height as f32) / scale,
                 );
-                let (events, back) = self.pad.cursor.step(&pad_frame, dt, screen);
+                // On the level-up screen the D-pad picks powers instead.
+                let targets = if self.game.mode == Mode::LevelUp {
+                    vec![]
+                } else {
+                    ui::pad_targets(&self.ctx)
+                };
+                let (events, back) = self.pad.cursor.step(&pad_frame, dt, screen, &targets);
                 self.pad_events.extend(events);
                 if back {
                     self.escape();
@@ -1099,6 +1105,21 @@ impl App {
         if let Some(review) = &self.text_review {
             input.time = Some(self.game.elapsed as f64);
             review.input(&mut input);
+            // Controller-cursor fixtures press the D-pad through the real cursor.
+            match review.pad_presses() {
+                None => self.pad.cursor.hide(),
+                Some(buttons) => {
+                    let frame = gamepad::Frame {
+                        pressed: buttons.clone(),
+                        held: buttons,
+                        ..Default::default()
+                    };
+                    let targets = ui::pad_targets(&self.ctx);
+                    let r = input.screen_rect.unwrap();
+                    let (events, _) = self.pad.cursor.step(&frame, 1. / 60., r, &targets);
+                    input.events.extend(events);
+                }
+            }
         }
         if self.survival_review
             && self.game.mode == Mode::LevelUp
@@ -1180,13 +1201,16 @@ impl App {
                 });
             }
         }
-        // The same pack clicks, reached by steering the controller cursor and pressing A.
+        // The same pack clicks with the controller: the stick steers the
+        // cursor to TEAR OPEN, then the D-pad jumps it to REVEAL ALL, the
+        // middle card's CHOOSE CARD and TAKE & EQUIP, and A presses each.
         if self.gamepad_smoke && self.stage == 3 {
-            const CLICKS: [(u32, (f32, f32)); 4] = [
-                (22, (720., 690.)),
-                (160, (720., 728.)),
-                (235, (720., 587.)),
-                (255, (720., 728.)),
+            use gamepad::Button::{DPadDown, DPadUp};
+            const CLICKS: [(u32, (f32, f32), Option<gamepad::Button>); 4] = [
+                (22, (720., 690.), None),
+                (160, (720., 728.), Some(DPadDown)),
+                (235, (720., 587.), Some(DPadUp)),
+                (255, (720., 728.), Some(DPadDown)),
             ];
             let r = input.screen_rect.unwrap();
             let s = (r.width() / 1440.).min(r.height() / 900.);
@@ -1196,22 +1220,43 @@ impl App {
                     r.min.y + y * s,
                 )
             };
+            let targets = ui::pad_targets(&self.ctx);
             let mut frame = gamepad::Frame::default();
             // Hold still while A is released, or egui sees a drag instead of a click.
-            let releasing = CLICKS.iter().any(|(t, _)| t + 1 == self.stage_frames);
-            if let Some(&(tick, point)) = CLICKS
+            let releasing = CLICKS.iter().any(|(t, ..)| t + 1 == self.stage_frames);
+            if let Some(&(tick, point, dpad)) = CLICKS
                 .iter()
-                .find(|(t, _)| *t >= self.stage_frames)
+                .find(|(t, ..)| *t >= self.stage_frames)
                 .filter(|_| !releasing)
             {
-                let from = self.pad.cursor.pos.unwrap_or(r.center());
-                frame.left = gamepad::steer(from, to_screen(point), 1. / 60.);
+                match dpad {
+                    None => {
+                        let from = self.pad.cursor.pos.unwrap_or(r.center());
+                        frame.left = gamepad::steer(from, to_screen(point), 1. / 60.);
+                    }
+                    Some(button) if tick - 6 == self.stage_frames => {
+                        frame.pressed.push(button);
+                        frame.held.push(button);
+                    }
+                    Some(_) => {}
+                }
                 if tick == self.stage_frames {
+                    if dpad.is_some() {
+                        // The D-pad must have landed on the control we mean to press.
+                        let at = self.pad.cursor.pos.unwrap_or(r.center());
+                        let expected = to_screen(point);
+                        assert!(
+                            targets
+                                .iter()
+                                .any(|t| t.rect.contains(expected) && t.rect.contains(at)),
+                            "SMOKE: D-pad left the cursor at {at:?}, not on the control at {expected:?}"
+                        );
+                    }
                     frame.pressed.push(gamepad::Button::South);
                     frame.held.push(gamepad::Button::South);
                 }
             }
-            let (events, _) = self.pad.cursor.step(&frame, 1. / 60., r);
+            let (events, _) = self.pad.cursor.step(&frame, 1. / 60., r, &targets);
             input.events.extend(events);
         }
         if self.shader_review && self.stage == 6 && matches!(self.stage_frames, 20 | 21 | 50 | 51) {

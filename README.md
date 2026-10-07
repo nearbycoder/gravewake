@@ -102,7 +102,7 @@ This is a playable development build. What has and hasn't been checked:
 **Known issues and limitations**
 - No prebuilt downloads yet: build from source, or package locally. The macOS app is ad-hoc signed, not notarized, so Gatekeeper warns.
 - On non-QWERTY layouts, a key shows its own character only after you've pressed it once.
-- Menus use a virtual cursor for controllers rather than focus navigation.
+- Controller menus move a cursor rather than a true focus highlight: the D-pad jumps it between controls, but nothing marks a control except the cursor ring and the control's hover glow.
 - The damage-per-second line on cards counts burn and venom but only one target, so splash, chain and piercing weapons (named on the card) are worth more against crowds than it shows.
 - Balance hasn't been tuned through long playtests.
 - An intermittent stall (about 5 of 60 scripted controller launches during early Linux testing) has recurred once since, in one of about 400 scripted launches (October 2026). Its cause is unknown; scripted runs now abort with a core dump if it happens.
@@ -139,7 +139,7 @@ Default keys and buttons are listed below. Rebind them on the **Keyboard** and *
 | Y or LB | Ember Bolt |
 | D-pad left / up / right | Choose soul power 1 / 2 / 3 |
 | Start | Pause |
-| Menus | Left stick (or D-pad) moves a cursor, A selects, B or Start goes back |
+| Menus | D-pad jumps between buttons and steps sliders; the left stick moves a free cursor; A selects, B or Start goes back |
 
 On-screen prompts follow the last thing you touched: after you use the controller, the HUD, the opening reminder, the field notes and the level-up screen name controller buttons; after a key press or mouse movement, they name your keys again.
 

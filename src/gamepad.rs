@@ -3,7 +3,8 @@
 //! Arena play maps sticks to movement and look, and remappable buttons
 //! (`PadBindings`) to game actions. Menus use a virtual cursor that sends
 //! ordinary egui pointer events, so every existing screen works without a
-//! separate focus-navigation layer.
+//! separate focus-navigation layer. The D-pad jumps the cursor between the
+//! controls each screen reports (`Target`).
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
@@ -335,43 +336,171 @@ pub fn arena(frame: &Frame, bindings: &PadBindings) -> Arena {
     }
 }
 
-/// Stick-driven pointer for menus. `pos` is `None` until the stick or A is
-/// used, and again after the real mouse moves.
+/// A control on the current screen that the D-pad can reach, in egui points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Target {
+    pub rect: Rect,
+    /// Where the cursor rests on it: the centre, or a slider's knob.
+    pub point: Pos2,
+    /// A slider's track ends (x), which left and right step along.
+    pub track: Option<(f32, f32)>,
+}
+impl Target {
+    pub fn button(rect: Rect) -> Self {
+        Self {
+            rect,
+            point: rect.center(),
+            track: None,
+        }
+    }
+}
+
+/// The D-pad directions in screen space (y down): left, right, up, down.
+const DPAD: [(Button, egui::Vec2); 4] = [
+    (Button::DPadLeft, egui::vec2(-1., 0.)),
+    (Button::DPadRight, egui::vec2(1., 0.)),
+    (Button::DPadUp, egui::vec2(0., -1.)),
+    (Button::DPadDown, egui::vec2(0., 1.)),
+];
+/// A held D-pad direction repeats after this long, then at this interval.
+pub const DPAD_REPEAT_DELAY: f32 = 0.4;
+pub const DPAD_REPEAT_INTERVAL: f32 = 0.12;
+/// Left and right move a slider by this share of its track.
+pub const SLIDER_STEP: f32 = 1. / 20.;
+
+/// The target the D-pad reaches from `from` in direction `dir`: the nearest
+/// within about 50° of it, weighing sideways distance double, or failing
+/// that the nearest anywhere on that side. The target under the cursor is
+/// skipped.
+pub fn neighbour(from: Pos2, dir: egui::Vec2, targets: &[Target]) -> Option<usize> {
+    let mut best: Option<(bool, f32, usize)> = None;
+    for (i, t) in targets.iter().enumerate() {
+        if t.rect.contains(from) {
+            continue;
+        }
+        let v = t.point - from;
+        let along = v.dot(dir);
+        if along < 1. {
+            continue;
+        }
+        let across = (v.x * dir.y - v.y * dir.x).abs();
+        let candidate = (across <= along * 1.2, along + across * 2., i);
+        let better = match best {
+            None => true,
+            Some((cone, score, _)) => {
+                (candidate.0 && !cone) || (candidate.0 == cone && candidate.1 < score)
+            }
+        };
+        if better {
+            best = Some(candidate);
+        }
+    }
+    best.map(|(_, _, i)| i)
+}
+
+/// Stick-driven pointer for menus. `pos` is `None` until the stick, the
+/// D-pad or A is used, and again after the real mouse moves.
 #[derive(Default, Debug)]
 pub struct Cursor {
     pub pos: Option<Pos2>,
     clicking: bool,
+    /// How long each D-pad direction has been held, for repeats.
+    held_for: [f32; 4],
 }
 impl Cursor {
-    /// Returns egui events for this frame, and whether B or Start asked to go back.
-    pub fn step(&mut self, frame: &Frame, dt: f32, screen: Rect) -> (Vec<Event>, bool) {
-        let mut stick = curve(radial(frame.left, STICK_DEADZONE));
-        for (button, nudge) in [
-            (Button::DPadLeft, Vec2::new(-DPAD_NUDGE, 0.)),
-            (Button::DPadRight, Vec2::new(DPAD_NUDGE, 0.)),
-            (Button::DPadUp, Vec2::new(0., DPAD_NUDGE)),
-            (Button::DPadDown, Vec2::new(0., -DPAD_NUDGE)),
-        ] {
-            if frame.held(button) {
-                stick += nudge;
+    /// D-pad directions that act this update: fresh presses, and held
+    /// directions once the repeat delay has passed.
+    fn dpad(&mut self, frame: &Frame, dt: f32) -> Vec<egui::Vec2> {
+        let mut fired = vec![];
+        for (i, (button, dir)) in DPAD.into_iter().enumerate() {
+            if frame.pressed(button) {
+                self.held_for[i] = 0.;
+                fired.push(dir);
+            } else if frame.held(button) {
+                let before = self.held_for[i];
+                self.held_for[i] += dt;
+                let ticks = |t: f32| ((t - DPAD_REPEAT_DELAY) / DPAD_REPEAT_INTERVAL).floor();
+                if self.held_for[i] >= DPAD_REPEAT_DELAY
+                    && (before < DPAD_REPEAT_DELAY || ticks(self.held_for[i]) > ticks(before))
+                {
+                    fired.push(dir);
+                }
+            } else {
+                self.held_for[i] = 0.;
             }
+        }
+        fired
+    }
+    /// Returns egui events for this frame, and whether B or Start asked to go
+    /// back. `targets` are the controls the D-pad can reach; with none, the
+    /// D-pad nudges the cursor instead.
+    pub fn step(
+        &mut self,
+        frame: &Frame,
+        dt: f32,
+        screen: Rect,
+        targets: &[Target],
+    ) -> (Vec<Event>, bool) {
+        let mut stick = curve(radial(frame.left, STICK_DEADZONE));
+        let mut jumps = vec![];
+        if targets.is_empty() {
+            for (button, dir) in DPAD {
+                if frame.held(button) {
+                    stick += Vec2::new(dir.x, -dir.y) * DPAD_NUDGE;
+                }
+            }
+        } else {
+            jumps = self.dpad(frame, dt);
         }
         let back = frame.pressed(Button::East) || frame.pressed(Button::Start);
         let press = frame.pressed(Button::South);
         let release =
             self.clicking && (frame.released(Button::South) || !frame.held(Button::South));
         let mut events = vec![];
-        if self.pos.is_none() && stick == Vec2::ZERO && !press {
+        if self.pos.is_none() && stick == Vec2::ZERO && !press && jumps.is_empty() {
             return (events, back);
         }
+        let mut moved = stick != Vec2::ZERO;
+        if self.pos.is_none() && !jumps.is_empty() {
+            // The first D-pad press lands on the control nearest the centre.
+            jumps.clear();
+            let centre = screen.center();
+            if let Some(t) = targets
+                .iter()
+                .min_by(|a, b| (a.point - centre).length().total_cmp(&(b.point - centre).length()))
+            {
+                self.pos = Some(t.point);
+                moved = true;
+            }
+        }
         let pos = self.pos.get_or_insert(screen.center());
-        let moved = stick != Vec2::ZERO;
-        if moved {
+        if stick != Vec2::ZERO {
             let step = egui::vec2(stick.x, -stick.y) * CURSOR_SPEED * dt;
             *pos = (*pos + step).clamp(screen.min, screen.max - egui::vec2(1., 1.));
         }
+        let mut slid = false;
+        for dir in jumps {
+            let here = *pos;
+            let slider = targets
+                .iter()
+                .find(|t| t.track.is_some() && t.rect.contains(here));
+            if let (Some(&Target { track: Some((x0, x1)), .. }), true) = (slider, dir.y == 0.) {
+                // Step along the slider, then click there to set it.
+                pos.x = (pos.x + dir.x * (x1 - x0) * SLIDER_STEP).clamp(x0, x1);
+                slid = true;
+            } else if let Some(i) = neighbour(here, dir, targets) {
+                *pos = targets[i].point;
+            } else {
+                continue;
+            }
+            moved = true;
+        }
         if moved || press {
             events.push(Event::PointerMoved(*pos));
+        }
+        if slid && !self.clicking {
+            events.push(Self::button(*pos, true));
+            events.push(Self::button(*pos, false));
         }
         if press {
             events.push(Self::button(*pos, true));
@@ -396,6 +525,7 @@ impl Cursor {
     pub fn hide(&mut self) {
         self.pos = None;
         self.clicking = false;
+        self.held_for = [0.; 4];
     }
 }
 
@@ -772,17 +902,17 @@ mod tests {
     #[test]
     fn cursor_moves_clamps_clicks_and_goes_back() {
         let mut cursor = Cursor::default();
-        let (events, back) = cursor.step(&Frame::default(), 1. / 60., screen());
+        let (events, back) = cursor.step(&Frame::default(), 1. / 60., screen(), &[]);
         assert!(events.is_empty() && !back && cursor.pos.is_none());
         let right = Frame {
             left: Vec2::new(1., 0.),
             ..Default::default()
         };
-        let (events, _) = cursor.step(&right, 0.5, screen());
+        let (events, _) = cursor.step(&right, 0.5, screen(), &[]);
         assert_eq!(cursor.pos, Some(Pos2::new(720. + CURSOR_SPEED * 0.5, 450.)));
         assert!(matches!(events[..], [Event::PointerMoved(_)]));
         for _ in 0..10 {
-            cursor.step(&right, 0.5, screen());
+            cursor.step(&right, 0.5, screen(), &[]);
         }
         assert_eq!(cursor.pos.unwrap().x, 1439.);
         let press = Frame {
@@ -790,7 +920,7 @@ mod tests {
             held: vec![Button::South],
             ..Default::default()
         };
-        let (events, _) = cursor.step(&press, 1. / 60., screen());
+        let (events, _) = cursor.step(&press, 1. / 60., screen(), &[]);
         assert!(matches!(
             events[..],
             [
@@ -798,7 +928,7 @@ mod tests {
                 Event::PointerButton { pressed: true, .. }
             ]
         ));
-        let (events, _) = cursor.step(&Frame::default(), 1. / 60., screen());
+        let (events, _) = cursor.step(&Frame::default(), 1. / 60., screen(), &[]);
         assert!(matches!(
             events[..],
             [Event::PointerButton { pressed: false, .. }]
@@ -808,7 +938,7 @@ mod tests {
             released: vec![Button::South],
             ..Default::default()
         };
-        let (events, _) = cursor.step(&tap, 1. / 60., screen());
+        let (events, _) = cursor.step(&tap, 1. / 60., screen(), &[]);
         assert_eq!(events.len(), 3);
         let (_, back) = cursor.step(
             &Frame {
@@ -817,10 +947,139 @@ mod tests {
             },
             1. / 60.,
             screen(),
+            &[],
         );
         assert!(back);
         cursor.hide();
         assert!(cursor.pos.is_none());
+    }
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h))
+    }
+    fn tap(button: Button) -> Frame {
+        Frame {
+            pressed: vec![button],
+            held: vec![button],
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn dpad_picks_the_nearest_control_in_its_direction() {
+        // A row of three buttons over a wide one, like the pack screen.
+        let targets = [
+            Target::button(rect(200., 400., 200., 40.)),
+            Target::button(rect(600., 400., 200., 40.)),
+            Target::button(rect(1000., 400., 200., 40.)),
+            Target::button(rect(560., 600., 320., 50.)),
+        ];
+        let at = |i: usize| targets[i].point;
+        let right = egui::vec2(1., 0.);
+        let down = egui::vec2(0., 1.);
+        assert_eq!(neighbour(at(0), right, &targets), Some(1));
+        assert_eq!(neighbour(at(1), right, &targets), Some(2));
+        assert_eq!(neighbour(at(2), right, &targets), None);
+        assert_eq!(neighbour(at(3), egui::vec2(0., -1.), &targets), Some(1));
+        // Nothing straight below the left button: the nearest below it anyway.
+        assert_eq!(neighbour(at(0), down, &targets), Some(3));
+        assert_eq!(neighbour(at(3), down, &targets), None);
+        // Off-centre inside a control, that control is skipped.
+        assert_eq!(neighbour(Pos2::new(210., 420.), right, &targets), Some(1));
+        // A closer control well off to the side loses to one in line.
+        let side = [
+            Target::button(rect(400., 380., 40., 40.)),
+            Target::button(rect(380., 200., 40., 40.)),
+            Target::button(rect(700., 40., 40., 40.)),
+        ];
+        assert_eq!(neighbour(Pos2::new(400., 700.), egui::vec2(0., -1.), &side), Some(0));
+        assert_eq!(neighbour(Pos2::new(420., 400.), egui::vec2(0., -1.), &side), Some(1));
+    }
+    #[test]
+    fn first_dpad_press_lands_near_the_centre_and_holding_repeats() {
+        let targets: Vec<Target> = (0..6)
+            .map(|i| Target::button(rect(600., 100. + i as f32 * 120., 240., 40.)))
+            .collect();
+        let mut cursor = Cursor::default();
+        let (events, _) = cursor.step(&tap(Button::DPadDown), 1. / 60., screen(), &targets);
+        // Screen centre is y 450: the fourth row (centre 480) is nearest.
+        assert_eq!(cursor.pos, Some(targets[3].point));
+        assert!(matches!(events[..], [Event::PointerMoved(_)]));
+        let hold = Frame {
+            held: vec![Button::DPadDown],
+            ..Default::default()
+        };
+        let mut cursor_rows = vec![];
+        let mut elapsed = 0.;
+        // Hold down for 0.7 s in 10 ms updates.
+        for _ in 0..70 {
+            cursor.step(&hold, 0.01, screen(), &targets);
+            elapsed += 0.01;
+            let p = cursor.pos.unwrap();
+            let r = targets.iter().position(|t| t.point == p).unwrap();
+            if cursor_rows.last().is_none_or(|(_, last)| *last != r) {
+                cursor_rows.push((elapsed, r));
+            }
+        }
+        // Repeats at the 0.4 s delay, then every 0.12 s; the last row stops it.
+        assert_eq!(cursor_rows[0].1, 3);
+        assert_eq!(cursor_rows[1].1, 4);
+        assert!((cursor_rows[1].0 - DPAD_REPEAT_DELAY).abs() < 0.015, "{cursor_rows:?}");
+        assert_eq!(cursor_rows[2].1, 5);
+        assert!(
+            (cursor_rows[2].0 - DPAD_REPEAT_DELAY - DPAD_REPEAT_INTERVAL).abs() < 0.015,
+            "{cursor_rows:?}"
+        );
+        assert_eq!(cursor_rows.len(), 3);
+        // Releasing and pressing again acts at once.
+        cursor.step(&Frame::default(), 0.01, screen(), &targets);
+        cursor.step(&tap(Button::DPadUp), 0.01, screen(), &targets);
+        assert_eq!(cursor.pos, Some(targets[4].point));
+        // A then clicks where the cursor rests.
+        let (events, _) = cursor.step(&tap(Button::South), 0.01, screen(), &targets);
+        assert!(matches!(
+            events[..],
+            [Event::PointerMoved(p), Event::PointerButton { pressed: true, pos, .. }]
+                if p == targets[4].point && pos == p
+        ));
+    }
+    #[test]
+    fn dpad_steps_sliders_and_leaves_them_vertically() {
+        let track = (600., 800.);
+        let slider = Target {
+            rect: rect(588., 285., 224., 30.),
+            point: Pos2::new(650., 300.),
+            track: Some(track),
+        };
+        let below = Target::button(rect(600., 400., 200., 40.));
+        let targets = [slider, below];
+        let mut cursor = Cursor {
+            pos: Some(slider.point),
+            ..Default::default()
+        };
+        let (events, _) = cursor.step(&tap(Button::DPadRight), 0.01, screen(), &targets);
+        assert_eq!(cursor.pos, Some(Pos2::new(660., 300.)));
+        assert!(matches!(
+            events[..],
+            [
+                Event::PointerMoved(_),
+                Event::PointerButton { pressed: true, .. },
+                Event::PointerButton { pressed: false, .. }
+            ]
+        ));
+        cursor.step(&Frame::default(), 0.01, screen(), &targets);
+        for _ in 0..30 {
+            cursor.step(&Frame::default(), 0.01, screen(), &targets);
+            cursor.step(&tap(Button::DPadLeft), 0.01, screen(), &targets);
+        }
+        // The cursor stops at the track's end.
+        assert_eq!(cursor.pos, Some(Pos2::new(600., 300.)));
+        cursor.step(&Frame::default(), 0.01, screen(), &targets);
+        let (events, _) = cursor.step(&tap(Button::DPadDown), 0.01, screen(), &targets);
+        assert_eq!(cursor.pos, Some(below.point));
+        assert!(matches!(events[..], [Event::PointerMoved(_)]));
+        // Without targets the D-pad still nudges the cursor.
+        let mut cursor = Cursor::default();
+        cursor.step(&tap(Button::DPadRight), 0.1, screen(), &[]);
+        assert!(cursor.pos.unwrap().x > 720.);
     }
     #[test]
     fn steering_reaches_targets_through_the_response_curve() {
@@ -832,7 +1091,7 @@ mod tests {
                 left: steer(from, target, 1. / 60.),
                 ..Default::default()
             };
-            cursor.step(&frame, 1. / 60., screen());
+            cursor.step(&frame, 1. / 60., screen(), &[]);
         }
         assert!(
             cursor.pos.unwrap().distance(target) < 1.5,
