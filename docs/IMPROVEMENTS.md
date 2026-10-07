@@ -1461,3 +1461,59 @@ injects the events), and controller buttons stay unexercised.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, whether the synthesized score stays,
   and aim assist's default and strength.
+
+## Round 9 results
+
+All four scoped items shipped on `improvements-9`, plus a fix the new input
+review found. Native checks ran on the same CachyOS / Radeon 8060S / KDE
+Wayland machine, every windowed run inside the private KWin
+(`scripts/nested-kwin.sh`) with a throwaway `XDG_DATA_HOME`; nothing opened
+on the shared desktop. `~/.local/share/gravewake` didn't exist before or
+after the round. Load averages were 13–76 during the round, and the shared
+GPU was often fully busy with other sessions (`gpu_busy_percent` 99–100).
+
+| Item | Verification |
+| --- | --- |
+| A. Frame limit and background rate (`4c15454`, `0c6f971`) | Unit tests of the schedule: 30, 60, 144 and 240 FPS held within 1% over 600 frames despite waking 0.9 ms late each time, no burst after a 100 ms frame, Off never waits, the background caps at 30, and a limit switched off draws at once; the preference round-trips, older files load as Off and other values snap to the list; the D-pad steps the slider one rate per press. `--pacing-review` in the private KWin, title screen, five seconds per stage: on the final binary (load 14–16, GPU 99% busy with other sessions) the unlimited title drew 106.9 FPS (p95 19.4 ms) at 21% of a core; the 30 limit held 30.0 FPS (p95 33.45 ms) at 8%; 60 held 60.0 (p95 16.71 ms) at 13%; 144 capped at 106.8, as the machine couldn't reach it; the background held 30.0 at 7%. An earlier run at load 23–25 gave 136.9 unlimited, 30.0, 60.0 and 143.3 at the 144 limit. **Changed from the plan:** two runs during heavy GPU contention (the uncapped title at 28–76 FPS, p95 32–83 ms) failed the 2% check at 60, since no limit can make slow frames faster, so a limit is now held to its rate only when 95% of unlimited frames took under 90% of its period and is otherwise checked only as a cap (`0c6f971`); in the final run that made 60 a cap-only check, though it held 60.0. Captures of the Preferences page at both sizes (`round9/journal-frame-limit*.jpg`). **Background is measured with the unfocused flag set directly**: nothing in a scripted run can take focus away from the window. |
+| B. Chronicle (`7b1506f`) | A unit test: a death records the run's number, descent, souls, time, level, weapon and killing blow; a victory then an endless death leave one entry, marked endless; an unfinished run replaced is abandoned, one that ended isn't entered twice; ten at most, newest first; practice adds nothing; the records round-trip and older files load with an empty chronicle. A layout test draws the title with the longest blow and weapon names at 1440×900, 960×600 and 1920×1080: the panel stays on screen and clear of every title button, the logo and the records line, and each line stays inside it and clear of its descent. The input review starts a new run over a saved, unfinished run and finds it in `records.json` as abandoned. Captures at both sizes (`round9/title-chronicle*.jpg`). |
+| C. Sensitivity value (`4b1d9e0`) | The Preferences captures at both sizes show 100% at the default. |
+| D. Real key presses (`bc61cb8`) and the tap fix (`195ebea`) | `scripts/input-review.sh` passed five times, the last on the final binary at load 17 (and once at load 39): Escape pauses and resumes; hold sprint lasts only while Shift is down; a toggle-sprint tap starts sprint, it stays on for 30 frames, and the next tap stops it; T then E presses rebind Reload (and swap Melee to T), `settings.json` holds the bindings, and E then reloads; a quick click fires, a held one keeps firing, mouse motion turns the view 0.50 rad; F11 goes fullscreen at 1920×1080 and back to 1440×900 with `settings.json` following; then a clean save-and-quit. **Found and fixed:** the first run failed waiting for the toggle-sprint tap. Sprint and the left mouse button were read once a frame from what was held, so a press and release that both landed between two frames were never seen. Both now latch the press until the next frame; with the fire latch removed, the review fails waiting for the quick click. Captures: `round9/input-keyboard-swap.jpg`, `round9/input-f11-rebound-prompts.jpg`. **Not covered:** KWin injects the events, so this isn't a physical keyboard and mouse on a real Plasma session, and the journal's Keyboard page is opened in its waiting state directly rather than by a click. |
+
+Final state: 152 unit tests pass (145 before the round), with no warnings.
+On the final binary, in the private KWin: `--smoke` and `--smoke --gamepad`
+(load 15), `--text-review` (normal and `--review-small`, 111 captures
+across 108 fixtures), `--armory-review`, `--shader-review`,
+`--survival-review`, `--world-review`, `scripts/fullscreen-review.sh`,
+`scripts/input-review.sh` (load 15–17) and `--pacing-review` all exited
+with status 0. The armory, shader, survival and world reviews ran at load
+28–57 on a binary differing from the final one only in the pacing review's
+pass criterion.
+The benchmark wasn't rerun: with the limit Off (the default) the loop asks
+for every frame as before, and scripted runs ignore the limit.
+
+Found and not fixed: during the world review (load about 57) ALSA reported
+`POLLERR` and rodio 0.20's stream error callback, which prints every error
+with `eprintln!`, wrote the same line about 3.7 million times in under a
+minute (a 395 MB log; the review still passed). A player launching from a
+terminal would see the same flood if the audio device fails that way.
+Silencing it means building the cpal stream ourselves or moving to a rodio
+release with a configurable error callback, which is more than this round
+should take on; it hasn't recurred in other runs.
+
+Not verified: macOS (CI builds and runs the unit tests after the push; the
+new fake-input code and its two dependencies are Linux-only), Windows, X11,
+NVIDIA and Intel GPUs, a physical keyboard, mouse or controller, live
+fullscreen in a real Plasma session or with fractional scaling, creature
+notes in a hand-played run, and how the frame limit feels.
+
+Deferred, with reasons:
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12): nothing here to test on. The browser build (#15).
+- Crowd-aware damage estimates on cards: no data on how many creatures a
+  splash or chain typically reaches.
+- The audio error flood above.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  and aim assist's default and strength. New: whether the frame limit
+  should default to something other than Off (it keeps today's behaviour;
+  a 60 or display-rate default would save laptop power in menus).

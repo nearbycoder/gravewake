@@ -106,6 +106,7 @@ This is a playable development build. What has and hasn't been checked:
 - Balance hasn't been tuned through long playtests.
 - An intermittent stall (about 5 of 60 scripted controller launches during early Linux testing) has recurred once since, in one of about 400 scripted launches (October 2026). Its cause is unknown; scripted runs now abort with a core dump if it happens. In October 2026 one way the watchdog itself could be kept from aborting (its report blocked on an output pipe that had stopped draining) was found and fixed.
 - There is no browser build.
+- If the audio device fails mid-run (seen once, as ALSA `POLLERR` on a heavily loaded machine), the audio library prints the same error line continuously to the terminal; the game keeps running. Not fixed yet.
 
 ## Controls
 
