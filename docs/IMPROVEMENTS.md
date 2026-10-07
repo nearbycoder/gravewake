@@ -1150,3 +1150,44 @@ available, so how the speed feels is unverified.
 - Windows validation (#12) and the browser build (#15).
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 7 results
+
+All five scoped items shipped on `improvements-7`. Native checks ran on the
+same CachyOS / Radeon 8060S / KDE Wayland machine, with a throwaway
+`XDG_DATA_HOME` for every run. `~/.local/share/gravewake` didn't exist before
+or after the round, and no new core dumps were left. Load averages were
+3–37 during the round. The benchmark waited for a load near 21.
+
+| Item | Verification |
+| --- | --- |
+| A. Fullscreen setting (`e1123e6`) | A unit test covers the round-trip, and an older file loads windowed. Real launches with a throwaway data folder, probed through a KWin script: with `"fullscreen": true`, KWin reported a fullscreen window covering the 3072×1728 output; with an older file, a 1440×900 window that saved `"fullscreen": false` on quit. Both exited with status 0 and no core. Captures of the switch at both sizes (`round7/journal-fullscreen*.jpg`). **Switching with F11 or the journal while the game runs wasn't exercised live** (no synthetic input); both call the same `apply_fullscreen`. |
+| B. Controller focus frame (`a032a73`) | A unit test checks the framed control (the smallest under the cursor, so a card's button beats the card; nothing between controls) and that each D-pad jump lands on the control it frames. The `pad-*` fixtures show the frame on the Collector's OPEN button and a journal slider at both sizes (`round7/pad-focus-*.jpg`). `--smoke --gamepad` passes. **Not seen on a physical controller.** |
+| C. Pause ledger (`6bd4235`, `cc1caa3`) | Power numbers moved into `survival::power`, which both the powers and the text read. A test checks examples of the text at ranks 1 to 5 and that the game reads the same numbers and that Winter Pulse hits at 4.0 m and misses at 4.4 m at rank 1, as its text says. A layout test draws the pause screen in a real egui frame at 1440×900, 960×600 and 1920×1080, early and with every power at rank 5, plus a notice. Panels clear the menu and the notice, stay on screen, and hold every text block. Moving the left panel onto the menu, or restoring the old notice width, makes it fail. Captures of an early run, a full build with a notice, and practice at both sizes (`round7/pause-ledger-*.jpg`). **Changed from the plan:** the HUD is hidden while paused (its panels peeked out around the ledger; the ledger carries its figures, and vitality was added), the ledger hides while the journal is open over it, and paused notices are narrowed to the gap between the panels. |
+| D. Creature notes (`9eca42b`) | Unit tests: a species in view within 30 m queues its note once, with the bestiary's lines; behind the player or beyond 30 m it doesn't until the player faces it; the Drudge has none; every species has its own bit; several at once queue nearest first; the Field tips switch hides and resets them; seen bits persist; smoke, review and practice runs record nothing. A capture of the Bell Gargoyle note at both sizes (`round7/hud-creature-note*.jpg`). The sighting check ignores walls. **Not seen in a hand-played run.** |
+| E. Stick look speed (`02edb25`) | A unit test: 100% equals the old rate at the default mouse sensitivity, 50% and 200% scale it, invert still flips pitch, mouse sensitivity has no effect, and the setting round-trips, clamps and defaults to 100% in older files. Captures of the Controller page at both sizes (`round7/controller-stick-speed*.jpg`). **How it feels is unverified**: no physical controller. |
+
+Final state: 141 unit tests pass (135 before the round), with no warnings.
+On the final binary, `--smoke` and `--smoke --gamepad` (twice each),
+`--text-review` (normal and `--review-small`, 107 captures across 104
+fixtures), `--shader-review`, `--armory-review`, `--survival-review`,
+`--world-review` and `--benchmark` exited with status 0, as did the pause
+quit review earlier in the round. Benchmark (load 21): 69, 67 and 67 FPS for
+the optimized 12-enemy, 48-enemy and corpse scenes, with surface acquire at
+11–13 ms per frame; simulation (0.16 ms) and mesh CPU (0.67 ms) in the
+12-enemy scene match earlier rounds, so presentation on the shared desktop
+still sets the frame rate.
+
+Not verified: macOS (CI builds and runs the unit tests after the push),
+Windows, X11, NVIDIA and Intel GPUs, a physical controller (focus frame,
+stick speed and everything from earlier rounds), live fullscreen toggling,
+and creature notes in a hand-played run.
+
+Deferred, with reasons:
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12): nothing here to test on. The browser build (#15).
+- A line-of-sight test for creature notes: the in-view check is a cone and a
+  distance, which is cheap and good enough in the open court but can name a
+  creature behind a wall.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.
