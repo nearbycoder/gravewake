@@ -143,9 +143,9 @@ impl Card {
     pub fn pellets(&self) -> u32 {
         self.kind.spec().pellets
     }
-    /// Single-target damage per second over a full magazine and its reload,
-    /// or per swing for melee. Elemental effects, piercing, splash and soul
-    /// powers are not included; it is a like-for-like comparison of cards.
+    /// Single-target hit damage per second over a full magazine and its
+    /// reload, or per swing for melee. Damage over time, piercing, splash and
+    /// soul powers are not included.
     pub fn sustained_dps(&self) -> f32 {
         if self.kind.melee() {
             return self.damage() / self.interval();
@@ -154,6 +154,49 @@ impl Card {
         let pulls = rounds.div_ceil(self.kind.spec().burst.max(1));
         let cycle = pulls as f32 * self.interval() + self.reload_time();
         rounds as f32 * self.damage() * self.pellets() as f32 / cycle
+    }
+    /// Burn or venom damage per second on a single target firing the same
+    /// cycle as `sustained_dps`. Each pull's rounds and pellets land
+    /// together, as the cards assume.
+    pub fn status_dps(&self) -> f32 {
+        use crate::weapons::*;
+        let (rate, per_hit, cap) = match self.kind.spec().effect {
+            Effect::Burn => (BURN_DPS, BURN_SECONDS, BURN_SECONDS),
+            Effect::Poison => (VENOM_DPS, VENOM_PER_HIT, VENOM_MAX),
+            _ => return 0.,
+        };
+        // Time from each pull to the next, the last including the reload.
+        let gaps: Vec<f32> = if self.kind.melee() {
+            vec![self.interval()]
+        } else {
+            let burst = self.kind.spec().burst.max(1);
+            let pulls = self.capacity().max(1).div_ceil(burst);
+            let mut gaps = vec![self.interval(); pulls as usize];
+            *gaps.last_mut().unwrap() += self.reload_time();
+            gaps
+        };
+        let hits = if self.kind.melee() {
+            1.
+        } else {
+            (self.pellets() * self.kind.spec().burst.max(1)) as f32
+        };
+        // Venom builds up over a magazine, so measure a settled third cycle.
+        let (mut left, mut active) = (0_f32, 0.);
+        for pass in 0..3 {
+            for &gap in &gaps {
+                left = (left + per_hit * hits).min(cap);
+                let on = left.min(gap);
+                left -= on;
+                if pass == 2 {
+                    active += on;
+                }
+            }
+        }
+        rate * active / gaps.iter().sum::<f32>()
+    }
+    /// The estimate shown on cards: hits plus damage over time.
+    pub fn estimated_dps(&self) -> f32 {
+        self.sustained_dps() + self.status_dps()
     }
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -1270,8 +1313,10 @@ impl Game {
         }
         e.anatomy.impulse = dir * (3. + s.knockback * 3. + damage * 0.018).min(12.);
         match s.effect {
-            Effect::Burn => e.burn = 3.,
-            Effect::Poison => e.poison = (e.poison + 1.8).min(6.),
+            Effect::Burn => e.burn = crate::weapons::BURN_SECONDS,
+            Effect::Poison => {
+                e.poison = (e.poison + crate::weapons::VENOM_PER_HIT).min(crate::weapons::VENOM_MAX)
+            }
             Effect::Frost => e.slow = 3.,
             Effect::Drain => self.run.hp = (self.run.hp + actual * 0.12).min(self.max_hp()),
             _ => {}
@@ -2867,6 +2912,61 @@ mod tests {
         g.reset_effects();
         g.damage_enemy(0, 20., -Vec3::Y);
         assert_eq!(kind(&g), None);
+    }
+    #[test]
+    fn card_estimate_adds_burn_and_venom_over_the_cycle() {
+        use crate::weapons::{BURN_DPS, BURN_SECONDS, VENOM_DPS};
+        let card = |kind| Card {
+            kind,
+            rarity: 0,
+            paths: [0; 3],
+            major: false,
+        };
+        // Dragonbreath: two shells, then a reload longer than the burn.
+        let dragon = card(WeaponKind::Dragonbreath);
+        let d = WeaponKind::Dragonbreath.spec();
+        let burning = d.interval + BURN_SECONDS.min(d.interval + d.reload);
+        let cycle = 2. * d.interval + d.reload;
+        assert!((dragon.status_dps() - BURN_DPS * burning / cycle).abs() < 1e-3);
+        assert!(dragon.status_dps() < BURN_DPS);
+        // The Needler's twenty needles fill the venom long before the reload
+        // ends, and it outlasts the reload; Widow Fangs strike faster than it fades.
+        assert!((card(WeaponKind::Needler).status_dps() - VENOM_DPS).abs() < 1e-3);
+        assert!((card(WeaponKind::TwinDaggers).status_dps() - VENOM_DPS).abs() < 1e-3);
+        // Plague Censer: each slow globe adds more venom than the gap uses,
+        // so by the reload it has built up enough to last through it.
+        assert!((card(WeaponKind::PlagueCenser).status_dps() - VENOM_DPS).abs() < 1e-3);
+        // Weapons without damage over time keep their old estimate, and
+        // every weapon gets a finite, positive one.
+        for kind in WeaponKind::ALL {
+            let c = card(kind);
+            assert!(c.estimated_dps().is_finite() && c.estimated_dps() > 0.);
+            match kind.spec().effect {
+                Effect::Burn | Effect::Poison => assert!(c.status_dps() > 0.),
+                _ => assert_eq!(c.estimated_dps(), c.sustained_dps()),
+            }
+        }
+    }
+    #[test]
+    fn burn_and_venom_constants_match_the_creature_update() {
+        use crate::weapons::{BURN_DPS, BURN_SECONDS, VENOM_DPS, VENOM_MAX};
+        for (burn, poison, expected) in [
+            (BURN_SECONDS, 0., BURN_DPS * BURN_SECONDS),
+            (0., VENOM_MAX, VENOM_DPS * VENOM_MAX),
+        ] {
+            let mut g = Game::new(false);
+            g.new_run();
+            g.run.pos = Vec3::new(0., 1.65, 0.);
+            let mut e = target(0., -30.);
+            e.burn = burn;
+            e.poison = poison;
+            g.run.enemies = vec![e];
+            for _ in 0..(8 * 120) {
+                g.update(1. / 120.);
+            }
+            let lost = 500. - g.run.enemies[0].hp;
+            assert!((lost - expected).abs() < 0.5, "lost {lost}, expected {expected}");
+        }
     }
     #[test]
     fn sustained_dps_counts_pellets_magazines_bursts_and_upgrades() {

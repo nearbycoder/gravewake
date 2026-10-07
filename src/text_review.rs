@@ -17,6 +17,8 @@ enum Screen {
     /// The Collector, with the chalice bound, or with the first-visit tip.
     Shop(bool, bool),
     Pack,
+    /// The Collector offering an area weapon with damage over time.
+    ShopOffer,
     Binding(u8),
     Armory(usize, usize),
     Bestiary(usize),
@@ -84,6 +86,7 @@ impl Review {
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
             ("pack".into(), Screen::Pack),
+            ("collector-venom-splash-offer".into(), Screen::ShopOffer),
             ("binding-available-tooltip".into(), Screen::Binding(0)),
             ("binding-locked-tooltip".into(), Screen::Binding(1)),
             ("binding-owned-tooltip".into(), Screen::Binding(2)),
@@ -123,6 +126,11 @@ impl Review {
         ]);
         if let Some((name, screen)) = quit_screen {
             screens = vec![(name.into(), screen)];
+        }
+        // GRAVEWAKE_REVIEW_ONLY=hud-size,pack keeps fixtures whose names
+        // contain any of the comma-separated parts.
+        if let Ok(only) = std::env::var("GRAVEWAKE_REVIEW_ONLY") {
+            screens.retain(|(name, _)| only.split(',').any(|part| name.contains(part)));
         }
         Self {
             directory,
@@ -477,6 +485,16 @@ impl Review {
                     });
                 }
                 game.run.offer = game.run.weapon.clone();
+                game.run.draws = 12;
+                game.run.pack_buys = 8;
+            }
+            Screen::ShopOffer => {
+                game.mode = Mode::Shop;
+                game.run.offer = Card {
+                    kind: WeaponKind::PlagueCenser,
+                    rarity: 3,
+                    ..Card::starter()
+                };
                 game.run.draws = 12;
                 game.run.pack_buys = 8;
             }

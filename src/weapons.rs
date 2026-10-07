@@ -37,6 +37,14 @@ pub enum WeaponKind {
     ChainFlail,
     TwinDaggers,
 }
+/// Burning creatures lose this much health per second, for this long after
+/// each hit.
+pub const BURN_DPS: f32 = 18.;
+pub const BURN_SECONDS: f32 = 3.;
+/// Venom: each hit adds time, up to a cap, and drains this much per second.
+pub const VENOM_DPS: f32 = 12.;
+pub const VENOM_PER_HIT: f32 = 1.8;
+pub const VENOM_MAX: f32 = 6.;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Effect {
     Impact,
@@ -48,6 +56,22 @@ pub enum Effect {
     Drain,
     Pull,
     Blast,
+}
+impl Effect {
+    /// One word for the card face, or `None` for a plain impact.
+    pub fn tag(self) -> Option<&'static str> {
+        Some(match self {
+            Effect::Impact => return None,
+            Effect::Pierce => "PIERCE",
+            Effect::Burn => "BURN",
+            Effect::Frost => "FROST",
+            Effect::Poison => "VENOM",
+            Effect::Chain => "CHAIN",
+            Effect::Drain => "DRAIN",
+            Effect::Pull => "PULL",
+            Effect::Blast => "SPLASH",
+        })
+    }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Model {

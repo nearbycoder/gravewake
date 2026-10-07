@@ -271,11 +271,11 @@ impl Game {
                 *f = (*f - dt).max(0.);
             }
             if e.burn > 0. {
-                e.hp -= 18. * dt;
+                e.hp -= crate::weapons::BURN_DPS * dt;
                 e.burn = (e.burn - dt).max(0.);
             }
             if e.poison > 0. {
-                e.hp -= 12. * dt;
+                e.hp -= crate::weapons::VENOM_DPS * dt;
                 e.poison = (e.poison - dt).max(0.);
             }
             e.slow = (e.slow - dt).max(0.);

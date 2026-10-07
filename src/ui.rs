@@ -3,6 +3,7 @@ use crate::game::{
     Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, JournalPage, Mode, Preferences,
 };
 use crate::gamepad::{Button, PadAction};
+use crate::weapons::Effect;
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
 const GOLD: C = C::from_rgb(226, 188, 119);
@@ -684,7 +685,7 @@ fn weapon_card(
     c.center(
         x + w * 0.5,
         y + h * 0.663,
-        ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"][card.rarity],
+        rarity_line(card),
         16.,
         ink,
     );
@@ -730,10 +731,25 @@ fn weapon_card(
         false
     }
 }
+/// Rarity, then the weapon's trait: what it does beyond a plain hit, and
+/// whether its shots burst over an area.
+fn rarity_line(card: &Card) -> String {
+    let rarity = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"][card.rarity.min(3)];
+    let spec = card.kind.spec();
+    let mut tags: Vec<&str> = spec.effect.tag().into_iter().collect();
+    if spec.radius > 0. && !matches!(spec.effect, Effect::Blast | Effect::Chain) {
+        tags.push("SPLASH");
+    }
+    if tags.is_empty() {
+        rarity.into()
+    } else {
+        format!("{rarity}  /  {}", tags.join(" + "))
+    }
+}
 // Estimated damage per second, inked green or red against the equipped card.
 fn dps_comparison(card: &Card, equipped: &Card) -> (String, C) {
-    let dps = card.sustained_dps();
-    let delta = (dps - equipped.sustained_dps()).round();
+    let dps = card.estimated_dps();
+    let delta = (dps - equipped.estimated_dps()).round();
     let (versus, color) = if delta > 0. {
         (format!("+{delta:.0} VS EQUIPPED"), C::from_rgb(34, 92, 46))
     } else if delta < 0. {
