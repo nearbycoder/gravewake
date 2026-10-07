@@ -242,6 +242,10 @@ Enemy sounds come from where they happen. Special-attack wind-ups, blasts and me
 
 Your own weapon hits flash a marker around the reticle: ivory for a body hit, gold for a headshot, and a larger red mark with a short tick for a kill. Pellets and splash that land together show the strongest result and tick once. Automatic powers do not trigger markers. When you take damage, a red arc around the reticle points toward each source (the striking enemy, a blast's caster, or the direction a projectile came from) and fades over 1.2 seconds; up to four arcs show at once. **Reduce flashes** in Settings & Controls softens the full-screen hurt vignette and muzzle lighting to 35%.
 
+Special attacks winding up out of view get an amber chevron outside the damage arcs (`Game::unseen_threats`, drawn by `threat_pointers` in `src/ui.rs`). It covers attacks aimed at the player: Cinder Skull and Ash Cantor casts, Gloamwing and Bell Gargoyle dives (including the dive itself), Tithe Reaper blinks, and the Tithekeeper's slam or a Plague Vessel's burst when the player is within 1.5 m of the marked circle. Bone Shepherd summons don't count. "Out of view" means more than 92% of the horizontal half field of view off centre, so an attacker at the frame's edge still gets one. Chevrons grow as the warning runs down, pulse faster as it nears (steady with **Reduce flashes**), and vanish when the attack lands or the creature dies. At most four show, the most urgent first. The `hud-offscreen-warnings` text-review fixture shows three beside a damage arc and an in-view cast.
+
+![Off-screen attack warnings](docs/media/improvements/round5/hud-offscreen-warnings.jpg)
+
 ![Kill marker and damage arcs](docs/media/improvements/hud-kill-and-damage-arcs.jpg)
 
 ## Text legibility review

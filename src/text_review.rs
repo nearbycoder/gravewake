@@ -75,6 +75,7 @@ impl Review {
             ("hud-tip-bolt-with-notice".into(), Screen::Hud(9)),
             ("hud-controller-tip-move".into(), Screen::Hud(10)),
             ("hud-controller-opening".into(), Screen::Hud(11)),
+            ("hud-offscreen-warnings".into(), Screen::Hud(12)),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
@@ -323,7 +324,7 @@ impl Review {
                     game.run.time = 30.;
                     game.prefs.fov = 90.;
                 }
-                if kind >= 10 {
+                if (10..=11).contains(&kind) {
                     // Controller prompts: the first tip with a melee weapon
                     // and a bound chalice, then the opening reminder.
                     game.device = crate::controls::Device::Controller;
@@ -334,7 +335,7 @@ impl Review {
                 }
                 if kind == 11 {
                     game.run.time = 0.5;
-                } else if kind >= 8 {
+                } else if (8..=10).contains(&kind) {
                     // The first tip of a first run, and a later tip with a
                     // notice above it.
                     use crate::tips::{ActiveTip, Tip};
@@ -386,6 +387,29 @@ impl Review {
                             life: DAMAGE_MARK_LIFE * fade,
                         })
                         .collect();
+                }
+                if kind == 12 {
+                    // Wind-ups out of view: a dive behind, a volley to the
+                    // right and a blink behind-left at three stages, next to
+                    // a damage arc and an in-view cast that needs no pointer.
+                    game.run.time = 30.;
+                    let player = game.run.pos;
+                    game.run.yaw = 0.;
+                    game.run.enemies = [(4, 2.5, 6., 0.15), (8, 9., -1., 0.5), (11, -7., 5., 0.8), (2, 1., -7., 0.4)]
+                        .into_iter()
+                        .map(|(kind, x, z, left)| {
+                            let mut e = Enemy::spawn(kind, player + Vec3::new(x, -player.y, z), 4, 0.);
+                            e.ai.warning = crate::encounters::warning_time(kind) * left;
+                            // Blinks land beside the player; the rest aim at them.
+                            let side = if kind == 11 { 2.8 } else { 0. };
+                            e.ai.target = Vec3::new(player.x + side, 0., player.z);
+                            e
+                        })
+                        .collect();
+                    game.damage_marks = vec![DamageMark {
+                        bearing: -1.4,
+                        life: DAMAGE_MARK_LIFE * 0.8,
+                    }];
                 }
                 if kind == 3 {
                     game.run.weapon.kind = WeaponKind::TwinDaggers;

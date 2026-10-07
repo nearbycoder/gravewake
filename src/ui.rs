@@ -2107,6 +2107,39 @@ fn hit_feedback(c: &Canvas, g: &Game, cx: f32, cy: f32) {
         c.line(a, b, alpha(color), width);
     }
 }
+/// Amber chevrons outside the damage arcs, pointing toward special attacks
+/// winding up out of view. They grow as the attack nears.
+fn threat_pointers(c: &Canvas, g: &Game, cx: f32, cy: f32) {
+    let screen = c.ui.max_rect();
+    let aspect = screen.width() / screen.height().max(1.);
+    let half_view = ((g.prefs.fov.to_radians() * 0.5).tan() * aspect).atan();
+    // Slightly inside the frame edge: a creature at the border is easy to miss.
+    for threat in g.unseen_threats(half_view * 0.92) {
+        let angle = relative_bearing(threat.bearing, g.run.yaw);
+        let pulse = if g.prefs.reduce_flashes {
+            1.
+        } else {
+            0.7 + 0.3 * (c.time * (7. + 9. * threat.urgency)).sin()
+        };
+        let size = 1.5 + 0.7 * threat.urgency;
+        let (s, co) = angle.sin_cos();
+        // Local frame: `a` along the bearing (outward), `b` across it.
+        let point = |a: f32, b: f32| {
+            let r = 132. + a * size;
+            c.pt(cx + s * r + co * b * size, cy - co * r + s * b * size)
+        };
+        let (tip, left, notch, right) =
+            (point(14., 0.), point(-2., 13.), point(6., 0.), point(-2., -13.));
+        c.p.add(Shape::closed_line(
+            vec![tip, left, notch, right],
+            Stroke::new(4. * c.s, C::from_black_alpha((180. * pulse) as u8)),
+        ));
+        let amber = C::from_rgba_unmultiplied(255, 178, 52, (240. * pulse) as u8);
+        for wing in [left, right] {
+            c.p.add(Shape::convex_polygon(vec![tip, wing, notch], amber, Stroke::NONE));
+        }
+    }
+}
 fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     let h = c.h;
     let xp = &g.run.survival;
@@ -2261,6 +2294,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     }
     c.p.circle_filled(c.pt(cx, cy), c.s, IVORY);
     hit_feedback(c, g, cx, cy);
+    threat_pointers(c, g, cx, cy);
     // Keep the sculpted end caps away from the labels and digits.
     c.texture("button_plate", 16., h - 134., 395., 108., C::WHITE);
     c.inset(78., h - 106., 271., 55., C::from_rgb(43, 12, 16));

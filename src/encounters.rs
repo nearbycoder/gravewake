@@ -187,6 +187,22 @@ pub fn warning_cue(kind: usize) -> &'static str {
         _ => "warn_cast",
     }
 }
+/// How long each special attack's warning lasts before it lands.
+pub fn warning_time(kind: usize) -> f32 {
+    if kind == 7 { 1.1 } else { 0.85 }
+}
+/// Whether a special attack is aimed at the player. Summons aren't; slams and
+/// bursts only threaten a player near the marked circle.
+pub fn aimed_at(kind: usize, target: Vec3, player: Vec3) -> bool {
+    match kind {
+        2 | 4 | 8 | 9 | 11 => true,
+        3 | 7 => {
+            let radius = if kind == 3 { 4.2 } else { 3.2 };
+            ((player - target) * Vec3::new(1., 0., 1.)).length() < radius + 1.5
+        }
+        _ => false,
+    }
+}
 pub fn flying(k: usize) -> bool {
     matches!(k, 2 | 4 | 8 | 9)
 }
@@ -372,7 +388,7 @@ impl Game {
                     _ => false,
                 }
             {
-                e.ai.warning = if e.kind == 7 { 1.1 } else { 0.85 };
+                e.ai.warning = warning_time(e.kind);
                 sounds.push((warning_cue(e.kind), e.pos + Vec3::Y));
                 e.ai.target = match e.kind {
                     3 | 7 => Vec3::new(e.pos.x, 0., e.pos.z),

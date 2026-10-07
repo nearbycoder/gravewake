@@ -725,7 +725,7 @@ largely because of off-screen dives, casts and blasts.
 Acceptance criteria:
 - While a creature is winding up an attack aimed at the player (Cinder Skull
   and Ash Cantor casts, Bell Gargoyle and Gloamwing dives, Tithe Reaper
-  blinks, and Iron Penitent slams or Plague Vessel bursts when the player is
+  blinks, and Tithekeeper slams or Plague Vessel bursts when the player is
   inside or near the marked circle), and it is outside the horizontal view, an
   amber pointer around the reticle shows its bearing. The pointer is outside
   the red damage arcs, so the two can't be confused.

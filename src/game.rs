@@ -355,6 +355,15 @@ pub struct DamageMark {
 }
 pub const DAMAGE_MARK_LIFE: f32 = 1.2;
 const MAX_DAMAGE_MARKS: usize = 4;
+/// A special attack winding up toward the player out of view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Threat {
+    /// World bearing from the player to the attacker, like `DamageMark`.
+    pub bearing: f32,
+    /// 0 as the warning starts, 1 as it lands; a dive in flight is 1.
+    pub urgency: f32,
+}
+const MAX_THREATS: usize = 4;
 pub struct Floater {
     pub pos: Vec3,
     pub text: String,
@@ -1522,6 +1531,39 @@ impl Game {
             bearing,
             life: DAMAGE_MARK_LIFE,
         });
+    }
+    /// Wind-ups aimed at the player from more than `half_view` radians off
+    /// the view's centre, most urgent first. In-view attacks have their own
+    /// visible warnings.
+    pub fn unseen_threats(&self, half_view: f32) -> Vec<Threat> {
+        let mut threats: Vec<Threat> = self
+            .run
+            .enemies
+            .iter()
+            .filter(|e| e.hp > 0.)
+            .filter_map(|e| {
+                let urgency = if e.ai.charging > 0. && matches!(e.kind, 4 | 9) {
+                    1.
+                } else if e.ai.warning > 0.
+                    && crate::encounters::aimed_at(e.kind, e.ai.target, self.run.pos)
+                {
+                    (1. - e.ai.warning / crate::encounters::warning_time(e.kind)).clamp(0., 1.)
+                } else {
+                    return None;
+                };
+                let flat = (e.pos - self.run.pos) * Vec3::new(1., 0., 1.);
+                if flat.length_squared() < 0.01 {
+                    return None;
+                }
+                let bearing = flat.x.atan2(-flat.z);
+                let relative = bearing - self.run.yaw;
+                (relative.sin().atan2(relative.cos()).abs() > half_view)
+                    .then_some(Threat { bearing, urgency })
+            })
+            .collect();
+        threats.sort_by(|a, b| b.urgency.total_cmp(&a.urgency));
+        threats.truncate(MAX_THREATS);
+        threats
     }
     pub(crate) fn damage_enemy(&mut self, i: usize, damage: f32, dir: Vec3) {
         let part = if crate::encounters::head_only(self.run.enemies[i].kind) {
@@ -2898,6 +2940,85 @@ mod tests {
         assert!(g.run.hp < hp, "the adjacent enemy should strike");
         assert_eq!(g.damage_marks.len(), 1);
         assert!(relative(&g) > 0.8 && relative(&g) < 2.4, "{}", relative(&g));
+    }
+    #[test]
+    fn unseen_wind_ups_aimed_at_the_player_get_pointers() {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let half_view = 0.9;
+        let setup = |kind: usize, x: f32, z: f32| {
+            let mut g = Game::new(false);
+            g.new_run();
+            g.run.pos = Vec3::new(0., 1.65, 0.);
+            g.run.yaw = 0.;
+            let mut e = Enemy::spawn(kind, Vec3::new(x, 0., z), 1, 0.);
+            e.ai.cooldown = 0.;
+            g.run.enemies = vec![e];
+            g.tick_enemies(0.01);
+            g
+        };
+        // Behind the player (facing -Z): every attack aimed at the player shows.
+        for (kind, z) in [(2, 3.), (8, 3.), (4, 3.), (9, 3.), (3, 3.), (7, 3.), (11, 7.)] {
+            let g = setup(kind, 0.5, z);
+            assert!(g.run.enemies[0].ai.warning > 0., "{kind} began its warning");
+            let threats = g.unseen_threats(half_view);
+            assert_eq!(threats.len(), 1, "kind {kind}");
+            let relative = threats[0].bearing - g.run.yaw;
+            assert!(relative.cos() < -0.9, "kind {kind} points behind");
+            assert!(threats[0].urgency < 0.1, "kind {kind} just began");
+        }
+        // Summons don't target the player.
+        let g = setup(10, 0.5, 3.);
+        assert!(g.run.enemies[0].ai.warning > 0.);
+        assert!(g.unseen_threats(half_view).is_empty());
+        // In view, the attack's own warning is visible.
+        let g = setup(2, 0.5, -3.);
+        assert!(g.run.enemies[0].ai.warning > 0.);
+        assert!(g.unseen_threats(half_view).is_empty());
+        // A burst whose circle the player has left is no threat.
+        let mut g = setup(7, 0.5, 3.);
+        g.run.pos = Vec3::new(0., 1.65, -6.);
+        assert!(g.unseen_threats(half_view).is_empty());
+        // Bearings in all four quadrants, relative to the view.
+        for (yaw, x, z, expected) in [
+            (0., 0., 3., PI),
+            (0., 3., 0., FRAC_PI_2),
+            (0., -3., 0., -FRAC_PI_2),
+            (FRAC_PI_2, 0., 3., FRAC_PI_2),
+            (FRAC_PI_2, -3., 0., PI),
+        ] {
+            let mut g = setup(2, x, z);
+            g.run.yaw = yaw;
+            let threats = g.unseen_threats(half_view);
+            assert_eq!(threats.len(), 1, "({x}, {z}) at yaw {yaw}");
+            let r = threats[0].bearing - yaw;
+            assert!(
+                (r.sin() - expected.sin()).abs() < 0.2 && (r.cos() - expected.cos()).abs() < 0.2,
+                "({x}, {z}) at yaw {yaw}: {r}"
+            );
+        }
+        // Urgency rises through the warning; a dive in flight is most urgent.
+        let mut g = setup(4, 0.5, 3.);
+        g.run.enemies[0].ai.warning = crate::encounters::warning_time(4) * 0.25;
+        assert!((g.unseen_threats(half_view)[0].urgency - 0.75).abs() < 0.01);
+        g.run.enemies[0].ai.warning = 0.;
+        g.run.enemies[0].ai.charging = 0.5;
+        assert_eq!(g.unseen_threats(half_view)[0].urgency, 1.);
+        // At most four, the most urgent kept.
+        let mut g = setup(2, 0.5, 3.);
+        let template = g.run.enemies[0].clone();
+        g.run.enemies = (0..6)
+            .map(|i| {
+                let mut e = template.clone();
+                e.pos = Vec3::new(i as f32 - 2.5, 0., 4.);
+                e.ai.warning = 0.1 + i as f32 * 0.1;
+                e
+            })
+            .collect();
+        let threats = g.unseen_threats(half_view);
+        assert_eq!(threats.len(), 4);
+        assert!(threats.windows(2).all(|w| w[0].urgency >= w[1].urgency));
+        let least = 1. - 0.4 / crate::encounters::warning_time(2);
+        assert!((threats[3].urgency - least).abs() < 0.01);
     }
     #[test]
     fn all_33_weapons_deal_damage_and_roundtrip() {
