@@ -1027,3 +1027,126 @@ Deferred, with reasons:
   controls, but the only marker is the cursor ring and the control's hover glow.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 7 scope
+
+Round 6 was merged and pushed on 2026-10-07. Rounds 1–6 covered the
+platform, preferences, combat feedback, controllers, prompts, music and HUD
+size. This round takes five items a player meets in an ordinary session.
+Players on a TV with a controller can't reach fullscreen, and every launch
+forgets it. Controller menus still have no focus marker. The pause menu says
+nothing about the run, so the only place to read what your powers do is the
+level-up screen that offered them. Eleven creatures arrive in the first
+descents with no word on how to fight them. The right stick's turn rate is
+tied to the mouse sensitivity. Elite enemy variants stay deferred: they need
+playtests, and none are possible here.
+
+### A. Fullscreen in Settings, remembered between launches
+
+Fullscreen is only on F11, which a controller player can't press, and every
+launch opens windowed again.
+
+Acceptance criteria:
+- The journal's Preferences page gets a **Fullscreen** switch. It and F11 do
+  the same thing, and both save the choice in `settings.json`
+  (`fullscreen`). Older files load windowed.
+- A normal launch opens fullscreen if the setting is on. Smoke, review and
+  benchmark runs ignore it and keep their fixed window sizes.
+- The page still fits at 960×600.
+
+Verification: unit tests for the round-trip and an old file. A text-review
+capture of the Preferences page at both sizes. A real launch with a throwaway
+`XDG_DATA_HOME` whose `settings.json` has `fullscreen: true`: check the
+window's size against the screen, then close it and check the exit status
+and the file.
+
+### B. A focus frame for controller menus
+
+The D-pad jumps the cursor between controls (round 6), but the only marker
+is the cursor ring and the control's own hover glow, which is faint on some
+buttons and absent on cards and medallions.
+
+Acceptance criteria:
+- While the controller cursor is shown, the control under it (any D-pad
+  target: buttons, card actions, upgrade medallions, the equipped card,
+  sliders) gets a brass focus frame drawn just outside its rectangle, above
+  menus and dialogs. With no control under the cursor, only the ring shows.
+- The mouse is unchanged: the frame belongs to the controller cursor.
+
+Verification: a unit test for picking the focused control (inside one,
+between controls, overlapping rectangles choosing the smallest). The
+`pad-collector-dpad` and `pad-journal-slider` captures at both sizes, now
+showing the frame. `--smoke --gamepad` must still pass.
+
+### C. The run so far, in the pause menu
+
+Pausing shows only buttons. The HUD lists power names and ranks, but not
+what they do at that rank, and nothing shows the run's statistics until it
+ends.
+
+Acceptance criteria:
+- The pause screen adds two panels beside the menu: **This descent** (the
+  descent, run time, souls, headshots, damage dealt and taken, gold, soul
+  level, and the equipped weapon with its rarity, estimated damage per
+  second and Binding ranks), and **Bound powers** (each power held, its rank
+  and what it does at that rank, such as "+45% weapon damage" or "3 blades,
+  22 damage each").
+- Power effects are worked out from the same numbers the powers use, so the
+  text can't drift from the game.
+- Both panels fit beside the pause menu with all ten powers at full rank, in
+  1440×900 and 960×600 windows. Practice shows the practice weapon and no
+  run statistics.
+
+Verification: unit tests that each power's effect text follows its
+mechanics at ranks 1 and 5, and, in a real egui frame, that the panels don't
+overlap the pause folio or leave the screen at both sizes. Text-review
+captures of an early pause (one power) and a full one at both sizes.
+
+### D. First-sighting creature notes
+
+Twelve species arrive over the first four descents. The bestiary explains
+each one, but a first-time player meets a Plague Vessel or a Tithe Reaper
+mid-fight with no idea what it does.
+
+Acceptance criteria:
+- The first time each species other than the Ossuary Drudge (the plain
+  shambler every run opens with) comes within 30 m and into view, a field
+  note names it and says how to fight it, using the bestiary's own lines
+  (for example "BELL GARGOYLE / Marks a dive, then commits to it. Its great
+  wings betray the attack."). Notes last 7 seconds and queue behind other
+  notes.
+- Each note shows once, saved with the field tips in `settings.json`. The
+  **Field tips** switch turns them off with the rest, and turning it back on
+  shows them again. Smoke, review and practice runs never show or record
+  them.
+
+Verification: unit tests that a species queues its note once when it comes
+into view, not when it's behind the player or far away, that the Drudge has
+none, that the seen state persists and resets with the switch, and that
+scripted and practice runs record nothing. Text-review captures of a
+creature note at both sizes.
+
+### E. Stick look speed
+
+The right stick's turn rate follows the mouse **Aim sensitivity** slider,
+so a player who lowers mouse sensitivity for a high-resolution mouse gets a
+sluggish stick, and the reverse.
+
+Acceptance criteria:
+- The Controller page gets a **Stick look speed** slider (50–200%, default
+  100%, which is today's rate at the default mouse sensitivity), saved in
+  `settings.json`. Older files load at 100%, and the stick no longer follows
+  the mouse slider.
+- The page still fits at 960×600.
+
+Verification: unit tests for the turn rate (default equals today's, the
+slider scales it, the mouse slider no longer does), round-trip and clamping.
+Captures of the Controller page at both sizes. **No physical controller** is
+available, so how the speed feels is unverified.
+
+### Deferred this round
+
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12) and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.
