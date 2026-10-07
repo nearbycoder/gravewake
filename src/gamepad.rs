@@ -58,6 +58,13 @@ impl Frame {
     pub fn released(&self, b: Button) -> bool {
         self.released.contains(&b)
     }
+    /// Whether the player used the controller this update: a button press, a
+    /// trigger pull or a stick past its deadzone. Resting-stick drift doesn't count.
+    pub fn deliberate(&self) -> bool {
+        !self.pressed.is_empty()
+            || self.left_trigger.max(self.right_trigger) > TRIGGER_THRESHOLD
+            || self.left.length().max(self.right.length()) > STICK_DEADZONE
+    }
 }
 
 pub const STICK_DEADZONE: f32 = 0.2;
@@ -301,6 +308,68 @@ mod tests {
         assert!((radial(Vec2::new(0., 1.), STICK_DEADZONE).y - 1.).abs() < 1e-6);
         // Over-range diagonals from square gates stay within the unit circle.
         assert!(radial(Vec2::new(1., 1.), STICK_DEADZONE).length() <= 1. + 1e-6);
+    }
+    #[test]
+    fn prompt_labels_name_the_inputs_that_perform_each_action() {
+        use crate::controls::Action;
+        for action in Action::ALL {
+            let mut frame = Frame::default();
+            match action.pad_label() {
+                "LEFT STICK" => frame.left = Vec2::new(0., 1.),
+                "LT" => frame.left_trigger = 1.,
+                label => frame.pressed.push(match label {
+                    "A" => Button::South,
+                    "B" => Button::East,
+                    "X" => Button::West,
+                    "Y" => Button::North,
+                    other => panic!("unexpected label {other}"),
+                }),
+            }
+            let a = arena(&frame);
+            let performed = match action {
+                Action::Forward | Action::Back | Action::Left | Action::Right => a.forward > 0.9,
+                Action::Sprint => a.sprint,
+                Action::Dodge => a.dodge,
+                Action::Reload => a.reload,
+                Action::Melee => a.melee,
+                Action::Bolt => a.spell,
+            };
+            assert!(performed, "{action:?} / {}", action.pad_label());
+        }
+    }
+    #[test]
+    fn only_deliberate_controller_input_switches_prompts() {
+        // Resting-stick drift, light trigger pressure and held buttons don't count.
+        let drift = Frame {
+            left: Vec2::new(0.12, -0.1),
+            right: Vec2::new(-0.15, 0.1),
+            left_trigger: 0.2,
+            right_trigger: 0.3,
+            held: vec![Button::South],
+            ..Default::default()
+        };
+        assert!(!drift.deliberate());
+        assert!(!Frame::default().deliberate());
+        for frame in [
+            Frame {
+                pressed: vec![Button::Start],
+                ..Default::default()
+            },
+            Frame {
+                right_trigger: 0.5,
+                ..Default::default()
+            },
+            Frame {
+                left: Vec2::new(0., 0.4),
+                ..Default::default()
+            },
+            Frame {
+                right: Vec2::new(-0.3, 0.),
+                ..Default::default()
+            },
+        ] {
+            assert!(frame.deliberate(), "{frame:?}");
+        }
     }
     #[test]
     fn arena_mapping_covers_every_action() {

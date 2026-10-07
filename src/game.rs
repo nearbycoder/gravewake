@@ -1,5 +1,5 @@
 use crate::anatomy::{self, Anatomy, BodyEvent, Part, Pose};
-use crate::controls::{Action, Bindings, Trigger};
+use crate::controls::{Action, Bindings, Device, Trigger};
 use crate::world_layout::{self, ENEMY_RADIUS, PLAYER_RADIUS};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -439,6 +439,8 @@ pub struct Game {
     pub tip_queue: Vec<crate::tips::Tip>,
     /// Field tips run only in real play, never in smoke or review runs.
     pub tips_enabled: bool,
+    /// The input prompts describe: the keyboard or the controller used last.
+    pub device: Device,
     pub sound_events: Vec<&'static str>,
     pub spawned_bodies: Vec<BodyEvent>,
     pub physics_impacts: Vec<anatomy::PhysicsImpact>,
@@ -510,6 +512,7 @@ impl Game {
             tip: None,
             tip_queue: vec![],
             tips_enabled: save_enabled,
+            device: Device::Keyboard,
             sound_events: vec![],
             spawned_bodies: vec![],
             physics_impacts: vec![],
@@ -861,6 +864,26 @@ impl Game {
             Err(reason) => format!("{reason} Choose another key for {}.", action.name()),
         };
         self.save_preferences();
+    }
+    /// The input that performs `action` on the device the player used last.
+    pub fn prompt(&self, action: Action) -> String {
+        match self.device {
+            Device::Keyboard => self.prefs.bindings.label(action),
+            Device::Controller => action.pad_label().into(),
+        }
+    }
+    pub fn movement_prompt(&self) -> String {
+        match self.device {
+            Device::Keyboard => self.prefs.bindings.movement_label(),
+            Device::Controller => Action::Forward.pad_label().into(),
+        }
+    }
+    /// Firing isn't rebindable: the left mouse button or the right trigger.
+    pub fn fire_prompt(&self) -> &'static str {
+        match self.device {
+            Device::Keyboard => "LMB",
+            Device::Controller => "RT",
+        }
     }
     pub fn notify(&mut self, s: &str) {
         self.notice = s.into();

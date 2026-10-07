@@ -1,4 +1,4 @@
-use crate::controls::Action;
+use crate::controls::{Action, Device};
 use crate::game::{Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, Mode, Preferences};
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
@@ -941,7 +941,7 @@ fn house(c: &Canvas, g: &mut Game) {
         && g.spend(65)
     {
         g.run.chalice = true;
-        let key = g.prefs.bindings.label(Action::Bolt);
+        let key = g.prompt(Action::Bolt);
         g.notify(&format!("Ember Bolt awakened. Press {key} in the arena."));
         g.save();
     }
@@ -2304,7 +2304,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         c.text(
             40.,
             h - 149.,
-            format!("{} / EMBER BOLT", g.prefs.bindings.label(Action::Bolt)),
+            format!("{} / EMBER BOLT", g.prompt(Action::Bolt)),
             17.,
             GOLD,
             false,
@@ -2335,7 +2335,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         if g.dash_cd > 0. {
             "DODGE RECOVERING".into()
         } else {
-            format!("{} / DODGE", g.prefs.bindings.label(Action::Dodge))
+            format!("{} / DODGE", g.prompt(Action::Dodge))
         },
         16.,
         IVORY,
@@ -2370,9 +2370,9 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         1030.,
         h - 49.,
         if g.run.weapon.kind.melee() {
-            format!("LMB / {}  STRIKE", g.prefs.bindings.label(Action::Melee))
+            format!("{} / {}  STRIKE", g.fire_prompt(), g.prompt(Action::Melee))
         } else {
-            format!("{}  RELOAD", g.prefs.bindings.label(Action::Reload))
+            format!("{}  RELOAD", g.prompt(Action::Reload))
         },
         16.,
         MUTED,
@@ -2419,17 +2419,20 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     if let Some(active) = g.tip.filter(|t| !t.tip.in_shop()) {
         field_tip(c, &active.tip.text(g), c.h - TIP_FROM_BOTTOM, 640., active.alpha());
     } else if g.run.time < 7. {
-        let keys = &g.prefs.bindings;
         let y = c.h - TIP_FROM_BOTTOM;
+        let (fire, pause) = match g.device {
+            Device::Keyboard => ("Mouse", "Esc"),
+            Device::Controller => ("RT", "Start"),
+        };
         c.hud_panel(338., y + 20., 764., 35.);
         c.center(
             720.,
             y + 37.,
             format!(
-                "{} Move  /  Mouse Fire  /  {} Reload  /  {} Melee  /  Esc Pause",
-                keys.movement_label(),
-                keys.label(Action::Reload),
-                keys.label(Action::Melee)
+                "{} Move  /  {fire} Fire  /  {} Reload  /  {} Melee  /  {pause} Pause",
+                g.movement_prompt(),
+                g.prompt(Action::Reload),
+                g.prompt(Action::Melee)
             ),
             17.,
             IVORY,
@@ -2595,7 +2598,16 @@ fn level_up(c: &Canvas, g: &mut Game) {
             break;
         }
     }
-    c.center(720., 718., "PRESS 1, 2 OR 3 TO BIND A POWER", 11., MUTED);
+    c.center(
+        720.,
+        718.,
+        match g.device {
+            Device::Keyboard => "PRESS 1, 2 OR 3 TO BIND A POWER",
+            Device::Controller => "PRESS D-PAD LEFT, UP OR RIGHT TO BIND A POWER",
+        },
+        11.,
+        MUTED,
+    );
 }
 fn ending(c: &Canvas, g: &mut Game) {
     c.fill(-100., 0., 1640., c.h, C::from_black_alpha(195));

@@ -46,6 +46,26 @@ impl Action {
     fn index(self) -> usize {
         Self::ALL.iter().position(|a| *a == self).unwrap()
     }
+    /// The controller input for this action (Xbox names), as mapped in
+    /// `gamepad::arena`. Controller buttons aren't remappable.
+    pub fn pad_label(self) -> &'static str {
+        match self {
+            Action::Forward | Action::Back | Action::Left | Action::Right => "LEFT STICK",
+            Action::Sprint => "LT",
+            Action::Dodge => "A",
+            Action::Reload => "X",
+            Action::Melee => "B",
+            Action::Bolt => "Y",
+        }
+    }
+}
+
+/// The input the on-screen prompts describe: whichever the player used last.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Device {
+    #[default]
+    Keyboard,
+    Controller,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

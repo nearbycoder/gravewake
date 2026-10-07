@@ -198,6 +198,8 @@ Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance
 
 `src/gamepad.rs` polls controllers through gilrs (evdev/udev on Linux, IOKit on macOS) and maps them in pure functions that tests can drive without hardware. In the arena, sticks have radial deadzones, and the look stick uses a squared response; its turn rate follows the Aim sensitivity slider and invert-look setting. Menus use a virtual cursor that sends ordinary egui pointer events, so every screen (shop, packs, the Binding, Armory, journal) works without a separate navigation layer; moving the mouse hands control back to it. The most recently used controller drives the game, connections and disconnections show a notice, and a missing or inaccessible device leaves keyboard and mouse play unchanged. Linux builds need `libudev`.
 
+Prompts follow the last input device (`controls::Device`). A controller button press, a trigger past its threshold or a stick past its deadzone switches the HUD hints, the opening reminder, the field notes, the chalice notice and the level-up line to controller names (`Action::pad_label`, which a unit test checks against the arena mapping). A key press, a mouse click, captured mouse motion, or desktop pointer motion of more than 4 pixels switches back. The choice isn't saved.
+
 `cargo run --release -- --smoke --gamepad` runs the normal smoke test but tears, reveals, selects and equips the pack by steering the controller cursor with synthetic stick input and pressing A. No physical controller has been tested yet.
 
 ## Records
@@ -238,7 +240,7 @@ Your own weapon hits flash a marker around the reticle: ivory for a body hit, go
 
 HUD numbers and labels have dedicated opaque dark surfaces, with armor separate from the ornamental vitality plate. Card text is printed in dark ink on a neutral parchment field independent of rarity. Folios soften their background engraving behind reading areas. Every control uses Gravewake Gothic, including compact labels and numbers; long card names and prose wrap using measured font widths. Generic labels and paragraphs have an 18-design-unit floor, with a minimum of 13.5 logical points after window scaling. The title glyph shapes and spacing are preserved exactly.
 
-`cargo run --release -- --text-review` captures the actual native UI in 79 screenshots across 76 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, title records, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
+`cargo run --release -- --text-review` captures the actual native UI in 89 screenshots across 86 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, controller prompts, title records, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
 
 ## Blender creature and cemetery overhaul
 

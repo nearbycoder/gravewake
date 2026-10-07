@@ -24,11 +24,11 @@ impl Tip {
         if self.in_shop() { 40. } else { 10. }
     }
     pub fn text(self, g: &Game) -> String {
-        let key = |action| g.prefs.bindings.label(action);
+        let key = |action| g.prompt(action);
         match self {
             Tip::Move => format!(
                 "{} to move. Hold {} to sprint. {} dodges, and nothing can hurt you mid-dodge.",
-                g.prefs.bindings.movement_label(),
+                g.movement_prompt(),
                 key(Action::Sprint),
                 key(Action::Dodge)
             ),
@@ -234,5 +234,37 @@ mod tests {
         assert_eq!(Preferences::from_json(&bytes), Some(prefs));
         let old = Preferences::from_json(br#"{"volume":0.5}"#).unwrap();
         assert!(old.field_tips && old.tips_seen == 0);
+    }
+    #[test]
+    fn tips_name_controller_inputs_after_the_controller_is_used() {
+        use crate::controls::Device;
+        const TIPS: [Tip; 6] = [
+            Tip::Move,
+            Tip::Reload,
+            Tip::Souls,
+            Tip::Hurt,
+            Tip::Collector,
+            Tip::Bolt,
+        ];
+        let mut g = game();
+        let keyboard: Vec<_> = TIPS.iter().map(|t| t.text(&g)).collect();
+        g.device = Device::Controller;
+        let pad: Vec<_> = TIPS.iter().map(|t| t.text(&g)).collect();
+        assert_eq!(
+            pad[0],
+            "LEFT STICK to move. Hold LT to sprint. A dodges, and nothing can hurt you mid-dodge."
+        );
+        assert!(pad[1].starts_with("X reloads") && pad[1].contains("B strikes"));
+        assert!(pad[5].contains("Press Y to cast"));
+        for pad in &pad {
+            for label in ["W A S D", "SHIFT", "SPACE", "Press Q", "R reloads", "E strikes"] {
+                assert!(!pad.contains(label), "{pad}");
+            }
+        }
+        // Souls, damage arcs and the Collector name no inputs.
+        assert_eq!(keyboard[2..5], pad[2..5]);
+        assert!(keyboard[0].starts_with("W A S D to move. Hold SHIFT to sprint. SPACE dodges"));
+        g.device = Device::Keyboard;
+        assert_eq!(TIPS.map(|t| t.text(&g)).to_vec(), keyboard);
     }
 }

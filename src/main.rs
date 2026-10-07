@@ -50,6 +50,9 @@ struct App {
     gamepad_smoke: bool,
     mouse_fire: bool,
     pointer_ignored: bool,
+    /// Last desktop pointer position, so prompts switch back to the keyboard
+    /// only when the mouse really moves, not when a window opens under it.
+    last_pointer: Option<winit::dpi::PhysicalPosition<f64>>,
     focused: bool,
     last: Instant,
     captured: bool,
@@ -109,6 +112,7 @@ impl App {
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
             mouse_fire: false,
             pointer_ignored: false,
+            last_pointer: None,
             focused: true,
             last: Instant::now(),
             captured: false,
@@ -902,6 +906,9 @@ impl App {
         for notice in self.pad.notices.drain(..) {
             self.game.notify(&notice);
         }
+        if pad_frame.deliberate() {
+            self.game.device = controls::Device::Controller;
+        }
         if !self.smoke && !self.review {
             let pad = gamepad::arena(&pad_frame);
             let bindings = self.game.prefs.bindings;
@@ -1388,7 +1395,13 @@ impl ApplicationHandler for App {
                     println!("SMOKE: ignoring desktop pointer motion over the window");
                 }
             }
-            WindowEvent::CursorMoved { .. } => self.pad.cursor.hide(),
+            WindowEvent::CursorMoved { position, .. } => {
+                self.pad.cursor.hide();
+                let previous = self.last_pointer.replace(position);
+                if previous.is_some_and(|p| (p.x - position.x).hypot(p.y - position.y) > 4.) {
+                    self.game.device = controls::Device::Keyboard;
+                }
+            }
             WindowEvent::Focused(false) => {
                 self.focused = false;
                 self.mouse_fire = false;
@@ -1405,6 +1418,9 @@ impl ApplicationHandler for App {
                 };
                 let pressed = event.state == ElementState::Pressed;
                 let trigger = controls::Trigger::Key(code);
+                if pressed {
+                    self.game.device = controls::Device::Keyboard;
+                }
                 if self.game.rebinding.is_some() {
                     // The journal is waiting for a new key; nothing else sees it.
                     if pressed && !event.repeat {
@@ -1471,12 +1487,18 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } if !self.smoke && !self.review => {
+                if state == ElementState::Pressed {
+                    self.game.device = controls::Device::Keyboard;
+                }
                 self.mouse_fire = self.game.mode == Mode::Arena && state == ElementState::Pressed;
                 self.game.input.fire = self.mouse_fire;
             }
             WindowEvent::MouseInput { state, button, .. } if !self.smoke && !self.review => {
                 let trigger = controls::Trigger::Mouse(button);
                 let pressed = state == ElementState::Pressed;
+                if pressed {
+                    self.game.device = controls::Device::Keyboard;
+                }
                 if self.game.rebinding.is_some() {
                     if pressed {
                         self.game.bind(trigger, None);
@@ -1495,6 +1517,9 @@ impl ApplicationHandler for App {
     fn device_event(&mut self, _: &ActiveEventLoop, _: winit::event::DeviceId, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
             if self.captured {
+                if delta.0.hypot(delta.1) > 1. {
+                    self.game.device = controls::Device::Keyboard;
+                }
                 self.game.look_sway += glam::Vec2::new(-delta.0 as f32, delta.1 as f32) * 0.00035;
                 self.game.look_sway = self
                     .game

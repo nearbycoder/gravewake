@@ -21,6 +21,8 @@ enum Screen {
     Armory(usize, usize),
     Bestiary(usize),
     Powers(usize),
+    /// A level-up while the controller is the last input used.
+    PowersController,
     Pause,
     Settings,
     Controls(u8),
@@ -69,6 +71,8 @@ impl Review {
             ("hud-rebound-mouse-keys".into(), Screen::Hud(7)),
             ("hud-tip-move".into(), Screen::Hud(8)),
             ("hud-tip-bolt-with-notice".into(), Screen::Hud(9)),
+            ("hud-controller-tip-move".into(), Screen::Hud(10)),
+            ("hud-controller-opening".into(), Screen::Hud(11)),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
@@ -95,6 +99,7 @@ impl Review {
         for group in 0..4 {
             screens.push((format!("powers-{group}"), Screen::Powers(group)));
         }
+        screens.push(("powers-controller".into(), Screen::PowersController));
         screens.extend([
             ("pause".into(), Screen::Pause),
             ("settings".into(), Screen::Settings),
@@ -315,13 +320,24 @@ impl Review {
                     game.run.time = 30.;
                     game.prefs.fov = 90.;
                 }
-                if kind >= 8 {
+                if kind >= 10 {
+                    // Controller prompts: the first tip with a melee weapon
+                    // and a bound chalice, then the opening reminder.
+                    game.device = crate::controls::Device::Controller;
+                    game.run.chalice = true;
+                    if kind == 10 {
+                        game.run.weapon.kind = WeaponKind::TwinDaggers;
+                    }
+                }
+                if kind == 11 {
+                    game.run.time = 0.5;
+                } else if kind >= 8 {
                     // The first tip of a first run, and a later tip with a
                     // notice above it.
                     use crate::tips::{ActiveTip, Tip};
-                    let tip = if kind == 8 { Tip::Move } else { Tip::Bolt };
+                    let tip = if kind == 9 { Tip::Bolt } else { Tip::Move };
                     game.tip = Some(ActiveTip { tip, life: 5. });
-                    game.run.time = if kind == 8 { 0.5 } else { 30. };
+                    game.run.time = if kind == 9 { 30. } else { 0.5 };
                     if kind == 9 {
                         game.run.chalice = true;
                         game.notice = "THE HOLLOW CHALICE ANSWERS".into();
@@ -430,6 +446,13 @@ impl Review {
                 game.run.survival.pending = 1;
                 game.run.survival.ranks = [4; 10];
                 game.run.survival.choices = (0..3).map(|i| (group * 3 + i) % 10).collect();
+            }
+            Screen::PowersController => {
+                game.mode = Mode::LevelUp;
+                game.device = crate::controls::Device::Controller;
+                game.run.survival.level = 3;
+                game.run.survival.pending = 1;
+                game.run.survival.choices = vec![0, 6, 9];
             }
             Screen::Pause => game.mode = Mode::Paused,
             Screen::Settings => {
