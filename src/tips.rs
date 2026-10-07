@@ -11,17 +11,52 @@ pub enum Tip {
     Hurt,
     Collector,
     Bolt,
+    /// The first sighting of a species (an `encounters::ROSTER` index).
+    Creature(u8),
 }
+/// Creature notes appear when a species first comes this close, in view.
+pub const SIGHTING_RANGE: f32 = 30.;
+/// ... within this many radians of straight ahead, well inside the view at
+/// any field of view and window shape.
+pub const SIGHTING_HALF_ANGLE: f32 = 0.7;
 impl Tip {
     fn bit(self) -> u32 {
-        1 << self as u32
+        match self {
+            Tip::Move => 1,
+            Tip::Reload => 1 << 1,
+            Tip::Souls => 1 << 2,
+            Tip::Hurt => 1 << 3,
+            Tip::Collector => 1 << 4,
+            Tip::Bolt => 1 << 5,
+            // Bits 8 to 19, one per species.
+            Tip::Creature(kind) => 1 << (8 + kind as u32),
+        }
+    }
+    /// The Ossuary Drudge, the plain shambler every run opens with, has no
+    /// note; every other species does.
+    pub fn creature(kind: usize) -> Option<Tip> {
+        (kind > 0 && kind < crate::encounters::ROSTER.len()).then_some(Tip::Creature(kind as u8))
+    }
+    /// The panel's heading.
+    pub fn heading(self) -> String {
+        match self {
+            Tip::Creature(kind) => format!(
+                "NEW CREATURE  /  {}",
+                crate::encounters::species(kind as usize).name
+            ),
+            _ => "FIELD NOTE".into(),
+        }
     }
     /// The Collector's tip shows in the shop; the rest show in the arena.
     pub fn in_shop(self) -> bool {
         self == Tip::Collector
     }
     fn duration(self) -> f32 {
-        if self.in_shop() { 40. } else { 10. }
+        match self {
+            Tip::Collector => 40.,
+            Tip::Creature(_) => 7.,
+            _ => 10.,
+        }
     }
     pub fn text(self, g: &Game) -> String {
         let key = |action| g.prompt(action);
@@ -44,6 +79,11 @@ impl Tip {
                 "The chalice is bound. Press {} to cast Ember Bolt for 12 mana. Mana refills over time.",
                 key(Action::Bolt)
             ),
+            // The bestiary's own lines: what it does, then how to answer it.
+            Tip::Creature(kind) => {
+                let lore = crate::encounters::species(kind as usize).lore;
+                format!("{} {}", lore[1], lore[2])
+            }
         }
     }
 }
@@ -101,7 +141,10 @@ impl Game {
             (Tip::Hurt, arena && !self.damage_marks.is_empty()),
             (Tip::Collector, self.mode == Mode::Shop),
             (Tip::Bolt, self.run.chalice),
-        ] {
+        ]
+        .into_iter()
+        .chain(self.sightings().into_iter().map(|tip| (tip, arena)))
+        {
             if due && self.prefs.tips_seen & tip.bit() == 0 {
                 self.prefs.tips_seen |= tip.bit();
                 self.tip_queue.push(tip);
@@ -123,6 +166,31 @@ impl Game {
                 });
             }
         }
+    }
+    /// Notes for species in view within `SIGHTING_RANGE`, nearest first.
+    fn sightings(&self) -> Vec<Tip> {
+        let mut seen: Vec<(f32, Tip)> = self
+            .run
+            .enemies
+            .iter()
+            .filter(|e| e.hp > 0.)
+            .filter_map(|e| {
+                let tip = Tip::creature(e.kind)?;
+                let flat = (e.pos - self.run.pos) * glam::Vec3::new(1., 0., 1.);
+                let distance = flat.length();
+                let relative = flat.x.atan2(-flat.z) - self.run.yaw;
+                let in_view = relative.sin().atan2(relative.cos()).abs() < SIGHTING_HALF_ANGLE;
+                (distance < SIGHTING_RANGE && in_view).then_some((distance, tip))
+            })
+            .collect();
+        seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut tips: Vec<Tip> = vec![];
+        for (_, tip) in seen {
+            if !tips.contains(&tip) {
+                tips.push(tip);
+            }
+        }
+        tips
     }
     /// The journal's Field tips switch. Turning tips back on shows them all again.
     pub fn set_field_tips(&mut self, on: bool) {
@@ -234,6 +302,87 @@ mod tests {
         assert_eq!(Preferences::from_json(&bytes), Some(prefs));
         let old = Preferences::from_json(br#"{"volume":0.5}"#).unwrap();
         assert!(old.field_tips && old.tips_seen == 0);
+    }
+    /// A game partway into a first run, with the opening tips already seen,
+    /// facing straight ahead (-z) with one creature of `kind` at `offset`.
+    fn sighting(kind: usize, offset: glam::Vec3) -> Game {
+        use crate::game::Enemy;
+        let mut g = game();
+        g.prefs.tips_seen = Tip::Move.bit() | Tip::Souls.bit() | Tip::Reload.bit();
+        g.run.time = 20.;
+        g.run.yaw = 0.;
+        g.run.enemies = vec![Enemy::spawn(kind, g.run.pos + offset, 4, 0.)];
+        g
+    }
+    #[test]
+    fn a_new_creature_gets_one_note_when_it_comes_into_view() {
+        use glam::Vec3;
+        // A Bell Gargoyle 12 m ahead: its note, with the bestiary's lines.
+        let mut g = sighting(9, Vec3::new(0., 0., -12.));
+        assert_eq!(run_until_tip(&mut g), Some(Tip::Creature(9)));
+        let tip = g.tip.unwrap().tip;
+        assert_eq!(tip.heading(), "NEW CREATURE  /  BELL GARGOYLE");
+        assert_eq!(
+            tip.text(&g),
+            "Marks a dive, then commits to it. Its great wings betray the attack."
+        );
+        assert!(g.prefs.tips_seen & tip.bit() != 0);
+        // It lasts 7 seconds and doesn't come back.
+        g.update_tips(7.1);
+        assert_eq!(g.tip, None);
+        assert_eq!(run_until_tip(&mut g), None);
+        // Behind the player, or beyond 30 m, it isn't seen yet.
+        for offset in [Vec3::new(0., 0., 12.), Vec3::new(20., 0., 0.), Vec3::new(0., 0., -31.)] {
+            let mut g = sighting(11, offset);
+            assert_eq!(run_until_tip(&mut g), None, "{offset}");
+            assert_eq!(g.prefs.tips_seen & Tip::Creature(11).bit(), 0);
+            // Turning to face it shows the note.
+            if offset.length() < SIGHTING_RANGE {
+                g.run.yaw = offset.x.atan2(-offset.z);
+                assert_eq!(run_until_tip(&mut g), Some(Tip::Creature(11)), "{offset}");
+            }
+        }
+        // The Ossuary Drudge has none; every other species has its own bit,
+        // clear of the six field tips.
+        assert_eq!(Tip::creature(0), None);
+        let mut g = sighting(0, Vec3::new(0., 0., -8.));
+        assert_eq!(run_until_tip(&mut g), None);
+        let bits: Vec<u32> = (1..12).map(|k| Tip::creature(k).unwrap().bit()).collect();
+        for (i, bit) in bits.iter().enumerate() {
+            assert!(*bit >= 1 << 8 && bits[i + 1..].iter().all(|b| b != bit));
+        }
+        // Several new species at once queue, nearest first.
+        let mut g = sighting(5, Vec3::new(1., 0., -9.));
+        g.run.enemies.push(crate::game::Enemy::spawn(4, g.run.pos + Vec3::new(0., 0., -5.), 4, 0.));
+        g.update_tips(0.);
+        assert_eq!(g.tip.map(|t| t.tip), Some(Tip::Creature(4)));
+        assert_eq!(g.tip_queue, vec![Tip::Creature(5)]);
+    }
+    #[test]
+    fn creature_notes_follow_the_field_tips_switch_and_skip_scripted_runs() {
+        use glam::Vec3;
+        let mut g = sighting(7, Vec3::new(0., 0., -10.));
+        g.set_field_tips(false);
+        assert_eq!(run_until_tip(&mut g), None);
+        g.set_field_tips(true);
+        assert_eq!(g.prefs.tips_seen, 0, "switching back on clears creature notes too");
+        g.prefs.tips_seen = Tip::Move.bit();
+        assert_eq!(run_until_tip(&mut g), Some(Tip::Creature(7)));
+        // Seen creatures persist with the other tips.
+        let bytes = serde_json::to_vec(&g.prefs).unwrap();
+        let loaded = Preferences::from_json(&bytes).unwrap();
+        assert!(loaded.tips_seen & Tip::Creature(7).bit() != 0);
+        // Smoke, review and practice runs never show or record them.
+        let mut scripted = Game::new(false);
+        scripted.new_run();
+        scripted.run.time = 20.;
+        scripted.run.enemies = vec![crate::game::Enemy::spawn(7, scripted.run.pos + Vec3::new(0., 0., -10.), 4, 0.)];
+        assert_eq!(run_until_tip(&mut scripted), None);
+        assert_eq!(scripted.prefs.tips_seen, 0);
+        let mut practice = sighting(7, Vec3::new(0., 0., -10.));
+        practice.practice_backup = Some(practice.run.clone());
+        assert_eq!(run_until_tip(&mut practice), None);
+        assert_eq!(practice.prefs.tips_seen & Tip::Creature(7).bit(), 0);
     }
     #[test]
     fn tips_name_controller_inputs_after_the_controller_is_used() {

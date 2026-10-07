@@ -14,6 +14,8 @@ enum Screen {
     Title(bool),
     TitleRecords,
     Hud(u8),
+    /// A Bell Gargoyle's first-sighting note, in the fourth descent.
+    CreatureNote,
     /// The Collector, with the chalice bound, or with the first-visit tip.
     Shop(bool, bool),
     Pack,
@@ -90,6 +92,7 @@ impl Review {
             ("hud-controller-remapped".into(), Screen::Hud(16)),
             ("hud-size-120-busy".into(), Screen::Hud(17)),
             ("hud-size-130-busy".into(), Screen::Hud(18)),
+            ("hud-creature-note".into(), Screen::CreatureNote),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
@@ -598,6 +601,25 @@ impl Review {
                 game.run.survival.choices = vec![0, 6, 9];
             }
             Screen::Pause => game.mode = Mode::Paused,
+            Screen::CreatureNote => {
+                use crate::tips::{ActiveTip, Tip};
+                game.mode = Mode::Arena;
+                game.run.wave = 4;
+                game.run.time = 412.;
+                game.run.gold = 240;
+                game.run.weapon = Card::starter();
+                game.run.ammo = game.run.weapon.capacity();
+                game.run.survival = Default::default();
+                game.run.survival.remaining = 31;
+                game.run.enemies = vec![
+                    Enemy::spawn(9, Vec3::new(1.5, 0., -9.), 4, 0.),
+                    Enemy::spawn(0, Vec3::new(-3., 0., -12.), 4, 0.3),
+                ];
+                game.tip = Some(ActiveTip {
+                    tip: Tip::Creature(9),
+                    life: 5.,
+                });
+            }
             Screen::PauseLedger(n) => {
                 use crate::game::RunStats;
                 game.mode = Mode::Paused;

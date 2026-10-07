@@ -1098,7 +1098,7 @@ fn house(c: &Canvas, g: &mut Game) {
     deck(c, g);
     // Over the Collector's robe, between the title and the purse.
     if let Some(active) = g.tip.filter(|t| t.tip.in_shop()) {
-        field_tip(c, &active.tip.text(g), 14., 600., active.alpha());
+        field_tip(c, &active.tip, &active.tip.text(g), 14., 600., active.alpha());
     }
 }
 fn deck(c: &Canvas, g: &mut Game) {
@@ -2600,7 +2600,7 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
     let c = &tip_canvas(base, k);
     if let Some(active) = g.tip.filter(|t| !t.tip.in_shop()) {
         let y = arena_tip_top(c, g).unwrap_or(c.h - TIP_FROM_BOTTOM);
-        field_tip(c, &active.tip.text(g), y, ARENA_TIP_WIDTH, active.alpha());
+        field_tip(c, &active.tip, &active.tip.text(g), y, ARENA_TIP_WIDTH, active.alpha());
     } else if g.run.time < 7. {
         let y = c.h - TIP_FROM_BOTTOM;
         let (fire, pause) = match g.device {
@@ -2676,14 +2676,14 @@ fn tip_height(c: &Canvas, text: &str, width: f32) -> f32 {
     tip_layout(c, text, width).size().y / c.s + 46.
 }
 /// A field tip: a small heading over one to three centred lines.
-fn field_tip(c: &Canvas, text: &str, y: f32, width: f32, alpha: f32) {
+fn field_tip(c: &Canvas, tip: &crate::tips::Tip, text: &str, y: f32, width: f32, alpha: f32) {
     let x = 720. - width / 2.;
     let height = tip_height(c, text, width);
     c.layout("tip", x, y, width, height);
     c.inset(x, y, width, height, HUD_SURFACE.gamma_multiply(alpha));
     c.border(x, y, width, height, GOLD.gamma_multiply(0.75 * alpha));
     c.diamond(720., y, 5., GOLD.gamma_multiply(alpha));
-    c.center(720., y + 17., "FIELD NOTE", 13., GOLD.gamma_multiply(alpha));
+    c.center(720., y + 17., tip.heading(), 13., GOLD.gamma_multiply(alpha));
     // Centred paragraphs are anchored at their centre line.
     c.paragraph(
         720.,
