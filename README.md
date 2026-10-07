@@ -95,7 +95,7 @@ This is a playable development build. What has and hasn't been checked:
 
 **Never verified**
 - Windows (never built or run), X11, NVIDIA or Intel GPUs, and other Linux distributions.
-- A physical controller. Controller play, prompts, menus (including D-pad navigation and the focus frame), button remapping, stick look speed and the pause when a controller disconnects are tested only with simulated input, so real sticks, triggers, hot-plugging and live remapping are unverified.
+- A physical controller. Controller play, prompts, menus (including D-pad navigation and the focus frame), button remapping, stick look speed, aim assist, toggle sprint and the pause when a controller disconnects are tested only with simulated input or unit tests, so real sticks, triggers, hot-plugging and live remapping are unverified.
 - Listening. The music, positional audio and warning cues were checked with spectrograms and level measurements, not by ear.
 - Real key presses on the Keyboard page, real button presses on the Controller page, and field or creature notes triggering in a hand-played run. Tests and review fixtures drive the same code paths. Switching fullscreen while the game runs (F11 and the journal, both ways) was checked by a scripted run in a private virtual KWin, not in a real Plasma session, and not with fractional scaling.
 

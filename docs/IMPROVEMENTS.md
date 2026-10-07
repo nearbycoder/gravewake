@@ -1312,3 +1312,58 @@ real `~/.local/share/gravewake` is checked before and after.
   here measures.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 8 results
+
+All five scoped items shipped on `improvements-8`. Native checks ran on the
+same CachyOS / Radeon 8060S / KDE Wayland machine, with a throwaway
+`XDG_DATA_HOME` for every run. `~/.local/share/gravewake` didn't exist before
+or after the round, and no Gravewake core dumps were left. Load averages were
+6–38 during the round; the smoke runs waited for a load under 24 (17–24).
+
+New this round: `scripts/nested-kwin.sh` (`0a5ca11`) runs a command inside a
+private `kwin_wayland --virtual` on its own D-Bus session. Apart from the
+smoke runs on the desktop (windowed) and the mis-launched run described
+below, every native run this round used it, and nothing went fullscreen on
+the shared desktop.
+
+| Item | Verification |
+| --- | --- |
+| A. Creature notes respect walls (`6899601`) | A unit test: a creature in the cone 7 m away behind the chapel's east wall gets no note; it gets one on the first frame it stands in the doorway; the central monument hides one in the open court, and a step aside reveals it. Removing the new check makes the test fail. The round 7 creature-note tests still pass. The check is the obstruction test shots use, so trees and small gravestones don't hide a creature. **Not seen in a hand-played run.** |
+| B. Next descent at the Collector (`326c816`) | The quota, boss and species pools moved into `survival::descent_quota`, `boss_descent` and `descent_pool`, which the director spawns from. A unit test spawns descents 1 to 17 in full and checks the preview's count, boss flag, "returns" flag and new species against what actually appeared. Text-review captures of the Collector before descents 4, 8 and 14 at both sizes (`round8/collector-next-descent*.jpg`). **Changed from the plan:** the first 960×600 capture put the species line on the window's bottom edge, so the Enter button moved up 13 units to make room. |
+| C. Toggle sprint (`e191a5b`) | A unit test of the latch: hold mode unchanged; toggle starts on a press, survives the release, stops on the next press, ends when movement stops or the game leaves the arena, and doesn't restart on its own; the movement note says Press or Hold; the setting round-trips and older files load as hold. Captures of the Preferences page at both sizes (`round8/journal-toggle-sprint*.jpg`). **Real key and trigger presses weren't exercised** (no synthetic input reaches `main.rs`'s key handler). |
+| D. Controller aim assist (`0187edd`) | A unit test: half speed with the reticle on a creature 10 m and 37 m away, partly slowed just beside it, full speed well off it, beyond 40 m, behind the player, dead, behind a chapel wall, with the switch off and outside the arena; the setting round-trips and older files load with it on. The mouse path doesn't call it. Captures of the Controller page at both sizes (`round8/controller-aim-assist*.jpg`). `--smoke --gamepad` passes. **How it feels is unverified**: no physical controller. |
+| E. Fullscreen switched live (`54817f0`) | `scripts/fullscreen-review.sh` (`--fullscreen-review`): from a 1440×900 window in the arena, F11's code path goes fullscreen, the journal's switch clicked through egui goes back and then fullscreen again, and F11 returns. Each switch reached the expected size within 1–2 frames, the GPU surface matched, 20 frames rendered at the new size, and `settings.json` recorded the change. It passed on a 1920×1080 virtual output (three times) and a 3072×1728 one (the desktop's size). The mode refuses to run outside the private compositor or without a throwaway data folder. **No fix was needed.** F11's handler moved into `App::toggle_fullscreen` so the review calls the same code. **Not covered:** a real Plasma session (the virtual output isn't one) and fractional scaling (KWin's `--scale` for the virtual backend enlarged the output instead of setting a scale factor, so that option was dropped). |
+
+Final state: 145 unit tests pass (141 before the round), with no warnings.
+On the final binary: `--smoke` and `--smoke --gamepad` on the desktop and in
+the private compositor; `--text-review` (normal and `--review-small`, 110
+captures across 107 fixtures), `--shader-review`, `--armory-review`,
+`--survival-review`, `--world-review` and `scripts/fullscreen-review.sh` in
+the private compositor. All exited with status 0. The benchmark wasn't
+rerun: nothing in the render path changed, and aim assist only runs while
+the right stick is deflected.
+
+One false alarm, recorded so nobody chases it: a controller smoke run sat at
+the title for ten minutes with no watchdog. The test shell (zsh) had passed
+`--smoke --gamepad` as a single argument, so the game started as a normal,
+windowed session on the desktop (with its throwaway data folder, which it
+never wrote to) until it was stopped. Rerun with separate arguments, it passed. The intermittent stall
+has not recurred.
+
+Not verified: macOS (CI builds and runs the unit tests after the push),
+Windows, X11, NVIDIA and Intel GPUs, a physical controller (aim assist,
+toggle sprint on a trigger, and everything from earlier rounds), real key
+presses for toggle sprint, live fullscreen in a real Plasma session or with
+fractional scaling, and creature notes in a hand-played run.
+
+Deferred, with reasons:
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12): nothing here to test on. The browser build (#15).
+- Crowd-aware damage estimates on cards: no data on how many creatures a
+  splash or chain typically reaches.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score
+  stays. New: whether aim assist should default to on (it does, as in most
+  console shooters) and whether its strength (half speed) should be
+  adjustable rather than on/off.
