@@ -9,6 +9,8 @@ const INK: C = C::from_rgb(35, 24, 17);
 const PAPER: C = C::from_rgb(231, 211, 173);
 const HUD_SURFACE: C = C::from_rgb(19, 22, 21);
 const RED: C = C::from_rgb(110, 30, 32);
+/// Legible red for text on dark surfaces.
+const BLOOD: C = C::from_rgb(226, 108, 94);
 fn hash(i: u32) -> f32 {
     let n = i.wrapping_mul(747796405).wrapping_add(2891336453);
     let n = ((n >> ((n >> 28) + 4)) ^ n).wrapping_mul(277803737);
@@ -2612,10 +2614,10 @@ fn level_up(c: &Canvas, g: &mut Game) {
 fn ending(c: &Canvas, g: &mut Game) {
     c.fill(-100., 0., 1640., c.h, C::from_black_alpha(195));
     let win = g.mode == Mode::Victory;
-    c.seal(720., 220., 63., GOLD);
+    c.seal(720., 160., 56., GOLD);
     c.text(
         720.,
-        359.,
+        278.,
         if win {
             "THE DEBT IS PAID"
         } else {
@@ -2628,7 +2630,7 @@ fn ending(c: &Canvas, g: &mut Game) {
     );
     c.center(
         720.,
-        431.,
+        334.,
         if win {
             "THE TITHEKEEPER FALLS. THE BELLS FALL SILENT."
         } else {
@@ -2637,33 +2639,93 @@ fn ending(c: &Canvas, g: &mut Game) {
         13.,
         GOLD,
     );
+    // What ended the run, and what hurt most along the way.
+    let stats = &g.run.stats;
+    let cause = stats.last_hit.filter(|_| !win);
+    if let Some(cause) = cause {
+        c.center(
+            720.,
+            378.,
+            format!("SLAIN BY {}", cause.describe()),
+            17.,
+            BLOOD,
+        );
+    }
+    if let Some((kind, share)) = stats.top_source() {
+        c.center(
+            720.,
+            if cause.is_some() { 406. } else { 388. },
+            format!(
+                "MOST DAMAGE TAKEN  /  {}  /  {:.0}%",
+                crate::encounters::species(kind).name,
+                share * 100.
+            ),
+            13.,
+            MUTED,
+        );
+    }
+    c.hud_panel(330., 428., 780., 140.);
+    let cells = [
+        ("DESCENT", format!("{:02}", g.run.wave)),
+        ("SOULS", grouped(g.run.kills)),
+        ("HEADSHOTS", grouped(stats.headshots)),
+        (
+            "TIME",
+            format!(
+                "{:02}:{:02}",
+                g.run.time as u32 / 60,
+                g.run.time as u32 % 60
+            ),
+        ),
+        ("DAMAGE DEALT", grouped(stats.damage_dealt.round() as u32)),
+        ("DAMAGE TAKEN", grouped(stats.damage_taken.round() as u32)),
+        ("SOUL LEVEL", g.run.survival.level.to_string()),
+        (
+            "POWER RANKS",
+            g.run.survival.ranks.iter().map(|&r| r as u32).sum::<u32>().to_string(),
+        ),
+    ];
+    for (i, (label, value)) in cells.into_iter().enumerate() {
+        let x = 427.5 + (i % 4) as f32 * 195.;
+        let y = 450. + (i / 4) as f32 * 64.;
+        c.center(x, y, label, 12., MUTED);
+        c.text_role(
+            x,
+            y + 25.,
+            value,
+            24.,
+            IVORY,
+            TypeRole::Strong,
+            Align2::CENTER_CENTER,
+        );
+    }
     c.center(
         720.,
-        503.,
-        format!(
-            "DESCENT {:02}  /  {} SOULS  /  {:02}:{:02}",
-            g.run.wave,
-            g.run.kills,
-            g.run.time as u32 / 60,
-            g.run.time as u32 % 60
-        ),
-        15.,
-        MUTED,
+        588.,
+        format!("WIELDING  /  {}", g.run.weapon.name().to_uppercase()),
+        13.,
+        GOLD,
     );
     if !g.run_records.is_empty() {
         c.center(
             720.,
-            538.,
+            614.,
             format!("NEW RECORD  /  {}", g.run_records.join("  /  ")),
             14.,
             GOLD,
         );
     }
+    if c.button("again", 542., 640., 356., 54., "BUILD AGAIN", true) {
+        g.new_run();
+    }
+    if c.button("end_title", 542., 706., 356., 43., "RETURN TO TITLE", false) {
+        g.mode = Mode::Title;
+    }
     if win
         && c.button(
             "endless",
             542.,
-            710.,
+            761.,
             356.,
             43.,
             "THE TITHE NEVER ENDS",
@@ -2673,12 +2735,18 @@ fn ending(c: &Canvas, g: &mut Game) {
         g.run.survival.endless = true;
         g.next_wave();
     }
-    if c.button("again", 542., 577., 356., 54., "BUILD AGAIN", true) {
-        g.new_run();
+}
+/// 12345 -> "12,345".
+fn grouped(n: u32) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, d) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(d);
     }
-    if c.button("end_title", 542., 650., 356., 43., "RETURN TO TITLE", false) {
-        g.mode = Mode::Title;
-    }
+    out
 }
 /// The controller's virtual pointer, drawn above every menu and modal.
 pub fn pad_cursor(ctx: &egui::Context, pos: Pos2) {

@@ -199,6 +199,86 @@ pub struct Run {
     pub choices: Vec<Card>,
     pub seed: u64,
     pub time: f32,
+    #[serde(default)]
+    pub stats: RunStats,
+}
+/// The kind of enemy attack that hurt the player.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Attack {
+    Strike,
+    Bolt,
+    Slam,
+    Burst,
+}
+/// What hurt the player: a species (index into the roster) and its attack.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Cause {
+    pub kind: usize,
+    pub attack: Attack,
+}
+impl Cause {
+    /// For the death screen: "A GRAVE CRAWLER'S STRIKE", "THE TITHEKEEPER'S SLAM".
+    pub fn describe(self) -> String {
+        let name = crate::encounters::species(self.kind).name;
+        let article = if name.starts_with("THE ") {
+            ""
+        } else if name.starts_with(['A', 'E', 'I', 'O', 'U']) {
+            "AN "
+        } else {
+            "A "
+        };
+        let attack = match self.attack {
+            Attack::Strike => "STRIKE",
+            Attack::Bolt => "BOLT",
+            Attack::Slam => "SLAM",
+            Attack::Burst => "BURST",
+        };
+        format!("{article}{name}'S {attack}")
+    }
+}
+/// Statistics for the ending screen, saved with the run. Kills, the soul
+/// level and the time already live in the run itself.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RunStats {
+    pub headshots: u32,
+    /// Health removed from enemies by your weapons, spells and powers.
+    pub damage_dealt: f32,
+    /// Vitality lost (armor absorbs the rest).
+    pub damage_taken: f32,
+    /// Vitality lost to each species, indexed like the roster.
+    pub taken_from: Vec<f32>,
+    /// The heaviest hit of the most recent wound: the killing blow at death.
+    pub last_hit: Option<Cause>,
+}
+impl RunStats {
+    /// Share `lost` vitality among this update's hits by their raw damage.
+    pub fn record_wounds(&mut self, hits: &[(Vec3, Cause, f32)], lost: f32) {
+        let total: f32 = hits.iter().map(|hit| hit.2).sum();
+        if total <= 0. {
+            return;
+        }
+        self.damage_taken += lost;
+        for &(_, cause, amount) in hits {
+            if self.taken_from.len() <= cause.kind {
+                self.taken_from.resize(cause.kind + 1, 0.);
+            }
+            self.taken_from[cause.kind] += lost * amount / total;
+        }
+        self.last_hit = hits
+            .iter()
+            .max_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|hit| hit.1);
+    }
+    /// The species that took the most vitality, and its share of the total.
+    pub fn top_source(&self) -> Option<(usize, f32)> {
+        self.taken_from
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .filter(|(_, taken)| **taken > 0.)
+            .map(|(kind, taken)| (kind, taken / self.damage_taken.max(*taken)))
+    }
 }
 impl Default for Run {
     fn default() -> Self {
@@ -228,6 +308,7 @@ impl Default for Run {
             choices: vec![],
             seed: 948271,
             time: 0.,
+            stats: RunStats::default(),
         }
     }
 }
@@ -1379,9 +1460,13 @@ impl Game {
     // landing together keep the strongest result and a single kill tick.
     fn register_hit(&mut self, i: usize, part: Part) {
         let e = &self.run.enemies[i];
+        let head = part == Part::Head && !crate::encounters::head_only(e.kind);
+        if head {
+            self.run.stats.headshots += 1;
+        }
         let kind = if e.hp <= 0. {
             HitKind::Kill
-        } else if part == Part::Head && !crate::encounters::head_only(e.kind) {
+        } else if head {
             HitKind::Head
         } else {
             HitKind::Body
@@ -1476,6 +1561,7 @@ impl Game {
         e.anatomy.impact_point = point;
         e.anatomy.impact_part = Some(part);
         e.anatomy.fracture = fracture_allowed && e.anatomy.impact_energy >= 72.;
+        self.run.stats.damage_dealt += damage.min(e.hp);
         e.hp -= damage;
         e.hit = 0.18;
         e.anatomy.flinch[part as usize] = 0.3;
@@ -3125,5 +3211,143 @@ mod tests {
         g.run.enemies.clear();
         g.update(0.016);
         assert_eq!(g.mode, Mode::Victory);
+    }
+    #[test]
+    fn each_attack_family_records_its_cause_and_the_killing_blow() {
+        let arena = || {
+            let mut g = Game::new(false);
+            g.new_run();
+            g.mode = Mode::Arena;
+            g.run.survival.remaining = 0;
+            g.run.pos = Vec3::new(0., 1.65, 0.);
+            g
+        };
+        let cause = |kind, attack| Some(Cause { kind, attack });
+        // A melee strike from an adjacent Ribblade Skirmisher.
+        let mut g = arena();
+        let mut attacker = target(1.2, 0.);
+        attacker.kind = 1;
+        attacker.attack = 0.;
+        g.run.enemies = vec![attacker];
+        while g.run.stats.last_hit.is_none() && g.run.time < 3. {
+            g.update(0.01);
+        }
+        assert_eq!(g.run.stats.last_hit, cause(1, Attack::Strike));
+        // An Ash Cantor's bolt.
+        let mut g = arena();
+        g.hazards.push(crate::encounters::Hazard {
+            pos: Vec3::new(0., 1.5, -2.),
+            vel: Vec3::Z * 6.,
+            life: 5.,
+            damage: 8.,
+            color: [1., 0., 1.],
+            from: 8,
+        });
+        for _ in 0..60 {
+            g.tick_enemies(0.01);
+        }
+        assert_eq!(g.run.stats.last_hit, cause(8, Attack::Bolt));
+        assert!((g.run.stats.damage_taken - 8.).abs() < 1e-4);
+        // The Tithekeeper's slam and a Plague Vessel's burst land when their
+        // warnings run out with the player inside the marked circle.
+        for (kind, attack) in [(3, Attack::Slam), (7, Attack::Burst)] {
+            let mut g = arena();
+            let mut e = Enemy::spawn(kind, Vec3::new(2.5, 0., 0.), 1, 0.);
+            e.ai.warning = 0.005;
+            e.ai.target = g.run.pos * Vec3::new(1., 0., 1.);
+            g.run.enemies = vec![e];
+            g.tick_enemies(0.01);
+            assert_eq!(g.run.stats.last_hit, cause(kind, attack), "kind {kind}");
+        }
+        // The blow that empties vitality is the one the death screen names,
+        // and damage taken stops at the vitality that was left.
+        let mut g = arena();
+        g.run.hp = 3.;
+        g.hazards.push(crate::encounters::Hazard {
+            pos: Vec3::new(0., 1.5, -0.3),
+            vel: Vec3::Z * 6.,
+            life: 5.,
+            damage: 8.,
+            color: [1., 0.5, 0.],
+            from: 2,
+        });
+        g.update(0.05);
+        assert_eq!(g.mode, Mode::Dead);
+        assert_eq!(g.run.stats.last_hit, cause(2, Attack::Bolt));
+        assert!((g.run.stats.damage_taken - 3.).abs() < 1e-4);
+        assert_eq!(
+            g.run.stats.last_hit.unwrap().describe(),
+            "A CINDER SKULL'S BOLT"
+        );
+        assert_eq!(
+            Cause { kind: 3, attack: Attack::Slam }.describe(),
+            "THE TITHEKEEPER'S SLAM"
+        );
+        assert_eq!(
+            Cause { kind: 8, attack: Attack::Bolt }.describe(),
+            "AN ASH CANTOR'S BOLT"
+        );
+    }
+    #[test]
+    fn wounds_are_shared_by_raw_damage_and_the_top_source_is_reported() {
+        let mut stats = RunStats::default();
+        assert_eq!(stats.top_source(), None);
+        let hit = |kind, amount| {
+            (Vec3::ZERO, Cause { kind, attack: Attack::Strike }, amount)
+        };
+        // Armor absorbed part of a 30-point update; 12 vitality was lost.
+        stats.record_wounds(&[hit(5, 10.), hit(3, 20.)], 12.);
+        assert_eq!(stats.last_hit.map(|c| c.kind), Some(3));
+        assert!((stats.taken_from[3] - 8.).abs() < 1e-4 && (stats.taken_from[5] - 4.).abs() < 1e-4);
+        stats.record_wounds(&[hit(5, 9.)], 9.);
+        assert_eq!(stats.last_hit.map(|c| c.kind), Some(5));
+        let (kind, share) = stats.top_source().unwrap();
+        assert_eq!(kind, 5);
+        assert!((share - 13. / 21.).abs() < 1e-4);
+        assert!((stats.damage_taken - 21.).abs() < 1e-4);
+    }
+    #[test]
+    fn hits_and_kills_count_toward_the_run_summary() {
+        let mut g = Game::new(false);
+        g.new_run();
+        g.run.pos = Vec3::new(0., 1.65, 4.);
+        let mut front = target(0., 0.);
+        front.hp = 100.;
+        front.max_hp = 100.;
+        g.run.enemies = vec![front.clone()];
+        g.ray_attack(Vec3::new(0., 1.2, 4.), -Vec3::Z, WeaponKind::Pistol, 20.);
+        assert!((g.run.stats.damage_dealt - 20.).abs() < 1e-4);
+        assert_eq!(g.run.stats.headshots, 0);
+        // A lethal headshot counts only the health the enemy had left.
+        g.projectiles = vec![Projectile {
+            pos: Vec3::new(0., 1.74, 3.),
+            vel: -Vec3::Z * 100.,
+            life: 2.,
+            damage: 500.,
+            kind: WeaponKind::Crossbow,
+        }];
+        g.update_projectiles(0.05);
+        assert_eq!(g.run.stats.headshots, 1);
+        assert!((g.run.stats.damage_dealt - 100.).abs() < 1e-4);
+        assert_eq!(g.run.kills, 1);
+        // The statistics persist with the run; older saves load with zeros.
+        let json = serde_json::to_value(&g.run).unwrap();
+        let back: Run = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back.stats, g.run.stats);
+        let mut legacy = json;
+        legacy.as_object_mut().unwrap().remove("stats");
+        let old: Run = serde_json::from_value(legacy).unwrap();
+        assert_eq!(old.stats, RunStats::default());
+        // Practice uses a copy of the run and leaves the real one untouched.
+        let before = g.run.stats.clone();
+        g.practice(Card::starter());
+        let practice_start = g.run.stats.damage_dealt;
+        g.run.pos = Vec3::new(0., 1.65, 4.);
+        g.run.enemies = vec![front];
+        g.ray_attack(Vec3::new(0., 1.2, 4.), -Vec3::Z, WeaponKind::Pistol, 20.);
+        assert!(g.run.stats.damage_dealt > practice_start);
+        g.back();
+        assert!(g.practice_backup.is_none());
+        assert_eq!(g.run.stats, before);
     }
 }

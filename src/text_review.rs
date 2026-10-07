@@ -28,6 +28,8 @@ enum Screen {
     Controls(u8),
     Confirmation,
     Ending(bool),
+    /// A first-descent death: small numbers and a common killer.
+    EndingEarly,
 }
 
 pub struct Review {
@@ -109,6 +111,7 @@ impl Review {
             ("new-run-confirmation".into(), Screen::Confirmation),
             ("death".into(), Screen::Ending(false)),
             ("victory".into(), Screen::Ending(true)),
+            ("death-first-descent".into(), Screen::EndingEarly),
         ]);
         if let Some((name, screen)) = quit_screen {
             screens = vec![(name.into(), screen)];
@@ -491,11 +494,48 @@ impl Review {
                 game.confirm_new_run = true;
             }
             Screen::Ending(win) => {
+                use crate::game::{Attack, Cause, RunStats};
                 game.mode = if win { Mode::Victory } else { Mode::Dead };
                 game.run_records = if win {
                     vec!["MOST SOULS", "FASTEST VICTORY"]
                 } else {
                     vec!["DEEPEST DESCENT", "MOST SOULS"]
+                };
+                game.run.survival.level = 47;
+                game.run.survival.ranks = [5, 5, 4, 5, 3, 5, 4, 5, 2, 4];
+                let mut taken_from = vec![120.; 12];
+                taken_from[3] = 2210.;
+                game.run.stats = RunStats {
+                    headshots: 2876,
+                    damage_dealt: 912345.,
+                    damage_taken: 3530.,
+                    taken_from,
+                    last_hit: Some(Cause {
+                        kind: 3,
+                        attack: Attack::Slam,
+                    }),
+                };
+            }
+            Screen::EndingEarly => {
+                use crate::game::{Attack, Cause, RunStats};
+                game.mode = Mode::Dead;
+                game.run.wave = 1;
+                game.run.kills = 23;
+                game.run.time = 151.;
+                game.run.weapon = Card::starter();
+                game.run.survival = Default::default();
+                game.run.survival.level = 3;
+                game.run.survival.ranks[0] = 1;
+                game.run.survival.ranks[6] = 1;
+                game.run.stats = RunStats {
+                    headshots: 7,
+                    damage_dealt: 1480.,
+                    damage_taken: 100.,
+                    taken_from: vec![38., 62.],
+                    last_hit: Some(Cause {
+                        kind: 1,
+                        attack: Attack::Strike,
+                    }),
                 };
             }
         }

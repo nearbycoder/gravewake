@@ -417,6 +417,7 @@ mod tests {
             life: 5.,
             damage: 8.,
             color: [1., 0., 0.],
+            from: 8,
         });
         g.tick_enemies(0.1);
         assert_eq!(g.hazards.len(), 1);
@@ -427,6 +428,7 @@ mod tests {
             life: 5.,
             damage: 8.,
             color: [1., 0., 0.],
+            from: 8,
         });
         g.tick_enemies(0.2);
         assert!(g.hazards.is_empty());

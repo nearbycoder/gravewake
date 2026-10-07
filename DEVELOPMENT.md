@@ -208,6 +208,14 @@ Prompts follow the last input device (`controls::Device`). A controller button p
 
 ![Records on the title screen](docs/media/improvements/round2/title-records.jpg)
 
+## Death recap and run summary
+
+Each hit on the player records its source: the species and the attack (strike, bolt, slam or burst; projectiles remember the caster's species). Hits that land in the same update share the vitality lost, in proportion to their raw damage, and the heaviest of them becomes the latest blow. Armor-absorbed damage doesn't count as damage taken, and neither does overkill. The ending screen shows the killing blow ("SLAIN BY THE TITHEKEEPER'S SLAM"), the species that took the most vitality over the run and its share, and a summary grid: descent, souls, headshots, time, damage dealt (health removed by weapons, spells and powers, without overkill), damage taken, soul level and power ranks, plus the equipped weapon.
+
+The statistics live in `run.json` (`stats`); older saves load with zeros. Practice works on a copy of the run, so it never changes them.
+
+![Death recap and run summary](docs/media/improvements/round4/death-recap.jpg)
+
 ## Adaptive music
 
 `src/music.rs` renders a 32-second loop in D minor (Dm, B♭, Gm, A at 60 BPM) in three synchronized stereo layers: **calm** (organ and choir pads, a low pedal and a distant bell), **pressure** (a heartbeat drum and a bowed eighth-note ostinato) and **boss** (a root-and-tritone drone, a semitone choir cluster and war drums). Everything is synthesized at start-up on a background thread (about 1.1–1.5 s on the Linux test machine), so the window isn't delayed; the music fades in once it's ready. The tail of each layer is folded back onto its start, so pads, the bell and echoes carry across the loop seam without a click.
@@ -240,7 +248,7 @@ Your own weapon hits flash a marker around the reticle: ivory for a body hit, go
 
 HUD numbers and labels have dedicated opaque dark surfaces, with armor separate from the ornamental vitality plate. Card text is printed in dark ink on a neutral parchment field independent of rarity. Folios soften their background engraving behind reading areas. Every control uses Gravewake Gothic, including compact labels and numbers; long card names and prose wrap using measured font widths. Generic labels and paragraphs have an 18-design-unit floor, with a minimum of 13.5 logical points after window scaling. The title glyph shapes and spacing are preserved exactly.
 
-`cargo run --release -- --text-review` captures the actual native UI in 89 screenshots across 86 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, controller prompts, title records, pack opening, upgrade tooltips, settings, confirmation, pause and endings. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
+`cargo run --release -- --text-review` captures the actual native UI in 90 screenshots across 87 fixtures: every weapon, every creature, every power description, all four rarities, stressed HUD values, reload/melee, hit markers and damage arcs, a 90° field of view, controller prompts, title records, pack opening, upgrade tooltips, settings, confirmation, pause and endings with their run summaries. Add `--review-small` for 960×600. Results and a manifest go to `captures/legibility/normal` or `captures/legibility/small`. Review fixtures freeze combat and never load or write player saves.
 
 ## Blender creature and cemetery overhaul
 

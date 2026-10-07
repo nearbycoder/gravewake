@@ -1,7 +1,7 @@
 //! Arena roster and enemy decision making. Attack warnings precede real hazards.
 use crate::{
     anatomy::Anatomy,
-    game::{Enemy, Game},
+    game::{Attack, Cause, Enemy, Game},
     world_layout::{self, ENEMY_RADIUS},
 };
 use glam::Vec3;
@@ -207,6 +207,8 @@ pub struct Hazard {
     pub life: f32,
     pub damage: f32,
     pub color: [f32; 3],
+    /// The species that cast it, for the death recap.
+    pub from: usize,
 }
 impl Enemy {
     pub fn spawn(kind: usize, pos: Vec3, wave: u32, phase: f32) -> Self {
@@ -236,9 +238,9 @@ impl Game {
         self.navigation.update(player);
         let cleanup = self.run.survival.remaining == 0 && self.run.enemies.len() <= 3;
         let positions: Vec<_> = self.run.enemies.iter().map(|e| e.pos).collect();
-        let mut damage = 0.;
-        // Where each hit this update came from, for the HUD's damage arcs.
-        let mut sources = vec![];
+        // Each hit this update: where it came from (for the HUD's damage
+        // arcs), what dealt it (for the death recap) and how hard.
+        let mut hits: Vec<(Vec3, Cause, f32)> = vec![];
         let mut sounds = vec![];
         let mut summons = vec![];
         for (index, e) in self.run.enemies.iter_mut().enumerate() {
@@ -303,6 +305,7 @@ impl Game {
                                     } else {
                                         [3., 0.6, 0.08]
                                     },
+                                    from: e.kind,
                                 });
                             }
                         }
@@ -315,8 +318,12 @@ impl Game {
                             if ((player - e.ai.target) * Vec3::new(1., 0., 1.)).length() < radius
                                 && world_layout::obstruction(blast_origin, player_body).is_none()
                             {
-                                damage += if e.kind == 3 { 24. } else { 18. };
-                                sources.push(e.pos);
+                                let (attack, amount) = if e.kind == 3 {
+                                    (Attack::Slam, 24.)
+                                } else {
+                                    (Attack::Burst, 18.)
+                                };
+                                hits.push((e.pos, Cause { kind: e.kind, attack }, amount));
                             }
                             for j in 0..40 {
                                 let a = j as f32 * std::f32::consts::TAU / 40.;
@@ -433,9 +440,8 @@ impl Game {
                 && clear_sight
             {
                 e.attack = 1.3 * (1. + e.anatomy.arms() as f32 * 0.6);
-                sources.push(e.pos);
                 sounds.push(("swing", e.pos + Vec3::Y));
-                damage += (if e.kind == 3 {
+                let amount = (if e.kind == 3 {
                     22.
                 } else if e.kind == 5 {
                     5.
@@ -446,6 +452,11 @@ impl Game {
                     1 => 0.55,
                     _ => 0.2,
                 };
+                let cause = Cause {
+                    kind: e.kind,
+                    attack: Attack::Strike,
+                };
+                hits.push((e.pos, cause, amount));
                 e.hp -= self.run.survival.ranks[8] as f32 * 12.;
             }
         }
@@ -467,13 +478,17 @@ impl Game {
                 a + ab * ((player - a).dot(ab) / ab.length_squared().max(0.0001)).clamp(0., 1.);
             let blocked = world_layout::obstruction(a, h.pos).is_some();
             if nearest.distance(player) < 0.5 && !blocked {
-                damage += h.damage;
                 // A projectile came from opposite its direction of travel.
-                sources.push(if h.vel.length_squared() > 0.01 {
+                let source = if h.vel.length_squared() > 0.01 {
                     player - h.vel
                 } else {
                     h.pos
-                });
+                };
+                let cause = Cause {
+                    kind: h.from,
+                    attack: Attack::Bolt,
+                };
+                hits.push((source, cause, h.damage));
                 h.life = 0.;
             }
             if blocked || h.pos.y < 0.1 || !world_layout::inside_bounds(h.pos, 0.) {
@@ -481,13 +496,16 @@ impl Game {
             }
         }
         self.hazards.retain(|h| h.life > 0.);
+        let damage: f32 = hits.iter().map(|hit| hit.2).sum();
         if damage > 0. && self.dash <= 0. {
             let absorbed = self.run.armor.min(damage * 0.65);
             self.run.armor -= absorbed;
+            let lost = (damage - absorbed).min(self.run.hp.max(0.));
             self.run.hp -= damage - absorbed;
+            self.run.stats.record_wounds(&hits, lost);
             self.hurt = 0.35;
             self.sound_events.push("hurt");
-            for source in sources {
+            for (source, ..) in hits {
                 self.mark_damage_from(source);
             }
         }
