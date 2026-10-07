@@ -703,3 +703,108 @@ Deferred, with reasons:
   but it doesn't affect play.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 5 scope
+
+Round 4 was merged and pushed on 2026-10-06. This round takes four items.
+Two help a player survive and read the fight: a warning for special attacks
+winding up out of view, and a HUD size option. One closes the longest-standing
+controller gap, fixed button mapping. The last clears the dead-code warning.
+Controller remapping is the largest item and goes last, so the others ship even
+if it slips. A time-boxed look at the anatomy review's nondeterminism follows
+if time allows, and is reported either way.
+
+### A. Off-screen attack warnings
+
+Every special attack has a visible warning (a ground circle, a sigil, a
+glowing caster) and a positioned wind-up sound. Both fail when the attacker is
+behind the player: the circle is out of view, and the sound doesn't help
+players who play muted or can't hear it. The death recap (round 4) exists
+largely because of off-screen dives, casts and blasts.
+
+Acceptance criteria:
+- While a creature is winding up an attack aimed at the player (Cinder Skull
+  and Ash Cantor casts, Bell Gargoyle and Gloamwing dives, Tithe Reaper
+  blinks, and Iron Penitent slams or Plague Vessel bursts when the player is
+  inside or near the marked circle), and it is outside the horizontal view, an
+  amber pointer around the reticle shows its bearing. The pointer is outside
+  the red damage arcs, so the two can't be confused.
+- In-view wind-ups show no pointer; their own warning is visible. Bone Shepherd
+  summons, which don't target the player, show no pointer.
+- Pointers grow as the attack nears and disappear when it lands or is
+  interrupted. At most four show at once, the most urgent first. **Reduce
+  flashes** stops their pulsing.
+
+Verification: unit tests that each attack family produces (or, for summons,
+doesn't produce) a pointer, that in-view and out-of-range slams don't, that the
+bearing is right in all four quadrants, and that the cap keeps the most urgent.
+A text-review fixture with pointers and damage arcs together at 1440×900 and
+960×600, inspected by eye.
+
+### B. HUD size
+
+The HUD is laid out on a 1440×900 canvas and scales only with the window, so
+it can't be enlarged on a large TV or a high-resolution laptop, or shrunk to
+see more of the arena.
+
+Acceptance criteria:
+- A **HUD size** switch on the journal's Preferences page cycles 80, 90, 100,
+  115 and 130% and is saved in `settings.json`. Older files load at 100%.
+- Each HUD group scales around its own anchor: the status panel from the top
+  left, the descent and boss panels from the top centre, vitality from the
+  bottom left, ammunition from the bottom right, the reticle, hit marks, arcs
+  and warnings from the centre, and the field-tip panel from the bottom
+  centre. Menus, cards and the journal are unchanged.
+- At 130% in a 960×600 window, HUD groups don't overlap each other.
+
+Verification: unit tests for the setting's round-trip, clamping and the anchor
+transform. Text-review captures of a busy HUD (all powers, boss, tip, arcs) at
+80% and 130% at 1440×900 and 960×600, inspected for overlaps, plus the
+journal with the new switch at both sizes.
+
+### C. Controller remapping
+
+Controller buttons are fixed. The README lists it as a known limitation, and
+prompts (round 4) already name buttons, so remapping must keep them right.
+
+Acceptance criteria:
+- The journal's Controls page splits into **Keyboard** and **Controller**
+  pages. On the Controller page, Fire, Sprint, Dodge, Reload, Melee and
+  Ember Bolt each have a main and a second button. Defaults match today's
+  mapping (RT; LT + left-stick click; A; X; B + RB; Y + LB).
+- Any of A, B, X, Y, LB, RB, LT, RT and either stick click can be bound.
+  Start and the D-pad stay reserved (pause, power choice and the menu cursor),
+  and in menus A still selects and B still goes back. A button already in use
+  swaps with the slot being changed. A change that would leave an action with
+  no button is refused with a note. **Restore default buttons** resets them.
+- Choosing a slot waits for the next button press (with the controller or the
+  mouse). Start, Escape or a click elsewhere cancels. The press that chose the
+  slot doesn't bind it.
+- Bindings are saved in `settings.json`; older or damaged entries load the
+  defaults without affecting other preferences. Prompts (HUD hints, tips, the
+  opening reminder) name the bound buttons.
+
+Verification: unit tests for the arena mapping under custom bindings, swaps,
+reserved buttons, the refusal rule, trigger edges, prompt labels, round-trips
+and damaged entries, and the waiting state (the choosing press doesn't bind).
+Text-review captures of the Controller page, its waiting state and a remapped
+HUD prompt at both sizes. `--smoke --gamepad` must still pass. **No physical
+controller is available**, so live button presses stay unverified.
+
+### D. Dead-code warning (backlog #16)
+
+`environment_assets::Asset::{Wall, Buttress, Gate}` embed three meshes (about
+1 MB) that the world never draws. Remove the variants and their
+`include_bytes!`; the exported files stay in `assets/` with their Blender
+source. Acceptance: `cargo build` and `cargo test` produce no warnings, and
+the world review's captures are unchanged.
+
+### Deferred this round
+
+- Windows validation (#12): nothing here to test on.
+- Elite modifiers (rest of #8): balance needs playtests.
+- Focus-based controller menu navigation: the virtual cursor works, and a
+  focus layer would touch every screen.
+- The browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.
