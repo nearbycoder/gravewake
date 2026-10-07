@@ -959,6 +959,13 @@ impl Game {
             Device::Controller => Action::Forward.pad_label().into(),
         }
     }
+    /// Escape, or Start on a controller, pauses and goes back.
+    pub fn back_prompt(&self) -> &'static str {
+        match self.device {
+            Device::Keyboard => "Escape",
+            Device::Controller => "Start",
+        }
+    }
     /// Firing isn't rebindable: the left mouse button or the right trigger.
     pub fn fire_prompt(&self) -> &'static str {
         match self.device {
@@ -1786,7 +1793,8 @@ impl Game {
     pub fn complete_wave(&mut self) {
         if self.practice_backup.is_some() {
             self.start_wave();
-            self.notify("Fresh targets. Escape returns to the armory.");
+            let back = self.back_prompt();
+            self.notify(&format!("Fresh targets. {back} returns to the armory."));
             return;
         }
         if self.run.wave == crate::survival::DESCENTS && !self.run.survival.endless {
@@ -1913,7 +1921,10 @@ impl Game {
         self.run = Run::default();
         self.run.weapon = card;
         self.start_wave();
-        self.notify("PRACTICE GROUNDS  /  ESC returns to the armory. Your run is preserved.");
+        let back = self.back_prompt().to_uppercase();
+        self.notify(&format!(
+            "PRACTICE GROUNDS  /  {back} returns to the armory. Your run is preserved."
+        ));
     }
     pub fn back(&mut self) {
         if let Some(run) = self.practice_backup.take() {
@@ -3340,7 +3351,9 @@ mod tests {
         assert_eq!(old.stats, RunStats::default());
         // Practice uses a copy of the run and leaves the real one untouched.
         let before = g.run.stats.clone();
+        g.device = Device::Controller;
         g.practice(Card::starter());
+        assert!(g.notice.contains("START returns to the armory"), "{}", g.notice);
         let practice_start = g.run.stats.damage_dealt;
         g.run.pos = Vec3::new(0., 1.65, 4.);
         g.run.enemies = vec![front];
