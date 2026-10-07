@@ -52,6 +52,11 @@ struct App {
     pad_events: Vec<egui::Event>,
     gamepad_smoke: bool,
     mouse_fire: bool,
+    /// Sprint and fire pressed since the last frame. A press and release
+    /// that both land between two frames still count for one frame, so a
+    /// quick tap toggles sprint or fires.
+    sprint_pressed: bool,
+    fire_pressed: bool,
     pointer_ignored: bool,
     /// A scripted run has logged a lost or outdated surface.
     surface_error_logged: bool,
@@ -150,6 +155,8 @@ impl App {
             pad_events: vec![],
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
             mouse_fire: false,
+            sprint_pressed: false,
+            fire_pressed: false,
             pointer_ignored: false,
             surface_error_logged: false,
             last_pointer: None,
@@ -225,6 +232,11 @@ impl App {
             self.game.back();
         }
         self.sync_cursor();
+    }
+    fn note_sprint_press(&mut self, trigger: controls::Trigger) {
+        if self.game.prefs.bindings.action(trigger) == Some(controls::Action::Sprint) {
+            self.sprint_pressed = true;
+        }
     }
     /// Run the one-shot action bound to a key or mouse button, if any.
     fn press(&mut self, trigger: controls::Trigger) {
@@ -990,7 +1002,7 @@ impl App {
             use controls::Action;
             self.game.input.forward = axis(Action::Forward, Action::Back, pad.forward);
             self.game.input.right = axis(Action::Right, Action::Left, pad.right);
-            let sprint = down(Action::Sprint) || pad.sprint;
+            let sprint = down(Action::Sprint) || pad.sprint || self.sprint_pressed;
             self.game.sprint_input(sprint);
             let menus =
                 self.game.mode != Mode::Arena || self.game.settings || self.game.confirm_new_run;
@@ -1025,7 +1037,7 @@ impl App {
                 }
             } else {
                 self.pad.cursor.hide();
-                self.game.input.fire = self.mouse_fire || pad.fire;
+                self.game.input.fire = self.mouse_fire || pad.fire || self.fire_pressed;
                 let prefs = self.game.prefs;
                 let assist = if pad.look == glam::Vec2::ZERO {
                     1.
@@ -1053,6 +1065,8 @@ impl App {
                 }
             }
         }
+        self.sprint_pressed = false;
+        self.fire_pressed = false;
         if (self.smoke
             && !self.survival_review
             && self.text_review.is_none()
@@ -1587,6 +1601,8 @@ impl ApplicationHandler for App {
                     self.sync_cursor();
                 }
                 self.held.clear();
+                self.sprint_pressed = false;
+                self.fire_pressed = false;
                 self.game.input = Default::default();
             }
             WindowEvent::KeyboardInput { event, .. } if !self.smoke && !self.review => {
@@ -1614,6 +1630,7 @@ impl ApplicationHandler for App {
                         self.game.prefs.bindings.learn_glyph(code, glyph);
                     }
                     self.held.insert(trigger);
+                    self.note_sprint_press(trigger);
                 } else {
                     self.held.remove(&trigger);
                 }
@@ -1661,6 +1678,7 @@ impl ApplicationHandler for App {
                     self.game.device = controls::Device::Keyboard;
                 }
                 self.mouse_fire = self.game.mode == Mode::Arena && state == ElementState::Pressed;
+                self.fire_pressed |= self.mouse_fire;
                 self.game.input.fire = self.mouse_fire;
             }
             WindowEvent::MouseInput { state, button, .. } if !self.smoke && !self.review => {
@@ -1675,6 +1693,7 @@ impl ApplicationHandler for App {
                     }
                 } else if pressed {
                     self.held.insert(trigger);
+                    self.note_sprint_press(trigger);
                     self.press(trigger);
                     self.sync_cursor();
                 } else {
