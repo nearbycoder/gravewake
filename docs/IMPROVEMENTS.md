@@ -1213,7 +1213,7 @@ because the check is only a cone and a distance.
 
 Acceptance criteria:
 - A creature counts as seen only if the line from the player's eye to its
-  body is clear of the masonry and trees that stop shots
+  body is clear of the masonry and monuments that stop shots
   (`world_layout::obstruction`, the same test bullets use). The cone and
   30 m range are unchanged.
 - A creature hidden when it first comes into range is noted once the player

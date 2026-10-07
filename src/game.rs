@@ -1699,6 +1699,15 @@ impl Game {
         threats.truncate(MAX_THREATS);
         threats
     }
+    /// Whether the player can see `e`: a clear line from the eye to its head
+    /// or chest, past the masonry and monuments that stop shots.
+    pub fn in_sight(&self, e: &Enemy) -> bool {
+        let pose = Pose::for_enemy(e, self.run.pos);
+        [Part::Head, Part::Torso]
+            .into_iter()
+            .filter(|&part| anatomy::present(e, part))
+            .any(|part| world_layout::obstruction(self.run.pos, pose.anchor(part)).is_none())
+    }
     pub(crate) fn damage_enemy(&mut self, i: usize, damage: f32, dir: Vec3) {
         let part = if crate::encounters::head_only(self.run.enemies[i].kind) {
             Part::Head

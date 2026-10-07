@@ -167,7 +167,8 @@ impl Game {
             }
         }
     }
-    /// Notes for species in view within `SIGHTING_RANGE`, nearest first.
+    /// Notes for species in view within `SIGHTING_RANGE`, with nothing solid
+    /// between them and the player, nearest first.
     fn sightings(&self) -> Vec<Tip> {
         let mut seen: Vec<(f32, Tip)> = self
             .run
@@ -180,7 +181,8 @@ impl Game {
                 let distance = flat.length();
                 let relative = flat.x.atan2(-flat.z) - self.run.yaw;
                 let in_view = relative.sin().atan2(relative.cos()).abs() < SIGHTING_HALF_ANGLE;
-                (distance < SIGHTING_RANGE && in_view).then_some((distance, tip))
+                (distance < SIGHTING_RANGE && in_view && self.in_sight(e))
+                    .then_some((distance, tip))
             })
             .collect();
         seen.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -357,6 +359,33 @@ mod tests {
         g.update_tips(0.);
         assert_eq!(g.tip.map(|t| t.tip), Some(Tip::Creature(4)));
         assert_eq!(g.tip_queue, vec![Tip::Creature(5)]);
+    }
+    #[test]
+    fn walls_hide_a_creature_until_it_steps_into_the_open() {
+        use glam::Vec3;
+        // Inside the chapel's east wall, facing west through it.
+        let mut g = sighting(7, Vec3::ZERO);
+        g.run.pos = Vec3::new(-17., 1.65, -8.);
+        g.run.yaw = -std::f32::consts::FRAC_PI_2;
+        // In the cone and 7 m away, but the wall is between.
+        g.run.enemies[0].pos = Vec3::new(-23., 0., -12.);
+        assert!(!g.in_sight(&g.run.enemies[0]));
+        assert_eq!(run_until_tip(&mut g), None);
+        assert_eq!(g.prefs.tips_seen & Tip::Creature(7).bit(), 0);
+        // Seen through the doorway the moment it steps across.
+        g.run.enemies[0].pos = Vec3::new(-23., 0., -5.);
+        assert!(g.in_sight(&g.run.enemies[0]));
+        g.update_tips(1. / 60.);
+        assert_eq!(g.tip.map(|t| t.tip), Some(Tip::Creature(7)));
+        // A monument hides a creature too; out in the open court it doesn't.
+        let mut g = sighting(5, Vec3::ZERO);
+        g.run.pos = Vec3::new(0., 1.65, 2.);
+        g.run.enemies[0].pos = Vec3::new(0., 0., -16.);
+        assert!(!g.in_sight(&g.run.enemies[0]), "the central monument");
+        assert_eq!(run_until_tip(&mut g), None);
+        g.run.enemies[0].pos = Vec3::new(6., 0., -16.);
+        assert!(g.in_sight(&g.run.enemies[0]));
+        assert_eq!(run_until_tip(&mut g), Some(Tip::Creature(5)));
     }
     #[test]
     fn creature_notes_follow_the_field_tips_switch_and_skip_scripted_runs() {
