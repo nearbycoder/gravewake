@@ -977,8 +977,13 @@ impl App {
                 self.pad.cursor.hide();
                 self.game.input.fire = self.mouse_fire || pad.fire;
                 let prefs = self.game.prefs;
+                let assist = if pad.look == glam::Vec2::ZERO {
+                    1.
+                } else {
+                    self.game.aim_assist()
+                };
                 let (yaw, pitch) =
-                    gamepad::look_turn(pad.look, prefs.stick_speed, prefs.invert_y, dt);
+                    gamepad::look_turn(pad.look * assist, prefs.stick_speed, prefs.invert_y, dt);
                 self.game.run.yaw += yaw;
                 self.game.run.pitch = (self.game.run.pitch + pitch).clamp(-1.3, 1.3);
                 if pad.dodge {

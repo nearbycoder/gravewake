@@ -408,6 +408,14 @@ pub struct Threat {
     pub urgency: f32,
 }
 const MAX_THREATS: usize = 4;
+/// Aim assist reaches creatures this far away, in metres.
+pub const AIM_ASSIST_RANGE: f32 = 40.;
+/// The right stick's slowest rate, relative to normal, with the reticle on a
+/// creature.
+pub const AIM_ASSIST_SLOWEST: f32 = 0.5;
+/// How far the aim line may pass from a creature's head or chest (metres at
+/// the creature's scale) and still be fully slowed, and where slowing ends.
+pub const AIM_ASSIST_BAND: (f32, f32) = (0.6, 1.2);
 pub struct Floater {
     pub pos: Vec3,
     pub text: String,
@@ -444,6 +452,8 @@ pub struct Preferences {
     /// A sprint press starts sprinting and the next stops it, instead of
     /// sprinting while held.
     pub toggle_sprint: bool,
+    /// Slow the right stick while the reticle is on a creature.
+    pub aim_assist: bool,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -474,6 +484,7 @@ impl Default for Preferences {
             fullscreen: false,
             stick_speed: 1.,
             toggle_sprint: false,
+            aim_assist: true,
         }
     }
 }
@@ -522,6 +533,7 @@ impl Preferences {
             fullscreen: self.fullscreen,
             stick_speed: clean(self.stick_speed, Self::STICK_SPEED_RANGE, d.stick_speed),
             toggle_sprint: self.toggle_sprint,
+            aim_assist: self.aim_assist,
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -1730,6 +1742,43 @@ impl Game {
         threats.truncate(MAX_THREATS);
         threats
     }
+    /// How fast the right stick turns the view, from 1 down to
+    /// `AIM_ASSIST_SLOWEST` while the reticle is on, or just beside, a living
+    /// creature in sight within `AIM_ASSIST_RANGE`. It only slows the stick;
+    /// it never turns the view by itself. Off when the journal turns it off.
+    pub fn aim_assist(&self) -> f32 {
+        if !self.prefs.aim_assist || self.mode != Mode::Arena {
+            return 1.;
+        }
+        let eye = self.run.pos;
+        let aim = self.forward();
+        let mut nearest = f32::INFINITY;
+        for e in self.run.enemies.iter().filter(|e| e.hp > 0.) {
+            if (e.pos - eye).length() > AIM_ASSIST_RANGE + 3. {
+                continue;
+            }
+            let pose = Pose::for_enemy(e, eye);
+            let scale = crate::encounters::species(e.kind).scale;
+            for part in [Part::Head, Part::Torso] {
+                if !anatomy::present(e, part) {
+                    continue;
+                }
+                let point = pose.anchor(part);
+                let along = (point - eye).dot(aim);
+                if along <= 0. || along > AIM_ASSIST_RANGE {
+                    continue;
+                }
+                // How far the aim line passes it, in metres at the creature's scale.
+                let miss = (point - (eye + aim * along)).length() / scale;
+                if miss < nearest && world_layout::obstruction(eye, point).is_none() {
+                    nearest = miss;
+                }
+            }
+        }
+        let (on, beside) = AIM_ASSIST_BAND;
+        let t = ((nearest - on) / (beside - on)).clamp(0., 1.);
+        AIM_ASSIST_SLOWEST + (1. - AIM_ASSIST_SLOWEST) * t
+    }
     /// Whether the player can see `e`: a clear line from the eye to its head
     /// or chest, past the masonry and monuments that stop shots.
     pub fn in_sight(&self, e: &Enemy) -> bool {
@@ -2358,6 +2407,56 @@ mod tests {
             seen.push(prefs.hud_scale);
         }
         assert_eq!(seen, [1.1, 1.2, 1.3, 0.8, 0.9, 1.]);
+    }
+    #[test]
+    fn aim_assist_slows_the_stick_only_on_a_creature_in_sight() {
+        let mut g = Game::new(false);
+        g.mode = Mode::Arena;
+        // Facing north down an open lane.
+        g.run.pos = Vec3::new(6., 1.65, 12.);
+        g.run.yaw = 0.;
+        g.run.enemies = vec![Enemy::spawn(0, Vec3::new(6., 0., 2.), 1, 0.)];
+        let slowest = AIM_ASSIST_SLOWEST;
+        assert_eq!(g.aim_assist(), slowest, "on a creature 10 m ahead");
+        // Just beside it, partly slowed; well off it, not at all.
+        g.run.enemies[0].pos.x = 6.9;
+        let beside = g.aim_assist();
+        assert!(beside > slowest && beside < 1., "{beside}");
+        g.run.enemies[0].pos.x = 9.;
+        assert_eq!(g.aim_assist(), 1.);
+        // Within range, still; beyond it, no help.
+        g.run.enemies[0].pos = Vec3::new(6., 0., -25.);
+        assert_eq!(g.aim_assist(), slowest, "37 m");
+        g.run.enemies[0].pos = Vec3::new(6., 0., -33.);
+        assert_eq!(g.aim_assist(), 1., "45 m");
+        // Behind the player, or dead, no help.
+        g.run.enemies[0].pos = Vec3::new(6., 0., 22.);
+        assert_eq!(g.aim_assist(), 1.);
+        g.run.enemies[0].pos = Vec3::new(6., 0., 2.);
+        g.run.enemies[0].hp = 0.;
+        assert_eq!(g.aim_assist(), 1.);
+        g.run.enemies[0].hp = 10.;
+        // Not with the switch off, nor outside the arena.
+        g.prefs.aim_assist = false;
+        assert_eq!(g.aim_assist(), 1.);
+        g.prefs.aim_assist = true;
+        g.mode = Mode::Paused;
+        assert_eq!(g.aim_assist(), 1.);
+        g.mode = Mode::Arena;
+        // A chapel wall hides it; through the doorway it doesn't.
+        g.run.yaw = -std::f32::consts::FRAC_PI_2;
+        for (z, hidden) in [(-14., true), (-5., false)] {
+            g.run.pos = Vec3::new(-17., 1.65, z);
+            g.run.enemies[0].pos = Vec3::new(-23., 0., z);
+            assert_eq!(g.aim_assist() == 1., hidden, "z {z}");
+        }
+        // Saved, and on in older files.
+        let mut prefs = Preferences::default();
+        assert!(prefs.aim_assist);
+        prefs.aim_assist = false;
+        let bytes = serde_json::to_vec(&prefs).unwrap();
+        assert!(!Preferences::from_json(&bytes).unwrap().aim_assist);
+        assert!(Preferences::from_json(br#"{"volume":0.5}"#).unwrap().aim_assist);
     }
     #[test]
     fn toggle_sprint_latches_on_a_press_and_ends_when_movement_stops() {

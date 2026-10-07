@@ -3724,11 +3724,27 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
         g.controls_note.clone()
     };
     c.center(720., 670., note, 13., INK);
+    let assist = g.prefs.aim_assist;
+    if c.button(
+        "aim_assist",
+        392.,
+        698.,
+        310.,
+        36.,
+        if assist {
+            "AIM ASSIST ON"
+        } else {
+            "AIM ASSIST OFF"
+        },
+        false,
+    ) {
+        g.prefs.aim_assist = !assist;
+    }
     if c.button(
         "restore_buttons",
-        558.,
+        734.,
         698.,
-        324.,
+        310.,
         36.,
         "Restore default buttons",
         false,
