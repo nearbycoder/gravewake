@@ -65,6 +65,12 @@ pub fn milestone(name: &'static str) {
     LAST.store(now_ms(), Ordering::SeqCst);
 }
 
+/// Record the step a frame has reached without counting it as progress, so a
+/// frame that keeps failing partway still trips the watchdog.
+pub fn step(name: &'static str) {
+    *MILESTONE.lock().unwrap() = name;
+}
+
 /// Record a completed frame.
 pub fn frame() {
     FRAMES.fetch_add(1, Ordering::SeqCst);
@@ -82,5 +88,13 @@ mod tests {
         let report = stalled(120_000, limit).unwrap();
         assert!(report.contains("\"GPU device ready\""), "{report}");
         assert!(report.contains("120 s"), "{report}");
+        // Steps inside a frame name themselves in the report but aren't progress.
+        let last = LAST.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(5));
+        step("surface lost or outdated");
+        assert_eq!(LAST.load(Ordering::SeqCst), last);
+        assert!(stalled(120_000, limit).unwrap().contains("\"surface lost or outdated\""));
+        frame();
+        assert!(LAST.load(Ordering::SeqCst) > last);
     }
 }

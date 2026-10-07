@@ -1247,13 +1247,13 @@ impl Renderer {
         capture: Option<&str>,
     ) -> Result<(), wgpu::SurfaceError> {
         let acquire = std::time::Instant::now();
-        crate::watchdog::milestone("acquiring surface texture");
+        crate::watchdog::step("acquiring surface texture");
         let frame = if self.offscreen_target.is_none() {
             Some(self.surface.get_current_texture()?)
         } else {
             None
         };
-        crate::watchdog::milestone("drawing frame");
+        crate::watchdog::step("drawing frame");
         self.timings[1] = acquire.elapsed().as_secs_f64() * 1000.;
         let output_texture = frame
             .as_ref()
@@ -1484,7 +1484,7 @@ impl Renderer {
                 .map_async(wgpu::MapMode::Read, move |result| {
                     let _ = tx.send(result);
                 });
-            crate::watchdog::milestone("reading back screenshot");
+            crate::watchdog::step("reading back screenshot");
             let _ = self.device.poll(wgpu::PollType::Wait);
             if rx.recv().unwrap().is_ok() {
                 let data = buffer.slice(..).get_mapped_range();
@@ -1520,7 +1520,7 @@ impl Renderer {
             let _ = self.device.poll(wgpu::PollType::Wait);
         }
         if let Some(frame) = frame {
-            crate::watchdog::milestone("presenting");
+            crate::watchdog::step("presenting");
             frame.present();
         }
         self.timings[2] = submit.elapsed().as_secs_f64() * 1000.;

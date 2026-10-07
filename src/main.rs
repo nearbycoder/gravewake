@@ -50,6 +50,8 @@ struct App {
     gamepad_smoke: bool,
     mouse_fire: bool,
     pointer_ignored: bool,
+    /// A scripted run has logged a lost or outdated surface.
+    surface_error_logged: bool,
     /// Last desktop pointer position, so prompts switch back to the keyboard
     /// only when the mouse really moves, not when a window opens under it.
     last_pointer: Option<winit::dpi::PhysicalPosition<f64>>,
@@ -112,6 +114,7 @@ impl App {
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
             mouse_fire: false,
             pointer_ignored: false,
+            surface_error_logged: false,
             last_pointer: None,
             focused: true,
             last: Instant::now(),
@@ -1260,14 +1263,31 @@ impl App {
             }
         });
         state.handle_platform_output(window, out.platform_output.clone());
-        match renderer.render(&self.game, &self.bones, &self.ctx, out, capture) {
-            Ok(()) => {}
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+        let rendered = match renderer.render(&self.game, &self.bones, &self.ctx, out, capture) {
+            Ok(()) => true,
+            Err(e @ (wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
                 let size = window.inner_size();
+                // Scripted runs log the first one: a surface that never
+                // recovers is a stall, and the watchdog will name it.
+                if (self.smoke || self.review) && !self.surface_error_logged {
+                    self.surface_error_logged = true;
+                    println!(
+                        "Surface {e} at frame {}; reconfiguring at {}x{}",
+                        self.frames, size.width, size.height
+                    );
+                }
+                watchdog::step("surface lost or outdated, reconfiguring");
                 renderer.resize(size.width, size.height);
+                false
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-            Err(e) => eprintln!("Frame skipped: {e}"),
+            Err(wgpu::SurfaceError::OutOfMemory) => {
+                event_loop.exit();
+                false
+            }
+            Err(e) => {
+                eprintln!("Frame skipped: {e}");
+                false
+            }
         };
         if let Some(review) = &mut self.model_review {
             review.record(
@@ -1306,7 +1326,9 @@ impl App {
                 );
             }
         }
-        watchdog::frame();
+        if rendered {
+            watchdog::frame();
+        }
         window.request_redraw();
         if self.game.quit_requested {
             self.quit_game(event_loop);
