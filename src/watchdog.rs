@@ -39,13 +39,36 @@ pub fn start(limit: Duration) {
                 std::thread::sleep(Duration::from_secs(1));
                 let quiet = now_ms().saturating_sub(LAST.load(Ordering::SeqCst));
                 if let Some(report) = stalled(quiet, limit) {
-                    eprintln!("{report}");
-                    std::process::abort();
+                    report_and_abort(report);
                 }
             }
         })
         .expect("start watchdog thread");
 }
+
+/// Save the report, try to print it, and abort whatever happens to stderr.
+/// If stdout and stderr are a pipe that has stopped draining, the main thread
+/// can be stuck writing to it, and so would an `eprintln!` here: the round 5
+/// hang (no report, killed by an outer timeout) looked like that.
+fn report_and_abort(report: String) -> ! {
+    // A file write can't block on a reader; scripted runs work in the repo.
+    let path = format!("captures/watchdog-{}.txt", std::process::id());
+    let saved = std::fs::create_dir_all("captures")
+        .and_then(|()| std::fs::write(&path, format!("{report}\n")))
+        .is_ok();
+    let _ = std::thread::Builder::new()
+        .name("watchdog report".into())
+        .spawn(move || {
+            eprintln!("{report}");
+            if saved {
+                eprintln!("WATCHDOG: report saved to {path}");
+            }
+        });
+    std::thread::sleep(REPORT_GRACE);
+    std::process::abort();
+}
+/// How long the report may take to print before the abort goes ahead.
+const REPORT_GRACE: Duration = Duration::from_secs(2);
 
 /// The report for a stall, or `None` while progress is recent enough.
 fn stalled(quiet_ms: u64, limit: Duration) -> Option<String> {
