@@ -389,6 +389,8 @@ pub struct Preferences {
     pub field_tips: bool,
     /// One bit per `tips::Tip` already shown.
     pub tips_seen: u32,
+    /// HUD size relative to the window: one of `HUD_SCALES`.
+    pub hud_scale: f32,
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -414,12 +416,24 @@ impl Default for Preferences {
             bindings: Bindings::default(),
             field_tips: true,
             tips_seen: 0,
+            hud_scale: 1.,
         }
     }
 }
 impl Preferences {
     pub const FOV_RANGE: (f32, f32) = (60., 90.);
     pub const SENSITIVITY_RANGE: (f32, f32) = (0.0007, 0.007);
+    /// HUD sizes the journal cycles through. Beyond 110% the bottom row
+    /// (vitality, armor, dodge and weapon) no longer fits side by side, and
+    /// the boss bar reaches the damage arcs.
+    pub const HUD_SCALES: [f32; 4] = [0.8, 0.9, 1., 1.1];
+    /// The HUD size after `self.hud_scale`, wrapping to the smallest.
+    pub fn next_hud_scale(&self) -> f32 {
+        Self::HUD_SCALES
+            .into_iter()
+            .find(|k| *k > self.hud_scale + 0.001)
+            .unwrap_or(Self::HUD_SCALES[0])
+    }
     fn sanitized(self) -> Self {
         let d = Self::default();
         let clean = |x: f32, (lo, hi): (f32, f32), fallback: f32| {
@@ -439,6 +453,11 @@ impl Preferences {
             bindings: self.bindings,
             field_tips: self.field_tips,
             tips_seen: self.tips_seen,
+            hud_scale: clean(
+                self.hud_scale,
+                (Self::HUD_SCALES[0], Self::HUD_SCALES[3]),
+                d.hud_scale,
+            ),
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -2164,6 +2183,24 @@ mod tests {
             Preferences::from_json(br#"{"volume":0.3,"bindings":[{"action":"Nope"}]}"#).unwrap();
         assert_eq!(damaged.volume, 0.3);
         assert_eq!(damaged.bindings, Bindings::default());
+        // HUD size: older files load at 100%, odd values are clamped, and the
+        // journal switch cycles through every size and wraps.
+        assert_eq!(partial.hud_scale, 1.);
+        let sized = Preferences {
+            hud_scale: 1.1,
+            ..custom
+        };
+        let bytes = serde_json::to_vec(&sized).unwrap();
+        assert_eq!(Preferences::from_json(&bytes).unwrap().hud_scale, 1.1);
+        assert_eq!(Preferences::from_json(br#"{"hud_scale":9}"#).unwrap().hud_scale, 1.1);
+        assert_eq!(Preferences::from_json(br#"{"hud_scale":0}"#).unwrap().hud_scale, 0.8);
+        let mut prefs = Preferences::default();
+        let mut seen = vec![];
+        for _ in 0..4 {
+            prefs.hud_scale = prefs.next_hud_scale();
+            seen.push(prefs.hud_scale);
+        }
+        assert_eq!(seen, [1.1, 0.8, 0.9, 1.]);
     }
     #[test]
     fn rebinding_waits_for_a_usable_key_and_reports_swaps() {

@@ -226,6 +226,16 @@ One rodio source plays all three layers from the same position and crossfades th
 
 ![Spectrograms of the three layers and the adaptive mix](docs/media/improvements/round3/music-spectrograms.jpg)
 
+## HUD size
+
+**HUD size** in Settings & Controls cycles 80, 90, 100 and 110% (`Preferences::hud_scale`, saved in `settings.json`; older files load at 100%, and other values are clamped). Each HUD group scales around its own anchor through `Canvas::anchored`: the status panel from the top-left corner, the descent panel, compass, last-threat bearing and boss bar from the top centre, gold from the top right, vitality, armor and the chalice from the bottom left, the weapon panel from the bottom right, and the dodge readout, field notes and notices from the bottom centre. The reticle, hit marks, damage arcs and off-screen warnings keep their size, so they can't run into the boss bar or the notes. Menus, cards and the journal are unchanged. Below 100% the 13.5-point text floor shrinks with the HUD, so labels stay inside their panels; at 80% in a 960×600 window, HUD text is about 11 points.
+
+110% is the largest size because the bottom row is nearly full: at 100% the vitality group, dodge readout and weapon panel use all but about 225 of the 1440 design units. If a larger HUD crowds the dodge readout, it moves right to keep a gap. Above 110%, a damage arc pointing straight ahead would also reach the boss bar. A larger HUD would need a different layout.
+
+Arena field notes end above the weapon and chalice panels: a note that needs more lines rises instead of covering them. Before this change, a two-line note in a 960×600 window overlapped the weapon panel's corner by a few pixels. Off-screen warnings draw over the notes.
+
+![The busiest HUD at 110%](docs/media/improvements/round5/hud-size-110-busy.jpg)
+
 ## Field tips
 
 `src/tips.rs` shows six first-run notes, each the first time its moment comes: movement, sprint and dodge when the first run starts; reload and melee when the magazine falls to a third; souls when the first soul drops; damage arcs the first time you're hurt; the Collector, packs and the Binding on the first shop visit; and Ember Bolt once a chalice is bound. Arena notes sit in a panel below the reticle, clear of the crowd, the top-centre stack and the vitality plate, and last 10 seconds. The Collector's note sits over the dealer's robe for 40 seconds or until you leave the shop. Notes that come due together wait their turn. Each note uses the current key labels. The opening control reminder now uses the same panel and gives way to the first note.

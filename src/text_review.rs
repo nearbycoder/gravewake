@@ -76,6 +76,9 @@ impl Review {
             ("hud-controller-tip-move".into(), Screen::Hud(10)),
             ("hud-controller-opening".into(), Screen::Hud(11)),
             ("hud-offscreen-warnings".into(), Screen::Hud(12)),
+            ("hud-size-80-busy".into(), Screen::Hud(13)),
+            ("hud-size-100-busy".into(), Screen::Hud(14)),
+            ("hud-size-110-busy".into(), Screen::Hud(15)),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
@@ -293,7 +296,7 @@ impl Review {
                 game.run.survival.level = 99;
                 game.run.survival.xp = 798;
                 game.show_fps = true;
-                if kind == 0 || kind >= 4 {
+                if kind == 0 || (4..=12).contains(&kind) {
                     game.run.time = 0.;
                     game.run.wave = 1;
                     game.run.enemies = vec![Enemy::spawn(0, Vec3::new(0., 0., -6.), 1, 0.)];
@@ -409,6 +412,27 @@ impl Review {
                     game.damage_marks = vec![DamageMark {
                         bearing: -1.4,
                         life: DAMAGE_MARK_LIFE * 0.8,
+                    }];
+                }
+                if kind >= 13 {
+                    // The busiest HUD at each size: every power, the boss bar
+                    // under the last-threat bearing, a bound chalice, the longest
+                    // arena tip under a notice, a damage arc and an unseen dive.
+                    game.prefs.hud_scale = [0.8, 1., 1.1][kind as usize - 13];
+                    game.run.time = 30.;
+                    game.run.survival.remaining = 0;
+                    let player = game.run.pos;
+                    let mut diver = Enemy::spawn(4, player + Vec3::new(-2., -player.y, 5.), 12, 0.);
+                    diver.ai.warning = crate::encounters::warning_time(4) * 0.3;
+                    diver.ai.target = Vec3::new(player.x, 0., player.z);
+                    game.run.enemies.push(diver);
+                    game.tip = Some(crate::tips::ActiveTip {
+                        tip: crate::tips::Tip::Souls,
+                        life: 5.,
+                    });
+                    game.damage_marks = vec![DamageMark {
+                        bearing: 1.3,
+                        life: DAMAGE_MARK_LIFE,
                     }];
                 }
                 if kind == 3 {

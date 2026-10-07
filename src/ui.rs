@@ -141,6 +141,8 @@ struct Canvas<'a> {
     offset: Vec2,
     h: f32,
     time: f32,
+    /// Smallest text size in logical points.
+    floor: f32,
 }
 impl<'a> Canvas<'a> {
     fn new(ui: &'a egui::Ui, time: f32) -> Self {
@@ -155,6 +157,30 @@ impl<'a> Canvas<'a> {
             offset: r.min.to_vec2() + Vec2::new((w - 1440.) * s * 0.5, 0.),
             h,
             time,
+            floor: 13.5,
+        }
+    }
+    /// The same canvas scaled by `k` around the design point (`ax`, `ay`),
+    /// so a HUD group grows or shrinks from its own corner. Below full size
+    /// the text floor shrinks with it, so labels stay inside their panels.
+    fn anchored(&self, k: f32, ax: f32, ay: f32) -> Canvas<'a> {
+        Canvas {
+            ui: self.ui,
+            p: self.p.clone(),
+            s: self.s * k,
+            offset: self.offset + Vec2::new(ax, ay) * self.s * (1. - k),
+            h: self.h,
+            time: self.time,
+            floor: self.floor * k.min(1.),
+        }
+    }
+    /// The same canvas moved by design units.
+    fn shifted(&self, dx: f32, dy: f32) -> Canvas<'a> {
+        Canvas {
+            ui: self.ui,
+            p: self.p.clone(),
+            offset: self.offset + Vec2::new(dx, dy) * self.s,
+            ..*self
         }
     }
     fn pt(&self, x: f32, y: f32) -> Pos2 {
@@ -207,7 +233,7 @@ impl<'a> Canvas<'a> {
         align: Align2,
     ) {
         let text = text.into();
-        let font = role.font((size * self.s).max(13.5));
+        let font = role.font((size * self.s).max(self.floor));
         let ppp = self.ui.ctx().pixels_per_point();
         let anchor = self.pt(x, y);
         let anchor = Pos2::new(
@@ -230,7 +256,7 @@ impl<'a> Canvas<'a> {
     fn fit_type(&self, text: &str, role: TypeRole, size: f32, width: f32) -> f32 {
         let galley =
             self.p
-                .layout_no_wrap(text.into(), role.font((size * self.s).max(13.5)), IVORY);
+                .layout_no_wrap(text.into(), role.font((size * self.s).max(self.floor)), IVORY);
         size * (width * self.s / galley.size().x.max(1.)).min(1.)
     }
     fn paragraph(
@@ -258,7 +284,7 @@ impl<'a> Canvas<'a> {
     ) -> f32 {
         let mut job = egui::text::LayoutJob::simple(
             text.into(),
-            role.font((size.max(18.) * self.s).max(13.5)),
+            role.font((size.max(18.) * self.s).max(self.floor)),
             color,
             width * self.s,
         );
@@ -2140,8 +2166,13 @@ fn threat_pointers(c: &Canvas, g: &Game, cx: f32, cy: f32) {
         }
     }
 }
-fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
-    let h = c.h;
+/// HUD groups scale with the HUD size preference around their own anchors:
+/// the screen corners, the top and bottom centres and the tip panel. The
+/// reticle group, the hurt vignette and floating numbers' positions don't.
+fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
+    let h = base.h;
+    let k = g.prefs.hud_scale;
+    let c = &base.anchored(k, 0., 0.);
     let xp = &g.run.survival;
     let power_count = xp.ranks.iter().filter(|r| **r > 0).count();
     c.hud_panel(22., 18., 310., 154. + power_count as f32 * 24.);
@@ -2218,6 +2249,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             Align2::RIGHT_CENTER,
         );
     }
+    let c = &base.anchored(k, 720., 0.);
     c.hud_panel(493., 18., 454., 94.);
     c.text_role(
         720.,
@@ -2243,6 +2275,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         18.,
         MUTED,
     );
+    let c = &base.anchored(k, 1440., 0.);
     c.hud_panel(1188., 18., 200., if g.show_fps { 85. } else { 56. });
     c.coin(1212., 46., 10.);
     c.text_role(
@@ -2269,6 +2302,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             Align2::RIGHT_CENTER,
         );
     }
+    let c = &base.anchored(k, 720., 0.);
     world_compass(c, g);
     let threat_shown = last_threat(c, g);
     let status_y = if threat_shown { 243. } else { 200. };
@@ -2285,6 +2319,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             C::from_rgb(209, 65, 52),
         );
     }
+    let c = base;
     let d = 5. + g.flash * 38.;
     let cx = 720.;
     let cy = h * 0.5;
@@ -2294,7 +2329,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     }
     c.p.circle_filled(c.pt(cx, cy), c.s, IVORY);
     hit_feedback(c, g, cx, cy);
-    threat_pointers(c, g, cx, cy);
+    let c = &base.anchored(k, 0., h);
     // Keep the sculpted end caps away from the labels and digits.
     c.texture("button_plate", 16., h - 134., 395., 108., C::WHITE);
     c.inset(78., h - 106., 271., 55., C::from_rgb(43, 12, 16));
@@ -2356,6 +2391,12 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             Align2::RIGHT_CENTER,
         );
     }
+    // The dodge readout stays centred unless a larger HUD crowds it toward
+    // the weapon panel; 16 units of the vitality group's gap are kept.
+    let dodge_x = 720_f32
+        .max(550. * k + 16. * k + 119. * k)
+        .min(1440. - 427. * k - 16. * k - 119. * k);
+    let c = &base.anchored(k, 720., h).shifted(dodge_x - 720., 0.);
     c.hud_panel(601., h - 91., 238., 66.);
     c.fill(613., h - 73., 214., 6., C::from_rgb(53, 63, 58));
     c.fill(
@@ -2376,6 +2417,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         16.,
         IVORY,
     );
+    let c = &base.anchored(k, 1440., h);
     c.hud_panel(1013., h - 179., 375., 155.);
     c.paragraph_role(
         1030.,
@@ -2421,9 +2463,10 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
         let p = vp * f.pos.extend(1.);
         if p.w > 0. {
             let p = p.truncate() / p.w;
-            c.text_role(
-                (p.x * 0.5 + 0.5) * 1440.,
-                (0.5 - p.y * 0.5) * h,
+            let (x, y) = ((p.x * 0.5 + 0.5) * 1440., (0.5 - p.y * 0.5) * h);
+            base.anchored(k, x, y).text_role(
+                x,
+                y,
                 &f.text,
                 23.,
                 IVORY,
@@ -2432,6 +2475,7 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             );
         }
     }
+    let c = base;
     if g.hurt > 0. {
         let strength = if g.prefs.reduce_flashes { 0.35 } else { 1. };
         let alpha = (g.hurt / 0.35 * 130. * strength) as u8;
@@ -2452,8 +2496,10 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
     }
     // Field tips and the opening reminder share one panel below the reticle,
     // clear of the crowd, the top-centre stack and the vitality plate.
+    let c = &tip_canvas(base, k);
     if let Some(active) = g.tip.filter(|t| !t.tip.in_shop()) {
-        field_tip(c, &active.tip.text(g), c.h - TIP_FROM_BOTTOM, 640., active.alpha());
+        let y = arena_tip_top(c, g).unwrap_or(c.h - TIP_FROM_BOTTOM);
+        field_tip(c, &active.tip.text(g), y, ARENA_TIP_WIDTH, active.alpha());
     } else if g.run.time < 7. {
         let y = c.h - TIP_FROM_BOTTOM;
         let (fire, pause) = match g.device {
@@ -2474,23 +2520,48 @@ fn hud(c: &Canvas, g: &mut Game, vp: Mat4) {
             IVORY,
         );
     }
+    // Over any field note: a threat matters more than a tutorial.
+    threat_pointers(base, g, 720., h * 0.5);
 }
 /// Distance from the bottom of the screen to the top of the arena tip panel.
 const TIP_FROM_BOTTOM: f32 = 272.;
-/// A field tip: a small heading over one to three centred lines.
-fn field_tip(c: &Canvas, text: &str, y: f32, width: f32, alpha: f32) {
-    let x = 720. - width / 2.;
-    let galley = c.p.layout_job({
+/// The weapon panel's top, plus a small gap: arena tips end above it.
+const TIP_LOWEST: f32 = 187.;
+const ARENA_TIP_WIDTH: f32 = 640.;
+/// The arena tip panel and notices scale from the bottom centre, like the
+/// panels beside them.
+fn tip_canvas<'a>(base: &Canvas<'a>, k: f32) -> Canvas<'a> {
+    base.anchored(k, 720., base.h)
+}
+/// Top of the arena tip panel, or of the opening reminder, if either shows.
+/// Long notes rise so they end above the weapon and chalice panels.
+fn arena_tip_top(c: &Canvas, g: &Game) -> Option<f32> {
+    if let Some(active) = g.tip.filter(|t| !t.tip.in_shop()) {
+        let height = tip_height(c, &active.tip.text(g), ARENA_TIP_WIDTH);
+        Some((c.h - TIP_FROM_BOTTOM).min(c.h - TIP_LOWEST - height))
+    } else {
+        (g.run.time < 7.).then_some(c.h - TIP_FROM_BOTTOM)
+    }
+}
+fn tip_layout(c: &Canvas, text: &str, width: f32) -> std::sync::Arc<egui::Galley> {
+    c.p.layout_job({
         let mut job = egui::text::LayoutJob::simple(
             text.into(),
-            TypeRole::Reading.font((18. * c.s).max(13.5)),
+            TypeRole::Reading.font((18. * c.s).max(c.floor)),
             IVORY,
             (width - 48.) * c.s,
         );
         job.halign = egui::Align::Center;
         job
-    });
-    let height = galley.size().y / c.s + 46.;
+    })
+}
+fn tip_height(c: &Canvas, text: &str, width: f32) -> f32 {
+    tip_layout(c, text, width).size().y / c.s + 46.
+}
+/// A field tip: a small heading over one to three centred lines.
+fn field_tip(c: &Canvas, text: &str, y: f32, width: f32, alpha: f32) {
+    let x = 720. - width / 2.;
+    let height = tip_height(c, text, width);
     c.inset(x, y, width, height, HUD_SURFACE.gamma_multiply(alpha));
     c.border(x, y, width, height, GOLD.gamma_multiply(0.75 * alpha));
     c.diamond(720., y, 5., GOLD.gamma_multiply(alpha));
@@ -2822,14 +2893,14 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     Mode::Arena | Mode::Shop | Mode::Tree | Mode::Pack | Mode::Paused | Mode::Title
                 )
             {
-                let tip_panel =
-                    g.tip.is_some_and(|t| !t.tip.in_shop()) || g.run.time < 7.;
-                let y = if g.mode != Mode::Arena {
-                    128.
-                } else if tip_panel {
-                    c.h - TIP_FROM_BOTTOM - 40.
+                // In the arena, notices sit above the tip panel and scale with it.
+                let arena = tip_canvas(&c, g.prefs.hud_scale);
+                let (c, y) = if g.mode != Mode::Arena {
+                    (&c, 128.)
+                } else if let Some(top) = arena_tip_top(&arena, g) {
+                    (&arena, top - 40.)
                 } else {
-                    c.h * 0.72
+                    (&arena, c.h * 0.72)
                 };
                 let alpha = (g.notice_time.min(1.) * 245.) as u8;
                 c.fill(
@@ -3038,6 +3109,17 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         g.set_field_tips(!tips);
     }
     if c.button(
+        "hud_scale",
+        734.,
+        JOURNAL_TOGGLES_Y + 88.,
+        310.,
+        35.,
+        &format!("HUD SIZE {:.0}%", g.prefs.hud_scale * 100.),
+        false,
+    ) {
+        g.prefs.hud_scale = g.prefs.next_hud_scale();
+    }
+    if c.button(
         "vsync",
         392.,
         JOURNAL_TOGGLES_Y + 44.,
@@ -3146,5 +3228,5 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
 /// Top row of the Preferences page sliders; the Hollowlight slider is row 4.
 pub const JOURNAL_SLIDER_Y: f32 = 312.;
 /// Top of the Preferences page switches: invert and flashes, then the
-/// presentation row (VSync, FPS), then field tips, 44 apart.
+/// presentation row (VSync, FPS), then field tips and HUD size, 44 apart.
 pub const JOURNAL_TOGGLES_Y: f32 = 560.;
