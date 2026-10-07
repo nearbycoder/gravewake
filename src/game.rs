@@ -1,5 +1,6 @@
 use crate::anatomy::{self, Anatomy, BodyEvent, Part, Pose};
 use crate::controls::{Action, Bindings, Device, Trigger};
+use crate::gamepad::{Button, PadAction, PadBindings};
 use crate::world_layout::{self, ENEMY_RADIUS, PLAYER_RADIUS};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -385,6 +386,8 @@ pub struct Preferences {
     pub reduce_flashes: bool,
     #[serde(deserialize_with = "lenient")]
     pub bindings: Bindings,
+    #[serde(deserialize_with = "lenient")]
+    pub pad_bindings: PadBindings,
     /// Show first-run field tips.
     pub field_tips: bool,
     /// One bit per `tips::Tip` already shown.
@@ -414,6 +417,7 @@ impl Default for Preferences {
             invert_y: false,
             reduce_flashes: false,
             bindings: Bindings::default(),
+            pad_bindings: PadBindings::default(),
             field_tips: true,
             tips_seen: 0,
             hud_scale: 1.,
@@ -451,6 +455,7 @@ impl Preferences {
             invert_y: self.invert_y,
             reduce_flashes: self.reduce_flashes,
             bindings: self.bindings,
+            pad_bindings: self.pad_bindings,
             field_tips: self.field_tips,
             tips_seen: self.tips_seen,
             hud_scale: clean(
@@ -465,6 +470,12 @@ impl Preferences {
             .ok()
             .map(Self::sanitized)
     }
+}
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum JournalPage {
+    Preferences,
+    Keyboard,
+    Controller,
 }
 /// Lifetime bests, stored in records.json beside the run save.
 #[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize)]
@@ -562,11 +573,13 @@ pub struct Game {
     pub show_fps: bool,
     pub fps: f32,
     pub settings: bool,
-    /// The journal's Controls page is open instead of Preferences.
-    pub journal_controls: bool,
-    /// An action waiting for its new key on the Controls page.
+    /// The journal page that's open.
+    pub journal_page: JournalPage,
+    /// An action waiting for its new key on the Keyboard page.
     pub rebinding: Option<Action>,
-    /// The Controls page's latest confirmation or refusal.
+    /// A controller action and slot (main 0, second 1) waiting for a button.
+    pub pad_rebinding: Option<(PadAction, usize)>,
+    /// The Keyboard or Controller page's latest confirmation or refusal.
     pub controls_note: String,
     pub quit_requested: bool,
     pub confirm_new_run: bool,
@@ -664,8 +677,9 @@ impl Game {
             },
             fps: 0.,
             settings: false,
-            journal_controls: false,
+            journal_page: JournalPage::Preferences,
             rebinding: None,
+            pad_rebinding: None,
             controls_note: String::new(),
             quit_requested: false,
             confirm_new_run: false,
@@ -955,6 +969,33 @@ impl Game {
         }
     }
     /// Give the action waiting on the Controls page its new input.
+    /// Bind the controller slot the journal is waiting on to `button`.
+    pub fn bind_pad(&mut self, button: Button) {
+        let Some((action, slot)) = self.pad_rebinding else {
+            return;
+        };
+        let bindings = &mut self.prefs.pad_bindings;
+        self.controls_note = match bindings.assign(action, slot, button) {
+            Ok(displaced) => {
+                self.pad_rebinding = None;
+                let names = |bindings: &PadBindings, action| {
+                    bindings
+                        .buttons(action)
+                        .map(Button::label)
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                };
+                let mut note = format!("{} is now {}.", action.name(), names(bindings, action));
+                if let Some(other) = displaced {
+                    note += &format!(" {} is now {}.", other.name(), names(bindings, other));
+                }
+                note
+            }
+            // Keep waiting so the player can simply press another button.
+            Err(reason) => format!("{reason} Choose another button for {}.", action.name()),
+        };
+        self.save_preferences();
+    }
     pub fn bind(&mut self, trigger: Trigger, glyph: Option<char>) {
         let Some(action) = self.rebinding else {
             return;
@@ -976,15 +1017,16 @@ impl Game {
     }
     /// The input that performs `action` on the device the player used last.
     pub fn prompt(&self, action: Action) -> String {
-        match self.device {
-            Device::Keyboard => self.prefs.bindings.label(action),
-            Device::Controller => action.pad_label().into(),
+        match (self.device, action.pad_action()) {
+            (Device::Keyboard, _) => self.prefs.bindings.label(action),
+            (Device::Controller, Some(pad)) => self.prefs.pad_bindings.label(pad).into(),
+            (Device::Controller, None) => "LEFT STICK".into(),
         }
     }
     pub fn movement_prompt(&self) -> String {
         match self.device {
             Device::Keyboard => self.prefs.bindings.movement_label(),
-            Device::Controller => Action::Forward.pad_label().into(),
+            Device::Controller => "LEFT STICK".into(),
         }
     }
     /// Escape, or Start on a controller, pauses and goes back.
@@ -994,11 +1036,11 @@ impl Game {
             Device::Controller => "Start",
         }
     }
-    /// Firing isn't rebindable: the left mouse button or the right trigger.
+    /// The left mouse button (not rebindable), or the controller's fire button.
     pub fn fire_prompt(&self) -> &'static str {
         match self.device {
             Device::Keyboard => "LMB",
-            Device::Controller => "RT",
+            Device::Controller => self.prefs.pad_bindings.label(PadAction::Fire),
         }
     }
     pub fn notify(&mut self, s: &str) {
@@ -2219,6 +2261,23 @@ mod tests {
             g.prefs.bindings.action(Trigger::Key(KeyCode::KeyR)),
             Some(Action::Melee)
         );
+    }
+    #[test]
+    fn controller_rebinding_waits_for_a_usable_button_and_reports_swaps() {
+        let mut g = Game::new(false);
+        g.pad_rebinding = Some((PadAction::Reload, 0));
+        g.bind_pad(Button::Start);
+        assert_eq!(g.pad_rebinding, Some((PadAction::Reload, 0)));
+        assert!(g.controls_note.contains("Start always pauses"), "{}", g.controls_note);
+        g.bind_pad(Button::DPadUp);
+        assert_eq!(g.pad_rebinding, Some((PadAction::Reload, 0)));
+        g.bind_pad(Button::North);
+        assert_eq!(g.pad_rebinding, None);
+        assert_eq!(g.controls_note, "Reload is now Y. Ember Bolt is now X and LB.");
+        // Nothing binds when nothing is waiting.
+        let before = g.prefs.pad_bindings;
+        g.bind_pad(Button::South);
+        assert_eq!(g.prefs.pad_bindings, before);
     }
     #[test]
     fn save_directories_follow_platform_conventions() {

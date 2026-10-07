@@ -167,6 +167,8 @@ impl App {
     fn escape(&mut self) {
         if self.game.rebinding.is_some() {
             self.game.rebinding = None;
+        } else if self.game.pad_rebinding.is_some() {
+            self.game.pad_rebinding = None;
         } else if self.game.confirm_new_run {
             self.game.confirm_new_run = false;
         } else if self.game.settings {
@@ -910,7 +912,7 @@ impl App {
             self.game.device = controls::Device::Controller;
         }
         if !self.smoke && !self.review {
-            let pad = gamepad::arena(&pad_frame);
+            let pad = gamepad::arena(&pad_frame, &self.game.prefs.pad_bindings);
             let bindings = self.game.prefs.bindings;
             let down = |action| self.held.contains(&bindings.get(action).trigger);
             let axis = |positive, negative, stick: f32| {
@@ -922,7 +924,15 @@ impl App {
             self.game.input.sprint = down(Action::Sprint) || pad.sprint;
             let menus =
                 self.game.mode != Mode::Arena || self.game.settings || self.game.confirm_new_run;
-            if menus {
+            if menus && self.game.pad_rebinding.is_some() {
+                // The journal is waiting for a button: the next press binds
+                // (Start cancels), and the cursor neither moves nor clicks.
+                match pad_frame.first_pressed() {
+                    Some(gamepad::Button::Start) => self.escape(),
+                    Some(button) => self.game.bind_pad(button),
+                    None => {}
+                }
+            } else if menus {
                 let size = self.window.as_ref().unwrap().inner_size();
                 let scale = self.window.as_ref().unwrap().scale_factor() as f32;
                 let screen = egui::Rect::from_min_size(

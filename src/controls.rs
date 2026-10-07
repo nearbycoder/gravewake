@@ -3,6 +3,7 @@
 //! Bindings store physical keys (positions), so they survive layout changes,
 //! plus the character the key last produced, so labels match the player's
 //! keyboard: on AZERTY the default forward key reads Z, not W.
+use crate::gamepad::PadAction;
 use serde::{Deserialize, Serialize};
 use winit::{event::MouseButton, keyboard::KeyCode};
 
@@ -46,16 +47,16 @@ impl Action {
     fn index(self) -> usize {
         Self::ALL.iter().position(|a| *a == self).unwrap()
     }
-    /// The controller input for this action (Xbox names), as mapped in
-    /// `gamepad::arena`. Controller buttons aren't remappable.
-    pub fn pad_label(self) -> &'static str {
+    /// The remappable controller action that does the same thing, if any.
+    /// Movement stays on the left stick.
+    pub fn pad_action(self) -> Option<PadAction> {
         match self {
-            Action::Forward | Action::Back | Action::Left | Action::Right => "LEFT STICK",
-            Action::Sprint => "LT",
-            Action::Dodge => "A",
-            Action::Reload => "X",
-            Action::Melee => "B",
-            Action::Bolt => "Y",
+            Action::Forward | Action::Back | Action::Left | Action::Right => None,
+            Action::Sprint => Some(PadAction::Sprint),
+            Action::Dodge => Some(PadAction::Dodge),
+            Action::Reload => Some(PadAction::Reload),
+            Action::Melee => Some(PadAction::Melee),
+            Action::Bolt => Some(PadAction::Bolt),
         }
     }
 }

@@ -79,6 +79,7 @@ impl Review {
             ("hud-size-80-busy".into(), Screen::Hud(13)),
             ("hud-size-100-busy".into(), Screen::Hud(14)),
             ("hud-size-110-busy".into(), Screen::Hud(15)),
+            ("hud-controller-remapped".into(), Screen::Hud(16)),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
             ("collector-tip".into(), Screen::Shop(false, true)),
@@ -112,6 +113,9 @@ impl Review {
             ("controls".into(), Screen::Controls(0)),
             ("controls-waiting-for-key".into(), Screen::Controls(1)),
             ("controls-azerty-swap".into(), Screen::Controls(2)),
+            ("controller-buttons".into(), Screen::Controls(3)),
+            ("controller-waiting-for-button".into(), Screen::Controls(4)),
+            ("controller-remapped".into(), Screen::Controls(5)),
             ("new-run-confirmation".into(), Screen::Confirmation),
             ("death".into(), Screen::Ending(false)),
             ("victory".into(), Screen::Ending(true)),
@@ -251,6 +255,19 @@ impl Review {
         }
     }
 
+    /// Fire on RB, melee on the right stick, dodge on B and Ember Bolt on
+    /// LT, which moves sprint to Y.
+    fn remap_controller(game: &mut Game) {
+        use crate::gamepad::{Button, PadAction};
+        for (action, slot, button) in [
+            (PadAction::Fire, 0, Button::RightBumper),
+            (PadAction::Melee, 0, Button::RightStick),
+            (PadAction::Dodge, 0, Button::East),
+            (PadAction::Bolt, 0, Button::LeftTrigger),
+        ] {
+            game.prefs.pad_bindings.assign(action, slot, button).unwrap();
+        }
+    }
     fn setup(game: &mut Game, screen: Screen) {
         *game = Game::new(false);
         game.has_save = false;
@@ -296,7 +313,7 @@ impl Review {
                 game.run.survival.level = 99;
                 game.run.survival.xp = 798;
                 game.show_fps = true;
-                if kind == 0 || (4..=12).contains(&kind) {
+                if kind == 0 || (4..=12).contains(&kind) || kind == 16 {
                     game.run.time = 0.;
                     game.run.wave = 1;
                     game.run.enemies = vec![Enemy::spawn(0, Vec3::new(0., 0., -6.), 1, 0.)];
@@ -414,7 +431,7 @@ impl Review {
                         life: DAMAGE_MARK_LIFE * 0.8,
                     }];
                 }
-                if kind >= 13 {
+                if (13..=15).contains(&kind) {
                     // The busiest HUD at each size: every power, the boss bar
                     // under the last-threat bearing, a bound chalice, the longest
                     // arena tip under a notice, a damage arc and an unseen dive.
@@ -434,6 +451,15 @@ impl Review {
                         bearing: 1.3,
                         life: DAMAGE_MARK_LIFE,
                     }];
+                }
+                if kind == 16 {
+                    // Remapped controller prompts on the HUD and in the
+                    // opening reminder, with a melee weapon and a chalice.
+                    game.device = crate::controls::Device::Controller;
+                    game.run.chalice = true;
+                    game.run.time = 0.5;
+                    game.run.weapon.kind = WeaponKind::TwinDaggers;
+                    Self::remap_controller(game);
                 }
                 if kind == 3 {
                     game.run.weapon.kind = WeaponKind::TwinDaggers;
@@ -517,7 +543,7 @@ impl Review {
                 use winit::{event::MouseButton, keyboard::KeyCode};
                 game.mode = Mode::Paused;
                 game.settings = true;
-                game.journal_controls = true;
+                game.journal_page = crate::game::JournalPage::Keyboard;
                 game.rebinding = Some(Action::Dodge);
                 if kind == 2 {
                     // An AZERTY keyboard, then melee moved to the dodge key's
@@ -534,6 +560,19 @@ impl Review {
                     game.bind(Trigger::Mouse(MouseButton::Right), None);
                 } else if kind == 0 {
                     game.rebinding = None;
+                }
+                if kind >= 3 {
+                    // The Controller page: defaults, waiting on Reload's
+                    // second slot, then a remap with swaps and its note.
+                    use crate::gamepad::{Button, PadAction};
+                    game.journal_page = crate::game::JournalPage::Controller;
+                    game.rebinding = None;
+                    game.pad_rebinding = (kind == 4).then_some((PadAction::Reload, 1));
+                    if kind == 5 {
+                        Self::remap_controller(game);
+                        game.pad_rebinding = Some((PadAction::Reload, 1));
+                        game.bind_pad(Button::South);
+                    }
                 }
             }
             Screen::Confirmation => {

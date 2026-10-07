@@ -95,14 +95,14 @@ This is a playable development build. What has and hasn't been checked:
 
 **Never verified**
 - Windows (never built or run), X11, NVIDIA or Intel GPUs, and other Linux distributions.
-- A physical controller. Controller play, prompts and menus are tested only with simulated input, so real sticks, triggers and hot-plugging are unverified.
+- A physical controller. Controller play, prompts, menus and button remapping are tested only with simulated input, so real sticks, triggers, hot-plugging and live remapping are unverified.
 - Listening. The music, positional audio and warning cues were checked with spectrograms and level measurements, not by ear.
-- Real key presses on the Controls page, and field notes triggering in a hand-played run. Tests and review fixtures drive the same code paths.
+- Real key presses on the Keyboard page, real button presses on the Controller page, and field notes triggering in a hand-played run. Tests and review fixtures drive the same code paths.
 
 **Known issues and limitations**
 - No prebuilt downloads yet: build from source, or package locally. The macOS app is ad-hoc signed, not notarized, so Gatekeeper warns.
 - On non-QWERTY layouts, a key shows its own character only after you've pressed it once.
-- Controller buttons can't be remapped, and menus use a virtual cursor rather than focus navigation.
+- Menus use a virtual cursor for controllers rather than focus navigation.
 - The damage-per-second line on cards is single-target, so splash and elemental weapons look weaker than they are.
 - Balance hasn't been tuned through long playtests.
 - An intermittent start-up stall (about 5 of 60 scripted controller launches during early Linux testing) hasn't recurred in 362 launches since. Its cause is unknown; scripted runs now abort with a core dump if it happens.
@@ -111,7 +111,7 @@ This is a playable development build. What has and hasn't been checked:
 
 ## Controls
 
-Default keys are listed below. Rebind them on the **Controls** page of **Settings & Controls**.
+Default keys and buttons are listed below. Rebind them on the **Keyboard** and **Controller** pages of **Settings & Controls**.
 
 | Input | Action |
 | --- | --- |
@@ -127,7 +127,7 @@ Default keys are listed below. Rebind them on the **Controls** page of **Setting
 | F6 | Toggle Hollowlight shader treatment |
 | F7 / F8 | Toggle VSync / FPS counter |
 
-**Controller** (standard layout, shown with Xbox names; supported through [gilrs](https://gitlab.com/gilrs-project/gilrs)):
+**Controller** (standard layout, shown with Xbox names; supported through [gilrs](https://gitlab.com/gilrs-project/gilrs)). Default buttons:
 
 | Input | Action |
 | --- | --- |
@@ -144,7 +144,7 @@ Default keys are listed below. Rebind them on the **Controls** page of **Setting
 
 On-screen prompts follow the last thing you touched: after you use the controller, the HUD, the opening reminder, the field notes and the level-up screen name controller buttons; after a key press or mouse movement, they name your keys again.
 
-Change mouse sensitivity, invert look, field of view (60–90° vertical), sound and music volume, flash reduction, HUD size (80–110%), lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Its **Controls** page rebinds movement, sprint, dodge, reload, melee and Ember Bolt to any key or to the right, middle or side mouse buttons. A key that's already in use swaps with the action you're changing. Escape, F6, F7, F8, F11 and the left mouse button keep their jobs. Key names follow your keyboard layout once you've pressed the key, so an AZERTY keyboard shows Z Q S D. On your first run, short field notes below the reticle explain movement and dodging, reloading and melee, souls, the damage arcs, the Collector and Ember Bolt as each first comes up. Each note shows once. Turn **Field tips** off in Settings & Controls, or switch them back on to see them all again. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Farther out, amber chevrons point toward special attacks winding up out of view (dives, casts, blinks, and slams or bursts you're standing near), growing as the attack nears. Enemy wind-ups, blasts and swings are positioned in stereo, and each special attack has a distinct warning sound. A synthesized score plays calm organ and choir at the title and the Collector's table, adds a heartbeat drum and bowed strings as the crowd grows or your vitality runs low, and brings in war drums while the Tithekeeper lives. Losing focus pauses combat and releases the pointer.
+Change mouse sensitivity, invert look, field of view (60–90° vertical), sound and music volume, flash reduction, HUD size (80–110%), lighting intensity and presentation settings in **Settings & Controls**; they are saved between launches. Its **Keyboard** page rebinds movement, sprint, dodge, reload, melee and Ember Bolt to any key or to the right, middle or side mouse buttons. Its **Controller** page gives fire, sprint, dodge, reload, melee and Ember Bolt a main and a second button each, from A, B, X, Y, the bumpers, the triggers and the stick clicks; Start, the D-pad and the sticks keep their jobs, and in menus A still selects and B still goes back. A key or button that's already in use swaps with the one you're changing. Escape, F6, F7, F8, F11 and the left mouse button keep their jobs. Key names follow your keyboard layout once you've pressed the key, so an AZERTY keyboard shows Z Q S D. On your first run, short field notes below the reticle explain movement and dodging, reloading and melee, souls, the damage arcs, the Collector and Ember Bolt as each first comes up. Each note shows once. Turn **Field tips** off in Settings & Controls, or switch them back on to see them all again. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Farther out, amber chevrons point toward special attacks winding up out of view (dives, casts, blinks, and slams or bursts you're standing near), growing as the attack nears. Enemy wind-ups, blasts and swings are positioned in stereo, and each special attack has a distinct warning sound. A synthesized score plays calm organ and choir at the title and the Collector's table, adds a heartbeat drum and bowed strings as the crowd grows or your vitality runs low, and brings in war drums while the Tithekeeper lives. Losing focus pauses combat and releases the pointer.
 
 Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** (macOS) and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
 

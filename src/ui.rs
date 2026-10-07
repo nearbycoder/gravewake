@@ -1,5 +1,8 @@
 use crate::controls::{Action, Device};
-use crate::game::{Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, Mode, Preferences};
+use crate::game::{
+    Card, DAMAGE_MARK_LIFE, Game, HIT_MARKER_LIFE, HitKind, JournalPage, Mode, Preferences,
+};
+use crate::gamepad::{Button, PadAction};
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
 const GOLD: C = C::from_rgb(226, 188, 119);
@@ -2504,7 +2507,7 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         let y = c.h - TIP_FROM_BOTTOM;
         let (fire, pause) = match g.device {
             Device::Keyboard => ("Mouse", "Esc"),
-            Device::Controller => ("RT", "Start"),
+            Device::Controller => (g.fire_prompt(), "Start"),
         };
         c.hud_panel(338., y + 20., 764., 35.);
         c.center(
@@ -2981,25 +2984,27 @@ fn journal(c: &Canvas, g: &mut Game) {
     );
     c.center(720., 190., "PREFERENCES  &  FIELD NOTES", 11., INK);
     c.flourish(720., 213., 530., INK);
-    for (id, x, label, controls) in [
-        ("journal_preferences", 418., "PREFERENCES", false),
-        ("journal_controls", 742., "CONTROLS", true),
+    for (id, x, label, page) in [
+        ("journal_preferences", 372., "PREFERENCES", JournalPage::Preferences),
+        ("journal_controls", 612., "KEYBOARD", JournalPage::Keyboard),
+        ("journal_controller", 852., "CONTROLLER", JournalPage::Controller),
     ] {
-        let open = g.journal_controls == controls;
-        if c.button(id, x, 236., 280., 38., label, open) {
-            g.journal_controls = controls;
+        let open = g.journal_page == page;
+        if c.button(id, x, 236., 216., 38., label, open) {
+            g.journal_page = page;
             g.rebinding = None;
+            g.pad_rebinding = None;
             g.controls_note.clear();
         }
         if open {
-            c.line((x + 40., 284.), (x + 240., 284.), INK, 2.);
-            c.diamond(x + 140., 284., 5., INK);
+            c.line((x + 38., 284.), (x + 178., 284.), INK, 2.);
+            c.diamond(x + 108., 284., 5., INK);
         }
     }
-    if g.journal_controls {
-        journal_controls(c, g);
-    } else {
-        journal_preferences(c, g);
+    match g.journal_page {
+        JournalPage::Preferences => journal_preferences(c, g),
+        JournalPage::Keyboard => journal_controls(c, g),
+        JournalPage::Controller => journal_controller(c, g),
     }
     if c.button(
         "notes_back",
@@ -3011,6 +3016,7 @@ fn journal(c: &Canvas, g: &mut Game) {
         true,
     ) {
         g.rebinding = None;
+        g.pad_rebinding = None;
         g.save_preferences();
         g.settings = false;
     }
@@ -3190,7 +3196,6 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
     for (i, line) in [
         "Left mouse  fire    1 2 3  choose a power    Esc  pause    F11  fullscreen",
         "F6  Hollowlight    F7  VSync    F8  FPS counter",
-        "Controller   RT fire  /  LT sprint  /  A dodge  /  X reload  /  B melee  /  Y bolt",
     ]
     .into_iter()
     .enumerate()
@@ -3222,6 +3227,82 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
         g.prefs.bindings = Default::default();
         g.rebinding = None;
         g.controls_note = "Default keys restored.".into();
+        g.save_preferences();
+    }
+}
+/// The Controller page: a main and a second button for each action.
+fn journal_controller(c: &Canvas, g: &mut Game) {
+    let mut clicked_slot = false;
+    c.center(630., 300., "MAIN", 11., INK);
+    c.center(850., 300., "SECOND", 11., INK);
+    for (row, action) in PadAction::ALL.into_iter().enumerate() {
+        let y = 318. + row as f32 * 42.;
+        c.text(392., y + 17., action.name(), 17., INK, true, Align2::LEFT_CENTER);
+        for slot in 0..2 {
+            let x = 532. + slot as f32 * 220.;
+            let waiting = g.pad_rebinding == Some((action, slot));
+            let label = if waiting {
+                "PRESS A BUTTON"
+            } else {
+                g.prefs.pad_bindings.slot(action, slot).map_or("—", Button::label)
+            };
+            if waiting {
+                let pulse = 0.55 + 0.45 * (c.time * 5.).sin().abs();
+                c.border(x - 6., y - 5., 208., 44., GOLD.gamma_multiply(pulse));
+            }
+            if c.button(
+                &format!("pad_{}_{slot}", action.name()),
+                x,
+                y,
+                196.,
+                34.,
+                label,
+                waiting,
+            ) {
+                clicked_slot = true;
+                g.pad_rebinding = (!waiting).then_some((action, slot));
+                g.controls_note.clear();
+            }
+        }
+    }
+    // Clicking anywhere else stops waiting for a button.
+    if g.pad_rebinding.is_some() && !clicked_slot && c.ui.input(|i| i.pointer.any_click()) {
+        g.pad_rebinding = None;
+    }
+    for (i, line) in [
+        "Left stick  move    Right stick  look    Start  pause    D-pad  choose a power",
+        "In menus, the left stick moves the cursor, A selects and B goes back.",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let y = 582. + i as f32 * 28.;
+        c.center(720., y, line, 13., INK);
+        c.line((390., y + 14.), (1050., y + 14.), GOLD.gamma_multiply(0.35), 0.6);
+    }
+    let note = if let Some((action, _)) = g.pad_rebinding {
+        format!(
+            "Press a controller button for {}. Start or Escape cancels.",
+            action.name()
+        )
+    } else if g.controls_note.is_empty() {
+        "Choose a slot to change it. A button already in use swaps.".into()
+    } else {
+        g.controls_note.clone()
+    };
+    c.center(720., 652., note, 13., INK);
+    if c.button(
+        "restore_buttons",
+        558.,
+        686.,
+        324.,
+        36.,
+        "Restore default buttons",
+        false,
+    ) {
+        g.prefs.pad_bindings = Default::default();
+        g.pad_rebinding = None;
+        g.controls_note = "Default buttons restored.".into();
         g.save_preferences();
     }
 }
