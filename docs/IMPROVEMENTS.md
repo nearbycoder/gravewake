@@ -980,3 +980,50 @@ eye. If 130% can't be made to fit, it's dropped and the report says why.
 - Windows validation (#12) and the browser build (#15).
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, and whether the synthesized score stays.
+
+## Round 6 results
+
+All five scoped items shipped on `improvements-6`. Native checks ran on the
+same CachyOS / Radeon 8060S / KDE Wayland machine, with a throwaway
+`XDG_DATA_HOME` for every run. `~/.local/share/gravewake` didn't exist before
+or after the round. Load averages on the shared machine were 14–57 during the
+round. Input-sensitive runs used the controller smoke run, which counts frames
+rather than time.
+
+| Item | Verification |
+| --- | --- |
+| A. Pause on controller disconnect (`bc7c734`) | A unit test: losing the controller you're fighting with pauses the run, clears held movement, sprint and fire, and shows "CONTROLLER DISCONNECTED / PAUSED"; a disconnect while playing with keyboard and mouse, or in a menu, the shop, the level-up screen or the title, changes nothing. `Pad::poll` flags only the driving controller's disconnect. **No physical controller is exposed here**, so the gilrs disconnect event itself wasn't produced live. |
+| B. Honest card estimate (`e89a55e`) | Unit tests: Dragonbreath's burn matches a hand calculation over its two-shell cycle (16.8 burn damage per second, not the full 18, because its reload outlasts the burn); the Needler, Widow Fangs and Plague Censer keep venom up the whole cycle (+12); every other weapon's estimate is unchanged, and all 33 are finite and positive. A second test lets a burning and a poisoned creature tick through the real creature update, and the health lost matches the shared constants (54 and 72). The rarity line now names each weapon's trait (BURN, VENOM, SPLASH, CHAIN, PIERCE, FROST, DRAIN, PULL, with "+ SPLASH" for bursting occult shots). Pack and Collector captures at both sizes (`round6/pack-traits-and-burn-estimate*.jpg`, `round6/collector-venom-splash-offer*.jpg`): the trait fits the rarity line at 960×600, and Dragonbreath rose from 52 to 69 DPS. **Changed from the plan:** the area note is on the rarity line, not after the estimate, which had no room. |
+| C. Watchdog that can't be silenced (`fee48cc`) | A temporary injected stall (not committed) that keeps writing to a stdout/stderr pipe nobody reads, with a 10 s limit: before the change, the watchdog never reported and an outer `timeout` killed the run at 60 s (status 124), which is exactly the round 5 symptom. After it, the run aborted with status 134 two seconds after the limit, wrote `captures/watchdog-<pid>.txt` and left a core. The hunt script's timeout path was exercised by stopping a run with SIGSTOP under a 20 s limit: it saved the `/proc` state (every thread `T (stopped)`, wait channel `do_signal_stop`), sent SIGABRT and SIGCONT, and kept a core whose gdb stacks were saved. A 30-launch hunt (15 plain, 15 controller) then passed every run. Whether a blocked pipe caused round 5's hang isn't known. |
+| D. D-pad menu navigation (`856160c`) | Unit tests: the directional choice in a row, upward, a diagonal fallback, the edge (no move), skipping the control under the cursor, and preferring a control in line over a closer one off to the side; the first press landing nearest the centre; repeats at 0.4 s and then every 0.12 s, stopping at the last control; A clicking where the cursor rests; slider steps of a twentieth, clamped at the track's end, and leaving a slider vertically; the stick-only fallback with no targets. `--smoke --gamepad` now reaches REVEAL ALL, the middle card's CHOOSE CARD and TAKE & EQUIP with D-pad presses alone and fails if a press lands anywhere else; it passed in every run (4 in the final check, 15 in the hunt). Review fixtures show the cursor after D-pad presses in the Collector and after two slider steps (field of view 70° → 73°) at both sizes (`round6/pad-*.jpg`). **Live presses on a physical controller are unverified.** |
+| E. HUD 120% and 130% (`fd926e2`) | The setting's cycle (now six sizes) and clamping are tested. A new test draws the busiest HUD through `ui::draw` in a real egui frame at all six sizes in 1440×900, 960×600 and 1920×1080 windows and checks every panel rectangle against every other and against the damage arcs' reach: none overlap. Disabling the compact layout makes it fail at 120% (the boss panel reaches the arcs). Captures of the busiest HUD at 120% and 130% at both sizes, with an arc pointing straight ahead (`round6/hud-size-1{2,3}0-busy*.jpg`), inspected by eye: nothing collides. The same test showed that from 110% (and, by a fraction of a pixel, at 100% in 960×600) a field note or notice can reach the circle an arc pointing behind you sweeps, so hit marks, arcs and off-screen warnings now draw after notes and notices. |
+
+Final state: 135 unit tests pass (128 before the round), with no warnings. On
+the final binary, `--smoke` and `--smoke --gamepad` (twice each),
+`--text-review` (normal and `--review-small`, 103 captures across 100
+fixtures), `--shader-review`, `--armory-review`, `--survival-review`,
+`--world-review` and `--benchmark` exited with status 0. The text review gained
+`GRAVEWAKE_REVIEW_ONLY` to capture a subset of fixtures.
+
+Notes:
+- The benchmark ran at load 17–28 with presentation dominating every frame
+  (surface acquire about 31 ms): 31, 28 and 27 FPS for the optimized 12-enemy,
+  48-enemy and corpse scenes. Simulation (0.10 ms) and mesh CPU (0.58 ms) in
+  the 12-enemy scene match earlier rounds, so the drop is the shared desktop,
+  not game code. In the same period, smoke runs took 25–46 s instead of
+  round 5's 8–16 s, whether output went to a file or a pipe.
+- The two watchdog checks left two cores (about 80 MB each) in
+  systemd-coredump's store; they'll be rotated out normally.
+
+Not verified: macOS (CI builds and runs the unit tests after the push), Windows,
+X11, NVIDIA and Intel GPUs, a physical controller (D-pad navigation, the
+disconnect pause and everything from earlier rounds), and how 120% and 130%
+feel on a real TV.
+
+Deferred, with reasons:
+- Elite enemy variants (rest of #8): balance needs playtests.
+- Windows validation (#12): nothing here to test on. The browser build (#15).
+- A true focus highlight for controller menus: the D-pad now jumps between
+  controls, but the only marker is the cursor ring and the control's hover glow.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, and whether the synthesized score stays.

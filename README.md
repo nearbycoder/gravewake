@@ -95,7 +95,7 @@ This is a playable development build. What has and hasn't been checked:
 
 **Never verified**
 - Windows (never built or run), X11, NVIDIA or Intel GPUs, and other Linux distributions.
-- A physical controller. Controller play, prompts, menus and button remapping are tested only with simulated input, so real sticks, triggers, hot-plugging and live remapping are unverified.
+- A physical controller. Controller play, prompts, menus (including D-pad navigation), button remapping and the pause when a controller disconnects are tested only with simulated input, so real sticks, triggers, hot-plugging and live remapping are unverified.
 - Listening. The music, positional audio and warning cues were checked with spectrograms and level measurements, not by ear.
 - Real key presses on the Keyboard page, real button presses on the Controller page, and field notes triggering in a hand-played run. Tests and review fixtures drive the same code paths.
 
@@ -105,7 +105,7 @@ This is a playable development build. What has and hasn't been checked:
 - Controller menus move a cursor rather than a true focus highlight: the D-pad jumps it between controls, but nothing marks a control except the cursor ring and the control's hover glow.
 - The damage-per-second line on cards counts burn and venom but only one target, so splash, chain and piercing weapons (named on the card) are worth more against crowds than it shows.
 - Balance hasn't been tuned through long playtests.
-- An intermittent stall (about 5 of 60 scripted controller launches during early Linux testing) has recurred once since, in one of about 400 scripted launches (October 2026). Its cause is unknown; scripted runs now abort with a core dump if it happens.
+- An intermittent stall (about 5 of 60 scripted controller launches during early Linux testing) has recurred once since, in one of about 400 scripted launches (October 2026). Its cause is unknown; scripted runs now abort with a core dump if it happens. In October 2026 one way the watchdog itself could be kept from aborting (its report blocked on an output pipe that had stopped draining) was found and fixed.
 - There is no browser build.
 
 ## Controls
