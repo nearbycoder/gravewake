@@ -25,7 +25,9 @@ The smoke run launches the actual Metal renderer, shoots through a fixed eight-e
 
 ## The loop
 
-Start with a common Worn Iron pistol. Survive twelve descents through Mournhollow. Each new run draws its own random seed, so spawn positions, Collector draws and pack contents differ between runs; a saved run keeps its seed. Tests, the smoke run and review captures use a fixed seed so they stay reproducible. Between descents, The Collector restores 25 vitality and pays 90–140 gold. Spend it on random weapons, a visible weapon offer, a Hollow Chalice, armor, or Armory Packs. Pack prices increase by 15 gold per purchase and reset at the next shop.
+Start with a common Worn Iron pistol. Survive twelve descents through Mournhollow. Each new run draws its own random seed, so spawn positions, Collector draws and pack contents differ between runs; a saved run keeps its seed. Tests, the smoke run and review captures use a fixed seed so they stay reproducible. Between descents, The Collector restores 25 vitality and pays 90–140 gold. Spend it on random weapons, a visible weapon offer, a Hollow Chalice, armor, or Armory Packs. Pack prices increase by 15 gold per purchase and reset at the next shop. Under **Enter descent**, the table previews the next descent (`survival::preview`): its creature count before summons, whether the Tithekeeper opens it ("WAITS" the first time, "RETURNS" after), and the species no earlier descent brought ("NEW: CINDER SKULL, PLAGUE VESSEL"); when none are new it keeps the old line, "SAME FOREST. HIGHER STAKES." The count, boss and pools are the same `descent_quota`, `boss_descent` and `descent_pool` the director spawns from, and `the_descent_preview_matches_what_the_descent_spawns` checks the preview against a real spawn of descents 1 to 17.
+
+![The next descent at the Collector's table](docs/media/improvements/round8/collector-next-descent.jpg)
 
 Packs contain three cards. Turn them over individually or reveal all, select one, then take and equip it. Common, uncommon, rare, and legendary cards have different power and treatments. All cards use the standard finish. The armory contains 33 weapons across sidearms, scatterguns, longarms, ordnance, occult implements and melee. See [the complete armory](ARMORY.md) for all 30 additions and their mechanics.
 
@@ -301,3 +303,13 @@ Smoke, review and benchmark runs start a watchdog thread (`src/watchdog.rs`). St
 The report is written to `captures/watchdog-<pid>.txt` first and printed from a separate thread, and the abort goes ahead two seconds later whether or not the print finished. Before round 6 the watchdog printed with `eprintln!` and then aborted, so if stdout and stderr were a pipe that had stopped draining, the main thread blocked on its next line, the watchdog blocked on its report, and nothing aborted. A temporary injected stall (a run filling such a pipe, with a 10 s limit) reproduced that: an outer `timeout` killed it at 60 s with status 124 and no report, as in round 5's one hung controller smoke run. With the change, the same run aborted with status 134 two seconds after the limit and left the report file and a core. Whether that was round 5's cause isn't known.
 
 `scripts/stall-hunt.sh [runs]` alternates plain and controller smoke runs from a private copy of the release binary. It writes capped logs and `summary.tsv` to `captures/stall/`, and saves `coredumpctl info` and gdb `thread apply all bt` output for any run that fails. If a run outlives `HUNT_TIMEOUT` seconds (default 900), the script first saves its process and per-thread states and kernel wait channels from `/proc` (`-proc.txt`), then sends SIGABRT (and SIGCONT, in case the process is stopped) so a core is kept, and SIGKILL 30 seconds later if it's still there. `HUNT_OUT` changes the output folder.
+
+## Testing in a private compositor
+
+`scripts/nested-kwin.sh [--size 1920x1080] -- <command>` runs one command inside a private KWin (`kwin_wayland --virtual` on its own D-Bus session, with no real outputs or input devices) and exits with the command's status. Test windows, and any switch to fullscreen, stay inside it instead of appearing on the desktop you're using, which matters on a shared machine. The game renders there through the real GPU (Vulkan on the Radeon 8060S): `--smoke`, `--text-review` and the other scripted modes pass inside it. Captures are taken from the game's own frames, so they match a normal desktop run at the same window size, apart from the desktop's scale factor (the virtual output uses 1). For example:
+
+```sh
+XDG_DATA_HOME=$PWD/captures/home scripts/nested-kwin.sh -- cargo run --release --locked -- --text-review
+```
+
+It needs KDE Plasma 6's `kwin_wayland` and `dbus-run-session`; working files go under `captures/` and are removed afterwards.
