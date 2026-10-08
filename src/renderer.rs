@@ -336,8 +336,21 @@ impl Camera {
         )
     }
 }
+/// GPU timestamps around the world and composite passes, for the fidelity
+/// review: this game's own GPU work, apart from other programs sharing it.
+struct GpuTimer {
+    queries: wgpu::QuerySet,
+    resolve: wgpu::Buffer,
+    read: wgpu::Buffer,
+    /// Nanoseconds per timestamp tick.
+    period: f32,
+}
 pub struct Renderer {
     pub timings: [f64; 3],
+    /// GPU time of the last frame's world and composite passes, in ms, when
+    /// timestamps are on (`--fidelity-review` on a GPU that has them).
+    pub gpu_ms: Option<f64>,
+    gpu_timer: Option<GpuTimer>,
     pub vertex_count: usize,
     pub optimized: bool,
     model_review_cpu: bool,
@@ -410,10 +423,16 @@ impl Renderer {
             .expect("No compatible GPU");
         crate::watchdog::milestone("GPU adapter selected");
         println!("GPU: {:?}", adapter.get_info());
+        let timestamps = std::env::args().any(|a| a == "--fidelity-review")
+            && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Gravewake renderer"),
-                required_features: wgpu::Features::empty(),
+                required_features: if timestamps {
+                    wgpu::Features::TIMESTAMP_QUERY
+                } else {
+                    wgpu::Features::empty()
+                },
                 required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
@@ -930,7 +949,32 @@ impl Renderer {
             mapped_at_creation: false,
         });
         let egui = egui_wgpu::Renderer::new(&device, format, None, 1, false);
+        let gpu_timer = timestamps.then(|| GpuTimer {
+            queries: device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("Pass timestamps"),
+                ty: wgpu::QueryType::Timestamp,
+                count: 4,
+            }),
+            resolve: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Resolved timestamps"),
+                size: 32,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }),
+            read: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Timestamp readback"),
+                size: 32,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }),
+            period: queue.get_timestamp_period(),
+        });
+        if timestamps {
+            println!("GPU timestamps on: world and composite passes are timed");
+        }
         Self {
+            gpu_ms: None,
+            gpu_timer,
             surface,
             device,
             queue,
@@ -1466,7 +1510,11 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: self.gpu_timer.as_ref().map(|t| wgpu::RenderPassTimestampWrites {
+                    query_set: &t.queries,
+                    beginning_of_pass_write_index: Some(0),
+                    end_of_pass_write_index: Some(1),
+                }),
                 occlusion_query_set: None,
             });
             let camera_bind = if self.fidelity.profile().anisotropy > 1 {
@@ -1545,7 +1593,13 @@ impl Renderer {
                         },
                     })],
                     depth_stencil_attachment: None,
-                    timestamp_writes: None,
+                    timestamp_writes: self.gpu_timer.as_ref().map(|t| {
+                        wgpu::RenderPassTimestampWrites {
+                            query_set: &t.queries,
+                            beginning_of_pass_write_index: Some(2),
+                            end_of_pass_write_index: Some(3),
+                        }
+                    }),
                     occlusion_query_set: None,
                 })
                 .forget_lifetime();
@@ -1553,6 +1607,10 @@ impl Renderer {
             pass.set_bind_group(0, &self.scene_bind, &[]);
             pass.draw(0..3, 0..1);
             self.egui.render(&mut pass, &jobs, &screen);
+        }
+        if let Some(t) = &self.gpu_timer {
+            encoder.resolve_query_set(&t.queries, 0..4, &t.resolve, 0);
+            encoder.copy_buffer_to_buffer(&t.resolve, 0, &t.read, 0, 32);
         }
         let padded = (self.config.width * 4).div_ceil(256) * 256;
         let readback = capture.map(|_| {
@@ -1626,6 +1684,15 @@ impl Renderer {
                 .expect("save screenshot");
                 println!("Captured {path}");
             }
+        }
+        if let Some(t) = &self.gpu_timer {
+            let slice = t.read.slice(..);
+            slice.map_async(wgpu::MapMode::Read, |_| {});
+            let _ = self.device.poll(wgpu::PollType::Wait);
+            let ticks: Vec<u64> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+            t.read.unmap();
+            let ns = |a: u64, b: u64| b.saturating_sub(a) as f64 * t.period as f64;
+            self.gpu_ms = Some((ns(ticks[0], ticks[1]) + ns(ticks[2], ticks[3])) / 1e6);
         }
         // Diagnostic only: finish each submitted frame to measure serial
         // CPU+GPU work without drawable/compositor pacing or an unbounded queue.

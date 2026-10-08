@@ -1680,7 +1680,11 @@ impl App {
             );
         }
         if let Some(review) = &mut self.fidelity_review {
-            review.record(frame_interval, [renderer.config.width, renderer.config.height]);
+            review.record(
+                frame_interval,
+                renderer.gpu_ms,
+                [renderer.config.width, renderer.config.height],
+            );
         }
         if let Some(review) = &mut self.world_review {
             review.record(

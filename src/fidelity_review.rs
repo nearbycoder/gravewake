@@ -44,6 +44,10 @@ struct Stage {
     scene_size: [u32; 2],
     window: [u32; 2],
     frames: usize,
+    /// GPU time of this game's world and composite passes, from timestamp
+    /// queries, when the GPU has them.
+    gpu_mean_ms: Option<f64>,
+    gpu_p95_ms: Option<f64>,
     mean_ms: f64,
     p95_ms: f64,
     max_ms: f64,
@@ -57,6 +61,7 @@ pub struct Review {
     stage: usize,
     frame: u32,
     intervals: Vec<f64>,
+    gpu: Vec<f64>,
     load_before: String,
     window: [u32; 2],
     results: Vec<Stage>,
@@ -81,6 +86,7 @@ impl Review {
             stage: 0,
             frame: 0,
             intervals: vec![],
+            gpu: vec![],
             load_before: String::new(),
             window: [0; 2],
             results: vec![],
@@ -208,12 +214,18 @@ impl Review {
         assert_eq!(frames as u32, MEASURED, "FIDELITY REVIEW: measured frames");
         let mean_ms = sorted.iter().sum::<f64>() / frames as f64;
         let (w, h) = fidelity.profile().scene_size(self.window[0], self.window[1]);
+        let mut gpu = self.gpu.clone();
+        gpu.sort_by(f64::total_cmp);
+        let gpu_mean_ms = (!gpu.is_empty()).then(|| gpu.iter().sum::<f64>() / gpu.len() as f64);
+        let gpu_p95_ms = (!gpu.is_empty()).then(|| gpu[gpu.len() * 95 / 100]);
         let stage = Stage {
             scene,
             fidelity: fidelity.name(),
             scene_size: [w, h],
             window: self.window,
             frames,
+            gpu_mean_ms,
+            gpu_p95_ms,
             mean_ms,
             p95_ms: sorted[frames * 95 / 100],
             max_ms: sorted[frames - 1],
@@ -224,11 +236,15 @@ impl Review {
         };
         assert_eq!(game.prefs.fidelity, fidelity);
         println!(
-            "FIDELITY REVIEW: {scene} {}: scene {w}×{h} in a {}×{} window, mean {:.2} ms \
+            "FIDELITY REVIEW: {scene} {}: scene {w}×{h} in a {}×{} window, GPU {}, frame mean {:.2} ms \
              ({:.0} FPS), p95 {:.2} ms, max {:.2} ms over {frames} frames; load {} → {}",
             stage.fidelity,
             self.window[0],
             self.window[1],
+            match (gpu_mean_ms, gpu_p95_ms) {
+                (Some(m), Some(p)) => format!("mean {m:.2} ms, p95 {p:.2} ms"),
+                _ => "not timed".into(),
+            },
             stage.mean_ms,
             stage.fps,
             stage.p95_ms,
@@ -238,14 +254,16 @@ impl Review {
         );
         self.results.push(stage);
         self.intervals.clear();
+        self.gpu.clear();
         self.stage += 1;
         self.frame = 0;
     }
     /// The interval since the previous frame started, and the window size.
-    pub fn record(&mut self, frame_ms: f64, window: [u32; 2]) {
+    pub fn record(&mut self, frame_ms: f64, gpu_ms: Option<f64>, window: [u32; 2]) {
         self.window = window;
         if self.stage < TIMED && (WARM_UP + 1..=WARM_UP + MEASURED).contains(&self.frame) {
             self.intervals.push(frame_ms);
+            self.gpu.extend(gpu_ms);
         }
     }
     /// Pointer clicks on the Display page, in design units, and whether
