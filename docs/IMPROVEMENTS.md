@@ -1776,3 +1776,121 @@ Deferred, with reasons:
   aim assist's default and strength, and the frame limit's default. New:
   whether the reticle's default should stay the original 100% ivory (it
   does, now outlined).
+
+## Round 12 scope
+
+Round 11 was merged and pushed on 2026-10-08. This round's focus is polish:
+how the game looks, how its menus feel, and a Graphics Fidelity setting.
+A fresh look at the native captures (`--shader-review`, `--smoke`) found:
+
+- The renderer has one quality level. The 3D scene draws at the window's
+  width capped to 1440 pixels (so a 2560-wide fullscreen draws at 56% and
+  is stretched), with fixed composite work: 8-tap depth occlusion, 8 mist
+  steps, three 3×3 bloom lobes and six lights. No shadows reach the ground
+  from creatures, braziers or monuments, the material atlas has no
+  anisotropic filtering, so flagstones blur at a glancing angle, and nothing
+  can be turned down for a weaker machine. The Hollowlight slider changes
+  how strong the treatment is, not what it costs.
+- The 18 brazier flames are six flat, solid yellow cones each, with five
+  ember cubes: the brightest, most-looked-at objects in the cemetery are
+  the least finished.
+- Menu buttons light up on hover and sink on press, but make no sound, and
+  screens cut from one to the next. The journal's Preferences page is full
+  (six sliders and ten switches), so a new setting has no room.
+- Menus are mouse- and controller-only: the D-pad moves a brass focus frame
+  between controls, but the keyboard can't reach them at all, so a
+  keyboard-only player can't change a setting.
+
+### A. Graphics Fidelity: Low, Medium, High, Ultra
+
+Acceptance criteria:
+- The journal gets a fourth page, **Display**, holding Graphics fidelity
+  beside the frame limit, with Hollowlight, fullscreen, VSync and the FPS
+  counter moved there from Preferences. The fidelity slider has four steps
+  (Low, Medium, High, Ultra), names the step and says in a line what it
+  changes, and works with the mouse, the D-pad and (with item D) the
+  keyboard. It is saved in `settings.json` (`fidelity`); older files load
+  as High.
+- High is today's renderer, unchanged: same render resolution, composite
+  and lights.
+- Low and Medium draw the 3D scene at a lower resolution and do less
+  composite work (fewer occlusion taps, mist steps and bloom lobes, four
+  lights on Low), with fewer embers and closer creature detail levels, so a
+  weak GPU stays smooth.
+- Ultra draws the scene at 1.5× the window's resolution (supersampled,
+  capped at 3840 pixels wide), adds screen-space shadows from the three
+  nearest braziers (creatures, graves, trees and walls darken the ground
+  behind them), 16-tap two-radius occlusion, 12 mist steps, wider and
+  smoother bloom, eight lights instead of six, 16× anisotropic filtering,
+  denser embers and farther creature detail levels.
+- The setting applies at once, without a restart.
+
+Verification: unit tests for the preference round-trip and older files, the
+profile table (High equals today's constants), and the render size at each
+step for small, default and 4K windows. A new `--fidelity-review` in the
+private KWin renders the same staged arena frame at each step, saves a
+capture per step, measures 300 frame intervals per step with VSync and the
+frame limit off (mean and 95th percentile, with the load noted), and moves
+the slider through the real journal with pointer and D-pad input. A High
+capture from the new build is compared pixel by pixel with the same frame
+from `main`. The results table lists each step, what it changes and its
+frame time.
+
+### B. Living fire
+
+Acceptance criteria:
+- Brazier flames are drawn by a flame shader: layered, camera-facing
+  tongues whose shape comes from scrolling noise, white-gold at the core,
+  orange in the body and deep red at the tips, flickering and leaning
+  together, with sparks that rise, drift and fade instead of tumbling
+  cubes. The style stays: low-poly bowls, warm fire against the cold fog.
+- The number of tongues and sparks follows Graphics fidelity.
+- The flames don't cost noticeably more than the cones at High.
+
+Verification: before/after captures of the same firelight frame from the
+shader review, a close capture in the fidelity review at each step, and the
+frame times from both reviews.
+
+### C. Menus that feel finished
+
+Acceptance criteria:
+- Every menu button sounds: a soft tick when the pointer or the focus frame
+  first lands on it, and a brass clack when it is pressed. Both are
+  synthesized like the other cues and follow the sound volume.
+- Screens fade in when they open (title, Collector, packs, Binding,
+  armory, bestiary, pause, level-up, endings and the journal) instead of
+  cutting.
+- While the pause menu, the level-up choice or the journal is open over the
+  arena, the 3D scene behind it is softly blurred and dimmed, so the menu
+  reads first.
+
+Verification: a unit test that the hover tick plays once per control
+entered (not every frame) and the clack once per press; the audio review
+renders the two cues with their levels; text-review captures of the pause
+menu, level-up and journal over the arena, and a capture mid-fade.
+
+### D. Menus with the keyboard
+
+Acceptance criteria:
+- In every menu the arrow keys move the brass focus frame between controls
+  exactly as the D-pad does (and step a slider left and right), Enter or
+  Space presses the control under it, and Escape goes back as before. Held
+  arrows repeat. The mouse takes over again when it moves.
+- Arrow keys and Enter don't act in the arena, so bindings are unaffected.
+
+Verification: unit tests for the key-to-direction mapping and repeat; the
+input review (real key presses through the private KWin) opens the journal,
+reaches the Display page and steps Graphics fidelity with the arrow keys,
+then checks `settings.json`.
+
+### Deferred this round
+
+- Real shadow maps (moon or point lights): the renderer has no shadow pass,
+  and screen-space shadows give Ultra most of the look at a fraction of the
+  work. A shadow-map pass is the next step if Ultra needs more.
+- Elite enemy variants (rest of #8) and crowd damage estimates: both need
+  playtests. Windows validation (#12) and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  aim assist's default and strength, the frame limit's default and the
+  reticle's default. New: whether High should stay the default fidelity.
