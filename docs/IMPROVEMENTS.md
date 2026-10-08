@@ -1607,3 +1607,38 @@ armory at both sizes.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, whether the synthesized score stays,
   aim assist's default and strength, and the frame limit's default.
+
+## Round 10 results
+
+All three scoped items shipped on `improvements-10`. Native checks ran on the
+same CachyOS / Radeon 8060S / KDE Wayland machine, every windowed run inside
+the private KWin with a throwaway `XDG_DATA_HOME`; nothing opened on the
+shared desktop and nothing played through its speakers.
+`~/.local/share/gravewake` didn't exist before or after the round. Load
+averages were 20–33 during the round.
+
+| Item | Verification |
+| --- | --- |
+| A. Audio that reports a failure once and recovers (`0c33c5c`) | Unit tests: a million errors over 25 s print three lines and mark the stream failing; an isolated error doesn't reopen, a lost device does; retries back off 1, 2, 4, 8, 10 s; only a named new default moves the output; the feed passes stereo through and fits mono, six channels, 16-bit, 96 kHz and 44.1 kHz. `scripts/audio-review.sh` (log `captures/audio-review/review.log`) played through cpal, ALSA and PipeWire's ALSA plugin into a private PipeWire and WirePlumber: 3.48 s recorded from the sink, peak 0.68; a million simulated `POLLERR` errors through the stream's error handler printed one line and a closing count, and the stream reopened 1.0 s later; stopping the server closed the stream 2.03 s later, the next open failed once with one line ("Host is down") and the game kept running; with the server back, the game's own retry reopened it 8.0 s later, and the recording had ambience and music before any new sound (RMS 0.077) and new shots after (peak 0.77). The 17-line log has 7 lines from the audio output. **Found while testing:** stopping a PipeWire server under an open stream raises no error at all; the ALSA plugin just stops asking for sound, so neither rodio nor the first version of this code noticed, and the game would have stayed silent until restarted. The output now also reopens a stream that hasn't asked for sound in two seconds. **Changed from the plan:** the review uses a private PipeWire rather than rewriting `.asoundrc` between stages (alsa-lib doesn't reread it), and round 9's `POLLERR` flood is simulated, as nothing here makes ALSA report it. **Not covered:** following a new default device (the macOS case: CI builds it, nobody has run it), real headphones, and a real sound server restarting. |
+| B. Key names from the layout at first launch (`372d6d2`) | A unit test compiles the `us` and `fr` layouts with libxkbcommon: W A S D and Z Q S D, Q types a, M's key a comma, 1 an ampersand, the dead circumflex nothing. `scripts/layout-review.sh` (log `captures/layout/review.log`) in the private KWin: the US layout named 48 keys and the banner read W A S D, the French layout named 47 and the banner read Z Q S D with Ember Bolt on A, both before any key press (`round10/layout-azerty-banner.jpg`). The input review still passes with the layout read at startup. **Not covered:** X11 and macOS (unchanged: names follow a key once pressed), several layouts (only the first is read), and a physical keyboard. |
+| C. How far each card's damage reaches (`204f98b`) | A unit test lines creatures up and checks combat: piercing shots hit exactly 2, 3 or 4 (Duelist, Slugbreaker, Longrifle, Ossuary Crossbow), chains hit the first and 2 or 3 more, the Hand Cannon's 2 m splash reaches a creature beside the one struck and not one 3.6 m away, and the Butcher Cleaver's 139° sweep hits inside its arc and not outside; each matches the card text. A layout test checks all 33 weapons' trait lines and headers fit a pack card at 1440×900 and 960×600 without going below the reading size. Text-review captures of a pack, the Collector's offer, all 33 armory cards, the rarities and the pause ledger at both sizes (`round10/cards-reach*.jpg`, `round10/armory-warhammer-sweep.jpg`). **Changed from the plan:** the rarity moved to the card's header so the trait line has room; the estimate doesn't say "each", because at 960×600 "EST. 78 DPS EACH / -47 VS EQUIPPED" overflowed the card at the minimum reading size, so the card states the reach and the estimate is unchanged. |
+
+Final state: 161 unit tests pass (158 before the round), with no warnings.
+On the final binary, in the private KWin (logs `captures/r10/final-*.log`,
+load 21–33): `cargo test --locked`, `--smoke`, `--smoke --gamepad`,
+`--text-review` (normal and `--review-small`, 111 captures across 108
+fixtures each), `--armory-review`, `scripts/audio-review.sh`,
+`scripts/layout-review.sh`, `scripts/fullscreen-review.sh` and
+`scripts/input-review.sh` all exited 0. The input review ran at load 31,
+above the round's guideline of 24, and passed. The shader, survival, world,
+pacing and model reviews and the benchmark weren't rerun: nothing they draw
+or time changed.
+
+Deferred, with reasons:
+- Elite enemy variants (rest of #8) and crowd damage estimates from play
+  data: both need playtests.
+- Windows validation (#12) and the browser build (#15): nothing here to
+  test on.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  aim assist's default and strength, and the frame limit's default.
