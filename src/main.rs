@@ -1400,7 +1400,7 @@ impl App {
             let x = if self.stage_frames < 40 { 615. } else { 975. };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + (ui::JOURNAL_SLIDER_Y + 4. * 44. + 1.) * scale,
+                r.min.y + (ui::JOURNAL_SLIDER_Y + 4. * ui::JOURNAL_SLIDER_STEP + 1.) * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1423,7 +1423,7 @@ impl App {
             };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + (ui::JOURNAL_TOGGLES_Y + 44. + 17.5) * scale,
+                r.min.y + (ui::JOURNAL_TOGGLES_Y + ui::JOURNAL_TOGGLE_STEP + 17.5) * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {

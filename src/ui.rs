@@ -2287,6 +2287,39 @@ fn last_threat(c: &Canvas, g: &Game, y: f32) -> bool {
     true
 }
 
+/// The aiming reticle: four ticks and a centre dot, `size` times the
+/// original, each over a dark outline so it reads on pale stone, bone and
+/// firelight as well as the night. `spread` widens the gap while firing.
+fn reticle(c: &Canvas, cx: f32, cy: f32, size: f32, spread: f32, color: C) {
+    // Whole-pixel widths, centred on a pixel (odd widths) or between two
+    // (even), so a thin tick is one sharp row rather than two faint ones.
+    let to_px = c.s * c.ui.ctx().pixels_per_point();
+    let stroke_px = (size * to_px).round().max(1.);
+    let pad_px = to_px.round().max(1.);
+    let snap = |v: f32, offset: f32| {
+        let px = v * to_px + offset * to_px / c.s;
+        let snapped = if stroke_px as i32 % 2 == 1 {
+            (px - 0.5).round() + 0.5
+        } else {
+            px.round()
+        };
+        v + (snapped - px) / to_px
+    };
+    let (cx, cy) = (snap(cx, c.offset.x), snap(cy, c.offset.y));
+    let (width, pad) = (stroke_px / to_px, pad_px / to_px);
+    let gap = 5. * size + spread;
+    let length = 6. * size;
+    let outline = C::from_black_alpha(200);
+    // The outline first, a pixel wider on every side, then the colour.
+    for (paint, pad) in [(outline, pad), (color, 0.)] {
+        let (near, far) = (gap - pad, gap + length + pad);
+        for side in [-1., 1.] {
+            c.line((cx + side * near, cy), (cx + side * far, cy), paint, width + 2. * pad);
+            c.line((cx, cy + side * near), (cx, cy + side * far), paint, width + 2. * pad);
+        }
+        c.p.circle_filled(c.pt(cx, cy), (width + pad) * c.s, paint);
+    }
+}
 // Reticle ticks for the player's own hits and arcs toward recent damage.
 fn hit_feedback(c: &Canvas, g: &Game, cx: f32, cy: f32) {
     for mark in &g.damage_marks {
@@ -2539,14 +2572,10 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
     let c = base;
     // The damage arcs reach 108 units from the reticle.
     c.layout("reticle", 610., h * 0.5 - 110., 220., 220.);
-    let d = 5. + g.flash * 38.;
     let cx = 720.;
     let cy = h * 0.5;
-    for side in [-1., 1.] {
-        c.line((cx + side * d, cy), (cx + side * (d + 6.), cy), IVORY, 1.);
-        c.line((cx, cy + side * d), (cx, cy + side * (d + 6.)), IVORY, 1.);
-    }
-    c.p.circle_filled(c.pt(cx, cy), c.s, IVORY);
+    let [r, gr, b] = g.prefs.reticle_color.rgb();
+    reticle(c, cx, cy, g.prefs.reticle_size, g.flash * 38., C::from_rgb(r, gr, b));
     let c = &base.anchored(k, 0., h);
     // Keep the sculpted end caps away from the labels and digits.
     c.texture("button_plate", 16., h - 134., 395., 108., C::WHITE);
@@ -3577,7 +3606,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             Some("%"),
         ),
     ] {
-        let y = JOURNAL_SLIDER_Y + row as f32 * 44.;
+        let y = JOURNAL_SLIDER_Y + row as f32 * JOURNAL_SLIDER_STEP;
         c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
         c.slider(id, 615., y + 1., 360., value, min, max);
         if let Some(unit) = readout {
@@ -3592,7 +3621,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     }
     // The frame limit steps through its listed rates.
     let limits = crate::pacing::FRAME_LIMITS;
-    let y = JOURNAL_SLIDER_Y + 5. * 44.;
+    let y = JOURNAL_SLIDER_Y + 5. * JOURNAL_SLIDER_STEP;
     let mut stop = limits
         .iter()
         .position(|&l| l == g.prefs.frame_limit)
@@ -3633,7 +3662,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "field_tips",
         392.,
-        JOURNAL_TOGGLES_Y + 88.,
+        JOURNAL_TOGGLES_Y + 2. * JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if tips {
@@ -3648,7 +3677,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "hud_scale",
         734.,
-        JOURNAL_TOGGLES_Y + 88.,
+        JOURNAL_TOGGLES_Y + 2. * JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         &format!("HUD SIZE {:.0}%", g.prefs.hud_scale * 100.),
@@ -3660,7 +3689,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "fullscreen",
         392.,
-        JOURNAL_TOGGLES_Y + 132.,
+        JOURNAL_TOGGLES_Y + 3. * JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if fullscreen {
@@ -3677,7 +3706,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "toggle_sprint",
         734.,
-        JOURNAL_TOGGLES_Y + 132.,
+        JOURNAL_TOGGLES_Y + 3. * JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if toggle {
@@ -3692,7 +3721,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "vsync",
         392.,
-        JOURNAL_TOGGLES_Y + 44.,
+        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if g.vsync {
@@ -3708,7 +3737,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "fpscounter",
         734.,
-        JOURNAL_TOGGLES_Y + 44.,
+        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if g.show_fps {
@@ -3720,6 +3749,15 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     ) {
         g.show_fps = !g.show_fps;
         g.save_performance();
+    }
+    let y = JOURNAL_TOGGLES_Y + 4. * JOURNAL_TOGGLE_STEP;
+    let size = format!("RETICLE SIZE {:.0}%", g.prefs.reticle_size * 100.);
+    if c.button("reticle_size", 392., y, 310., 35., &size, false) {
+        g.prefs.reticle_size = g.prefs.next_reticle_size();
+    }
+    let color = format!("RETICLE / {}", g.prefs.reticle_color.name());
+    if c.button("reticle_color", 734., y, 310., 35., &color, false) {
+        g.prefs.reticle_color = g.prefs.reticle_color.next();
     }
 }
 fn journal_controls(c: &Canvas, g: &mut Game) {
@@ -3898,12 +3936,15 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
         g.save_preferences();
     }
 }
-/// Top row of the Preferences page sliders; the Hollowlight slider is row 4.
+/// Top row of the Preferences page sliders, `JOURNAL_SLIDER_STEP` apart;
+/// the Hollowlight slider is row 4.
 pub const JOURNAL_SLIDER_Y: f32 = 312.;
-/// Top of the Preferences page switches: invert and flashes, then the
-/// presentation row (VSync, FPS), then field tips and HUD size, then
-/// fullscreen, 44 apart.
-pub const JOURNAL_TOGGLES_Y: f32 = 560.;
+pub const JOURNAL_SLIDER_STEP: f32 = 40.;
+/// Top of the Preferences page switches, `JOURNAL_TOGGLE_STEP` apart:
+/// invert and flashes, then the presentation row (VSync, FPS), then field
+/// tips and HUD size, then fullscreen and sprint, then the reticle.
+pub const JOURNAL_TOGGLES_Y: f32 = 542.;
+pub const JOURNAL_TOGGLE_STEP: f32 = 41.;
 
 #[cfg(test)]
 mod tests {
@@ -3921,6 +3962,128 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| (f.take().unwrap())(&Canvas::new(ui, 0.)));
         });
+    }
+    /// Draw `f` on a 1440×900 canvas filled with `background` and rasterize
+    /// egui's own triangles into RGB pixels.
+    fn rasterize(background: C, f: impl FnOnce(&Canvas)) -> (usize, Vec<[f32; 3]>) {
+        let (w, h) = (1440usize, 900usize);
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32))),
+            ..Default::default()
+        };
+        let mut f = Some(f);
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(ctx, |ui| {
+                    let c = Canvas::new(ui, 0.);
+                    c.fill(0., 0., 1440., 900., background);
+                    (f.take().unwrap())(&c)
+                });
+        });
+        let mut pixels = vec![[0f32; 3]; w * h];
+        for primitive in ctx.tessellate(out.shapes, out.pixels_per_point) {
+            let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive else {
+                continue;
+            };
+            for t in mesh.indices.chunks(3) {
+                let v = [0, 1, 2].map(|i| mesh.vertices[t[i] as usize]);
+                let area = |a: Pos2, b: Pos2, p: Pos2| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+                let total = area(v[0].pos, v[1].pos, v[2].pos);
+                if total.abs() < 1e-6 {
+                    continue;
+                }
+                let xs = v.map(|v| v.pos.x);
+                let ys = v.map(|v| v.pos.y);
+                let x0 = xs.iter().cloned().fold(f32::MAX, f32::min).floor().max(0.) as usize;
+                let x1 = (xs.iter().cloned().fold(f32::MIN, f32::max).ceil() as usize).min(w - 1);
+                let y0 = ys.iter().cloned().fold(f32::MAX, f32::min).floor().max(0.) as usize;
+                let y1 = (ys.iter().cloned().fold(f32::MIN, f32::max).ceil() as usize).min(h - 1);
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        let p = Pos2::new(x as f32 + 0.5, y as f32 + 0.5);
+                        let l = [
+                            area(v[1].pos, v[2].pos, p) / total,
+                            area(v[2].pos, v[0].pos, p) / total,
+                            area(v[0].pos, v[1].pos, p) / total,
+                        ];
+                        if l.iter().any(|l| *l < 0.) {
+                            continue;
+                        }
+                        // Premultiplied colour, blended over what's there.
+                        let mix = |k: usize| -> f32 {
+                            (0..3).map(|i| l[i] * v[i].color.to_array()[k] as f32 / 255.).sum()
+                        };
+                        let alpha = mix(3);
+                        let px = &mut pixels[y * w + x];
+                        for k in 0..3 {
+                            px[k] = mix(k) + px[k] * (1. - alpha);
+                        }
+                    }
+                }
+            }
+        }
+        (w, pixels)
+    }
+    #[test]
+    fn the_reticle_is_outlined_so_it_reads_on_a_pale_surface() {
+        let luminance = |p: [f32; 3]| 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+        // Across a stroke from outside: background, dark outline, the
+        // stroke at full colour, dark outline, background.
+        let crosses = |line: Vec<[f32; 3]>, target: [f32; 3]| -> Result<(), String> {
+            let dark = |p: [f32; 3]| luminance(p) < 0.4;
+            let mut i = 0;
+            let mut skip = |want: &dyn Fn([f32; 3]) -> bool, what: &str| {
+                let from = i;
+                while i < line.len() && want(line[i]) {
+                    i += 1;
+                }
+                if i == from {
+                    return Err(format!("no {what} at {i}: {line:?}"));
+                }
+                Ok(from..i)
+            };
+            skip(&|p| !dark(p), "background")?;
+            skip(&dark, "outline")?;
+            let stroke = skip(&|p| !dark(p), "stroke")?;
+            skip(&dark, "outline below")?;
+            skip(&|p| !dark(p), "background below")?;
+            let full = stroke
+                .map(|k| line[k])
+                .any(|p| (0..3).all(|k| (p[k] - target[k]).abs() < 0.12));
+            if !full {
+                return Err(format!("the stroke never reaches {target:?}: {line:?}"));
+            }
+            Ok(())
+        };
+        // Ivory on ivory (bone, fog, a lit wall) is the hardest case.
+        for size in Preferences::RETICLE_SIZES {
+            for color in crate::game::ReticleColor::ALL {
+                let [r, g, b] = color.rgb();
+                let target = [r, g, b].map(|v| v as f32 / 255.);
+                let (w, pixels) = rasterize(IVORY, |c| {
+                    reticle(c, 720., 450., size, 0., C::from_rgb(r, g, b))
+                });
+                let column = |x: usize| (436..464).map(|y| pixels[y * w + x]).collect();
+                let row = |y: usize| (706..734).map(|x| pixels[y * w + x]).collect();
+                // The dot, along a diagonal that misses the ticks.
+                let diagonal = (-9..9).map(|t: i32| {
+                    pixels[(450 + t) as usize * w + (720 + t) as usize]
+                });
+                // The right-hand tick, the lower tick and the dot.
+                let along = (5. * size + 3. * size).round() as usize;
+                for (what, line) in [
+                    ("right tick", column(720 + along)),
+                    ("lower tick", row(450 + along)),
+                    ("dot", diagonal.collect()),
+                ] {
+                    if let Err(e) = crosses(line, target) {
+                        panic!("{size} {color:?} {what}: {e}");
+                    }
+                }
+            }
+        }
     }
     #[test]
     fn every_cards_trait_line_and_header_fit_a_pack_card() {

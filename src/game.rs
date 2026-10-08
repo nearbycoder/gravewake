@@ -456,6 +456,54 @@ pub struct Preferences {
     pub aim_assist: bool,
     /// Most frames per second, one of `pacing::FRAME_LIMITS`; 0 is Off.
     pub frame_limit: u32,
+    /// Reticle size relative to the original: one of `RETICLE_SIZES`.
+    pub reticle_size: f32,
+    #[serde(deserialize_with = "lenient")]
+    pub reticle_color: ReticleColor,
+}
+/// The reticle's colours. Ivory is the original; the others stand out
+/// against the cemetery's greys, bone and firelight.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReticleColor {
+    #[default]
+    Ivory,
+    Green,
+    Yellow,
+    Cyan,
+    Magenta,
+}
+impl ReticleColor {
+    pub const ALL: [ReticleColor; 5] = [
+        ReticleColor::Ivory,
+        ReticleColor::Green,
+        ReticleColor::Yellow,
+        ReticleColor::Cyan,
+        ReticleColor::Magenta,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            ReticleColor::Ivory => "IVORY",
+            ReticleColor::Green => "GREEN",
+            ReticleColor::Yellow => "YELLOW",
+            ReticleColor::Cyan => "CYAN",
+            ReticleColor::Magenta => "MAGENTA",
+        }
+    }
+    pub fn rgb(self) -> [u8; 3] {
+        match self {
+            ReticleColor::Ivory => [250, 242, 220],
+            ReticleColor::Green => [96, 238, 104],
+            ReticleColor::Yellow => [255, 230, 60],
+            ReticleColor::Cyan => [70, 228, 240],
+            ReticleColor::Magenta => [250, 86, 226],
+        }
+    }
+    /// The next colour, wrapping to ivory.
+    pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|c| *c == self).unwrap();
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
 }
 /// Read a field, or use its default if that field alone is damaged, so one
 /// bad entry doesn't reset every other preference.
@@ -488,6 +536,8 @@ impl Default for Preferences {
             toggle_sprint: false,
             aim_assist: true,
             frame_limit: 0,
+            reticle_size: 1.,
+            reticle_color: ReticleColor::Ivory,
         }
     }
 }
@@ -501,6 +551,15 @@ impl Preferences {
     pub const HUD_SCALES: [f32; 6] = [0.8, 0.9, 1., 1.1, 1.2, 1.3];
     /// Larger HUD sizes use the compact layout.
     pub const COMPACT_ABOVE: f32 = 1.15;
+    /// Reticle sizes the journal cycles through.
+    pub const RETICLE_SIZES: [f32; 3] = [1., 1.5, 2.];
+    /// The reticle size after `self.reticle_size`, wrapping to the smallest.
+    pub fn next_reticle_size(&self) -> f32 {
+        Self::RETICLE_SIZES
+            .into_iter()
+            .find(|k| *k > self.reticle_size + 0.001)
+            .unwrap_or(Self::RETICLE_SIZES[0])
+    }
     /// The HUD size after `self.hud_scale`, wrapping to the smallest.
     pub fn next_hud_scale(&self) -> f32 {
         Self::HUD_SCALES
@@ -538,6 +597,20 @@ impl Preferences {
             toggle_sprint: self.toggle_sprint,
             aim_assist: self.aim_assist,
             frame_limit: crate::pacing::nearest_limit(self.frame_limit),
+            // The nearest listed size.
+            reticle_size: if self.reticle_size.is_finite() {
+                Self::RETICLE_SIZES
+                    .into_iter()
+                    .min_by(|a, b| {
+                        (a - self.reticle_size)
+                            .abs()
+                            .total_cmp(&(b - self.reticle_size).abs())
+                    })
+                    .unwrap()
+            } else {
+                d.reticle_size
+            },
+            reticle_color: self.reticle_color,
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -2547,6 +2620,56 @@ mod tests {
         let bytes = serde_json::to_vec(&prefs).unwrap();
         assert!(!Preferences::from_json(&bytes).unwrap().aim_assist);
         assert!(Preferences::from_json(br#"{"volume":0.5}"#).unwrap().aim_assist);
+    }
+    #[test]
+    fn the_reticle_size_and_colour_are_saved_and_older_files_keep_the_original() {
+        let mut prefs = Preferences::default();
+        assert_eq!((prefs.reticle_size, prefs.reticle_color), (1., ReticleColor::Ivory));
+        prefs.reticle_size = 2.;
+        prefs.reticle_color = ReticleColor::Cyan;
+        let bytes = serde_json::to_vec(&prefs).unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains(r#""reticle_color":"cyan""#));
+        let loaded = Preferences::from_json(&bytes).unwrap();
+        assert_eq!((loaded.reticle_size, loaded.reticle_color), (2., ReticleColor::Cyan));
+        // Older files load at the original size and colour.
+        let old = Preferences::from_json(br#"{"volume":0.5}"#).unwrap();
+        assert_eq!((old.reticle_size, old.reticle_color), (1., ReticleColor::Ivory));
+        // Hand-edited sizes snap to the nearest listed one; an unknown colour
+        // resets only the colour.
+        for (size, snapped) in [(1.3, 1.5), (9., 2.), (0., 1.), (-4., 1.)] {
+            let json = format!(r#"{{"reticle_size":{size},"volume":0.3}}"#);
+            let loaded = Preferences::from_json(json.as_bytes()).unwrap();
+            assert_eq!(loaded.reticle_size, snapped, "{size}");
+        }
+        let odd = Preferences::from_json(br#"{"reticle_color":"plaid","volume":0.3}"#).unwrap();
+        assert_eq!((odd.reticle_color, odd.volume), (ReticleColor::Ivory, 0.3));
+        let nan = Preferences {
+            reticle_size: f32::NAN,
+            ..prefs
+        }
+        .sanitized();
+        assert_eq!(nan.reticle_size, 1.);
+        // The journal's switches visit every size and colour and wrap.
+        let mut prefs = Preferences::default();
+        let mut sizes = vec![];
+        let mut colors = vec![];
+        for _ in 0..5 {
+            prefs.reticle_size = prefs.next_reticle_size();
+            sizes.push(prefs.reticle_size);
+            prefs.reticle_color = prefs.reticle_color.next();
+            colors.push(prefs.reticle_color);
+        }
+        assert_eq!(sizes, [1.5, 2., 1., 1.5, 2.]);
+        assert_eq!(
+            colors,
+            [
+                ReticleColor::Green,
+                ReticleColor::Yellow,
+                ReticleColor::Cyan,
+                ReticleColor::Magenta,
+                ReticleColor::Ivory
+            ]
+        );
     }
     #[test]
     fn the_frame_limit_is_saved_off_by_default_and_snaps_to_a_listed_rate() {

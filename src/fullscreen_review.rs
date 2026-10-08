@@ -30,7 +30,7 @@ const SWITCHES: [(Switch, bool, &str); 4] = [
 ];
 /// The journal's Fullscreen switch and its close button, in design units.
 fn fullscreen_switch() -> (f32, f32) {
-    (392. + 155., crate::ui::JOURNAL_TOGGLES_Y + 132. + 17.5)
+    (392. + 155., crate::ui::JOURNAL_TOGGLES_Y + 3. * crate::ui::JOURNAL_TOGGLE_STEP + 17.5)
 }
 const CLOSE_JOURNAL: (f32, f32) = (720., 769.);
 

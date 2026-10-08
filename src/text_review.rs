@@ -97,6 +97,11 @@ impl Review {
             ("hud-controller-remapped".into(), Screen::Hud(16)),
             ("hud-size-120-busy".into(), Screen::Hud(17)),
             ("hud-size-130-busy".into(), Screen::Hud(18)),
+            ("hud-reticle-100-ivory".into(), Screen::Hud(19)),
+            ("hud-reticle-150-green".into(), Screen::Hud(20)),
+            ("hud-reticle-200-yellow".into(), Screen::Hud(21)),
+            ("hud-reticle-100-cyan".into(), Screen::Hud(22)),
+            ("hud-reticle-150-magenta".into(), Screen::Hud(23)),
             ("hud-creature-note".into(), Screen::CreatureNote),
             ("collector".into(), Screen::Shop(false, false)),
             ("collector-chalice-bound".into(), Screen::Shop(true, false)),
@@ -408,7 +413,7 @@ impl Review {
                 game.run.survival.level = 99;
                 game.run.survival.xp = 798;
                 game.show_fps = true;
-                if kind == 0 || (4..=12).contains(&kind) || kind == 16 {
+                if kind == 0 || (4..=12).contains(&kind) || kind == 16 || kind >= 19 {
                     game.run.time = 0.;
                     game.run.wave = 1;
                     game.run.enemies = vec![Enemy::spawn(0, Vec3::new(0., 0., -6.), 1, 0.)];
@@ -430,6 +435,23 @@ impl Review {
                         text: "12345!".into(),
                         life: 1.,
                     });
+                }
+                if kind >= 19 {
+                    // The reticle over pale bone: a drudge's ribcage fills
+                    // the centre, past the opening banner.
+                    use crate::game::ReticleColor;
+                    game.run.time = 30.;
+                    let player = game.run.pos;
+                    game.run.yaw = 0.;
+                    game.run.pitch = -0.2;
+                    game.run.enemies = vec![Enemy::spawn(0, player + Vec3::new(0., -player.y, -1.9), 1, 0.)];
+                    (game.prefs.reticle_size, game.prefs.reticle_color) = match kind {
+                        19 => (1., ReticleColor::Ivory),
+                        20 => (1.5, ReticleColor::Green),
+                        21 => (2., ReticleColor::Yellow),
+                        22 => (1., ReticleColor::Cyan),
+                        _ => (1.5, ReticleColor::Magenta),
+                    };
                 }
                 if kind == 2 {
                     game.reload = 1.;
