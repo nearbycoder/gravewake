@@ -1,4 +1,4 @@
-use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{Sink, Source};
 use std::{cell::Cell, collections::HashMap};
 pub const RATE: u32 = 48000;
 pub const EVENTS: &[&str] = &[
@@ -38,39 +38,37 @@ pub const EVENTS: &[&str] = &[
     "warn_blink",
 ];
 pub struct Audio {
-    stream: Option<(OutputStream, OutputStreamHandle)>,
-    ambience: Option<Sink>,
+    output: crate::output::Output,
+    ambience: Sink,
     music: crate::music::Music,
     bank: HashMap<&'static str, Vec<Vec<f32>>>,
     variation: Cell<usize>,
 }
 impl Audio {
     pub fn new() -> Self {
-        let stream = OutputStream::try_default().ok();
-        let ambience = stream.as_ref().and_then(|(_, h)| Sink::try_new(h).ok());
-        if let Some(s) = &ambience {
-            let rate = 22050;
-            let mut data = Vec::with_capacity(rate * 8);
-            let mut seed = 92837u32;
-            let mut wind = 0.;
-            for i in 0..rate * 8 {
-                let t = i as f32 / rate as f32;
-                let noise = random(&mut seed);
-                wind = wind * 0.995 + noise * 0.005;
-                let drone = (t * 55. * std::f32::consts::TAU).sin() * 0.022
-                    + (t * 82.5 * std::f32::consts::TAU).sin() * 0.012;
-                data.push(drone + wind * 0.3);
-            }
-            s.append(rodio::buffer::SamplesBuffer::new(1, rate as u32, data).repeat_infinite());
-            s.set_volume(0.3);
+        let output = crate::output::Output::start();
+        let ambience = output.sink();
+        let rate = 22050;
+        let mut data = Vec::with_capacity(rate * 8);
+        let mut seed = 92837u32;
+        let mut wind = 0.;
+        for i in 0..rate * 8 {
+            let t = i as f32 / rate as f32;
+            let noise = random(&mut seed);
+            wind = wind * 0.995 + noise * 0.005;
+            let drone = (t * 55. * std::f32::consts::TAU).sin() * 0.022
+                + (t * 82.5 * std::f32::consts::TAU).sin() * 0.012;
+            data.push(drone + wind * 0.3);
         }
+        ambience.append(rodio::buffer::SamplesBuffer::new(1, rate as u32, data).repeat_infinite());
+        ambience.set_volume(0.3);
         let bank = EVENTS
             .iter()
             .map(|&e| (e, (0..4).map(|v| synthesize(e, v)).collect()))
             .collect();
-        let music = crate::music::Music::new(stream.as_ref().map(|(_, h)| h));
+        let music = crate::music::Music::new(output.sink());
         Self {
-            stream,
+            output,
             ambience,
             music,
             bank,
@@ -78,18 +76,17 @@ impl Audio {
         }
     }
     pub fn volume(&self, v: f32) {
-        if let Some(s) = &self.ambience {
-            s.set_volume(v * 0.3);
-        }
+        self.ambience.set_volume(v * 0.3);
+    }
+    /// The output device, for diagnostics and the audio review.
+    pub fn output(&self) -> &crate::output::Output {
+        &self.output
     }
     /// Steer the score: layer gains (calm, pressure, boss) and overall level.
     pub fn music(&self, layers: [f32; 3], master: f32) {
         self.music.set(layers, master);
     }
     pub fn play(&self, event: &str, volume: f32) {
-        let Some((_, handle)) = &self.stream else {
-            return;
-        };
         let Some(variants) = self.bank.get(event) else {
             return;
         };
@@ -98,13 +95,10 @@ impl Audio {
         let source =
             rodio::buffer::SamplesBuffer::new(2, RATE, variants[v % variants.len()].clone())
                 .amplify(volume);
-        let _ = handle.play_raw(source);
+        self.output.play(source);
     }
     /// Play a world sound with per-channel gains from `spatial`.
     pub fn play_at(&self, event: &str, volume: f32, (left, right): (f32, f32)) {
-        let Some((_, handle)) = &self.stream else {
-            return;
-        };
         let Some(variants) = self.bank.get(event) else {
             return;
         };
@@ -116,7 +110,7 @@ impl Audio {
             frame[1] *= right;
         }
         let source = rodio::buffer::SamplesBuffer::new(2, RATE, samples).amplify(volume);
-        let _ = handle.play_raw(source);
+        self.output.play(source);
     }
 }
 /// Left/right gains for a sound at `source` heard from `listener` facing

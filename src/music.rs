@@ -413,27 +413,24 @@ impl Source for Score {
     }
 }
 
-/// The playing score. Without an audio device it does nothing.
+/// The playing score, on a sink that lasts the whole session.
 pub struct Music {
     mix: Arc<Mix>,
-    _sink: Option<rodio::Sink>,
+    _sink: rodio::Sink,
 }
 impl Music {
-    pub fn new(handle: Option<&rodio::OutputStreamHandle>) -> Self {
+    pub fn new(sink: rodio::Sink) -> Self {
         let mix = Arc::new(Mix::default());
-        let sink = handle.and_then(|h| rodio::Sink::try_new(h).ok());
-        if let Some(sink) = &sink {
-            let stems = Arc::new(OnceLock::new());
-            let render = stems.clone();
-            let _ = std::thread::Builder::new()
-                .name("music".into())
-                .spawn(move || {
-                    let start = std::time::Instant::now();
-                    let _ = render.set(compose());
-                    println!("Music rendered in {} ms", start.elapsed().as_millis());
-                });
-            sink.append(Score::new(stems, mix.clone()));
-        }
+        let stems = Arc::new(OnceLock::new());
+        let render = stems.clone();
+        let _ = std::thread::Builder::new()
+            .name("music".into())
+            .spawn(move || {
+                let start = std::time::Instant::now();
+                let _ = render.set(compose());
+                println!("Music rendered in {} ms", start.elapsed().as_millis());
+            });
+        sink.append(Score::new(stems, mix.clone()));
         Self { mix, _sink: sink }
     }
     pub fn set(&self, layers: [f32; 3], master: f32) {

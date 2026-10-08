@@ -2,6 +2,7 @@ mod anatomy;
 mod anatomy_review;
 mod architecture_assets;
 mod audio;
+mod audio_review;
 mod controls;
 mod dismemberment;
 mod encounters;
@@ -15,6 +16,7 @@ mod guns;
 mod model_review;
 mod motion;
 mod music;
+mod output;
 mod pacing;
 mod pacing_review;
 mod perf;
@@ -1776,6 +1778,14 @@ impl AppIdentity for winit::window::WindowAttributes {
     }
 }
 fn main() {
+    if std::env::args().any(|a| a == "--audio-review") {
+        if let Some(reason) = audio_review::refusal() {
+            eprintln!("Refusing to run: {reason}.");
+            std::process::exit(2);
+        }
+        audio_review::run();
+        return;
+    }
     let smoke = std::env::args().any(|a| {
         a == "--smoke"
             || a == "--armory-review"

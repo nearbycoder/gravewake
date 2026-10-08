@@ -282,6 +282,26 @@ Enemy sounds come from where they happen. Special-attack wind-ups, blasts and me
 
 ![Spectrograms of the five wind-up cues](docs/media/improvements/round2/warning-cue-spectrograms.jpg)
 
+## Audio output
+
+`src/output.rs` opens the sound device itself rather than through rodio's `OutputStream`, which printed every stream error with `eprintln!` (one failing ALSA device printed the same line 3.7 million times in under a minute) and never recovered. One rodio mixer lives for the whole session; the ambience, the score and every sound play into it. A thread named `audio-output` opens the default device with cpal (stereo 32-bit floats at 48 kHz if offered, otherwise the device's default, with channels and rate converted), feeds it from the mixer and watches it:
+
+- A stream error prints one line, then at most one line every ten seconds with a count of the ones in between, and a count of any left when the stream closes.
+- The stream is closed and reopened when the device reports it's gone, when errors come faster than one a second, or when the device hasn't asked for sound in two seconds (PipeWire's ALSA plugin just stops asking when the server goes away, with no error at all). Reopening, or opening at launch, retries after 1, 2, 4 and 8 seconds, then every 10; the reason it can't open is printed once.
+- Every two seconds it checks the system's default device and moves when another device's name becomes the default. Under PipeWire or PulseAudio the default is always `default`, which already follows the system.
+- While no stream is open, one-off sounds are dropped rather than queued, and the ambience and score pause where they are.
+
+Opening a device can block (a starting or stuck sound server), so the main thread never waits on it.
+
+`scripts/audio-review.sh` checks this against real ALSA and a real sound server without using the speakers. It runs `--audio-review` with `HOME` set to a throwaway folder under `captures/audio-review/`, whose `.asoundrc` makes PipeWire's ALSA plugin the default device, and `PIPEWIRE_RUNTIME_DIR` inside it, so nothing can reach the machine's own sound server. The review starts a private PipeWire (the stock configuration plus one null sink) and WirePlumber (no hardware, no D-Bus, no saved state), then:
+
+1. plays shots and the score and records the sink with `pw-record`, checking they're linked and audible;
+2. pushes a million copies of a `POLLERR` error through the stream's error handler (simulated: the private server can't make ALSA report one), checking the stream closes and reopens;
+3. stops the server under the open stream, checking the stream closes, the game keeps running and every reopen fails quietly;
+4. starts the server again, checking the game's own retry reopens it and the recording has the ambience and score before any new sound, then new shots.
+
+The script fails if the log has more than 40 lines, or more than 20 from the audio output, and copies the recordings and server logs to `captures/audio-review/`. It needs `pipewire`, `wireplumber`, `pw-record`, `pw-link` and PipeWire's ALSA plugin, and stops any server it leaves behind (only processes whose environment names its own throwaway folder).
+
 ## Combat feedback
 
 Your own weapon hits flash a marker around the reticle: ivory for a body hit, gold for a headshot, and a larger red mark with a short tick for a kill. Pellets and splash that land together show the strongest result and tick once. Automatic powers do not trigger markers. When you take damage, a red arc around the reticle points toward each source (the striking enemy, a blast's caster, or the direction a projectile came from) and fades over 1.2 seconds; up to four arcs show at once. **Reduce flashes** in Settings & Controls softens the full-screen hurt vignette and muzzle lighting to 35%.
