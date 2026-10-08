@@ -28,9 +28,10 @@ const SWITCHES: [(Switch, bool, &str); 4] = [
     (Switch::Journal, true, "03-journal-fullscreen"),
     (Switch::F11, false, "04-f11-windowed"),
 ];
-/// The journal's Fullscreen switch and its close button, in design units.
+/// The Display page's Fullscreen switch and the journal's close button, in
+/// design units.
 fn fullscreen_switch() -> (f32, f32) {
-    (392. + 155., crate::ui::JOURNAL_TOGGLES_Y + 3. * crate::ui::JOURNAL_TOGGLE_STEP + 17.5)
+    (392. + 155., crate::ui::DISPLAY_TOGGLES_Y + crate::ui::JOURNAL_TOGGLE_STEP + 17.5)
 }
 const CLOSE_JOURNAL: (f32, f32) = (720., 769.);
 
@@ -162,7 +163,7 @@ impl App {
             (Switch::Journal, 1) => {
                 self.game.mode = Mode::Paused;
                 self.game.settings = true;
-                self.game.journal_page = JournalPage::Preferences;
+                self.game.journal_page = JournalPage::Display;
             }
             (Switch::Journal, 20) => r.click = Some((fullscreen_switch(), true)),
             (Switch::Journal, 21) => r.click = Some((fullscreen_switch(), false)),

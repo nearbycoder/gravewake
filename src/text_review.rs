@@ -36,6 +36,8 @@ enum Screen {
     /// full rank with a bound weapon, 2 practice.
     PauseLedger(u8),
     Settings,
+    /// The journal's Display page: 0 at High, 1 at Ultra.
+    Display(u8),
     /// The controller cursor after D-pad presses: 0 the Collector, 1 the
     /// journal's sliders.
     PadMenu(u8),
@@ -140,6 +142,8 @@ impl Review {
             ("pause-ledger-full".into(), Screen::PauseLedger(1)),
             ("pause-ledger-practice".into(), Screen::PauseLedger(2)),
             ("settings".into(), Screen::Settings),
+            ("display".into(), Screen::Display(0)),
+            ("display-ultra".into(), Screen::Display(1)),
             ("pad-collector-dpad".into(), Screen::PadMenu(0)),
             ("pad-journal-slider".into(), Screen::PadMenu(1)),
             ("controls".into(), Screen::Controls(0)),
@@ -759,6 +763,16 @@ impl Review {
                 game.show_fps = true;
                 game.prefs.volume = 1.;
                 game.prefs.frame_limit = 144;
+            }
+            Screen::Display(kind) => {
+                game.mode = Mode::Paused;
+                game.settings = true;
+                game.journal_page = crate::game::JournalPage::Display;
+                game.show_fps = true;
+                game.prefs.frame_limit = 144;
+                if kind == 1 {
+                    game.prefs.fidelity = crate::fidelity::Fidelity::Ultra;
+                }
             }
             Screen::Controls(kind) => {
                 use crate::controls::{Action, Trigger};

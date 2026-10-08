@@ -464,6 +464,10 @@ pub struct Preferences {
     /// next launch if it fits the screen.
     #[serde(deserialize_with = "lenient")]
     pub window_size: Option<[f32; 2]>,
+    /// Graphics fidelity, Low to Ultra; older files load as High, the
+    /// renderer they were saved with.
+    #[serde(deserialize_with = "lenient")]
+    pub fidelity: crate::fidelity::Fidelity,
 }
 /// The window's size on a first launch, in logical pixels.
 pub const DEFAULT_WINDOW: [f32; 2] = [1440., 900.];
@@ -565,6 +569,7 @@ impl Default for Preferences {
             reticle_size: 1.,
             reticle_color: ReticleColor::Ivory,
             window_size: None,
+            fidelity: crate::fidelity::Fidelity::High,
         }
     }
 }
@@ -643,6 +648,7 @@ impl Preferences {
                 .window_size
                 .filter(|s| s.iter().all(|v| v.is_finite() && *v > 0. && *v < 16384.))
                 .map(|[w, h]| [w.max(MIN_WINDOW[0]), h.max(MIN_WINDOW[1])]),
+            fidelity: self.fidelity,
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -654,6 +660,7 @@ impl Preferences {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JournalPage {
     Preferences,
+    Display,
     Keyboard,
     Controller,
 }
@@ -2657,6 +2664,33 @@ mod tests {
         assert!(!Preferences::from_json(&bytes).unwrap().aim_assist);
         assert!(Preferences::from_json(br#"{"volume":0.5}"#).unwrap().aim_assist);
     }
+    #[test]
+    fn graphics_fidelity_is_saved_and_older_files_load_as_high() {
+        use crate::fidelity::Fidelity;
+        assert_eq!(Preferences::default().fidelity, Fidelity::High);
+        for fidelity in Fidelity::ALL {
+            let prefs = Preferences {
+                fidelity,
+                ..Preferences::default()
+            };
+            let bytes = serde_json::to_vec(&prefs).unwrap();
+            let loaded = Preferences::from_json(&bytes).unwrap();
+            assert_eq!(loaded.fidelity, fidelity);
+        }
+        let bytes = serde_json::to_vec(&Preferences {
+            fidelity: Fidelity::Ultra,
+            ..Preferences::default()
+        })
+        .unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains(r#""fidelity":"ultra""#));
+        // Files from before the setting load as High, today's renderer; an
+        // unknown step resets only the fidelity.
+        let old = Preferences::from_json(br#"{"volume":0.5}"#).unwrap();
+        assert_eq!((old.fidelity, old.volume), (Fidelity::High, 0.5));
+        let odd = Preferences::from_json(br#"{"fidelity":"cinematic","volume":0.3}"#).unwrap();
+        assert_eq!((odd.fidelity, odd.volume), (Fidelity::High, 0.3));
+    }
+
     #[test]
     fn the_reticle_size_and_colour_are_saved_and_older_files_keep_the_original() {
         let mut prefs = Preferences::default();

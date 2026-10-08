@@ -154,7 +154,7 @@ The custom WGSL world and composite shaders now add:
 - Gentle foliage wind, emissive pulses, and animated ember/frost/venom treatments on affected enemy surfaces.
 - Bloom at three scales, conservative edge smoothing, warm/cool color grading and filmic highlight compression. The interface is drawn afterward and stays sharp.
 
-**F6** toggles the treatment. **Settings & Controls → Hollowlight** adjusts intensity from 0 to 100%. The preference is saved separately from the run in `~/Library/Application Support/Gravewake/graphics.json`; 0 uses the previous composite treatment and skips the new depth effects. These are stylized shader effects, not ray-traced reflections or volumetric shadow maps.
+**F6** toggles the treatment. **Settings & Controls → Display → Hollowlight** adjusts intensity from 0 to 100%; how much work the treatment does is set by Graphics fidelity (below). The preference is saved separately from the run in `~/Library/Application Support/Gravewake/graphics.json`; 0 uses the previous composite treatment and skips the new depth effects. These are stylized shader effects, not ray-traced reflections or volumetric shadow maps.
 
 `cargo run --release -- --shader-review` captures baseline/full/half intensity, firelight, muzzle lighting, elemental effects, the live settings control and a resized window. It tests the actual slider through egui input and reports frame intervals excluding setup/capture frames. On the development M4 Max, the 1440×900 release review remained near the 60 Hz presentation cap with both the original and Hollowlight treatments (roughly 16.7 ms/frame); this is an observed scene result, not a GPU-only timing or a guarantee for every machine. The review uses a disposable run and never writes user saves or preferences.
 
@@ -211,6 +211,32 @@ XDG_DATA_HOME=$PWD/captures/home scripts/nested-kwin.sh -- target/release/gravew
 ```
 
 Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance results and methodology](PERFORMANCE.md) for measured frame times, matched reference images, and limitations.
+
+## Graphics fidelity
+
+**Graphics fidelity** (`fidelity` in `settings.json`: `low`, `medium`, `high` or `ultra`; older files and unknown values load as High) is a stepped slider on the journal's **Display** page, beside the frame limit. `src/fidelity.rs` holds one `Profile` per step, and the renderer applies a change on the next frame by remaking the scene targets. High is the renderer as it was before the setting (`fidelity::tests::high_is_the_renderer_as_it_was` pins its numbers), so a default install looks and runs as before.
+
+| | Low | Medium | High (default) | Ultra |
+| --- | --- | --- | --- | --- |
+| 3D scene width | 60% of the window, 480–960 px | 80%, 560–1200 px | 100%, 640–1440 px | 200% (supersampled), 640–3840 px |
+| Brazier lights per surface | 4 | 6 | 6 | 8 |
+| Depth occlusion taps | off | 4 | 8 | 16 (two rings) |
+| Mist steps along each ray | 4 | 6 | 8 | 12 |
+| Bloom | one 3×3 lobe | three 3×3 lobes | three 3×3 lobes | three 5×5 lobes |
+| Brazier shadows | – | – | – | three nearest braziers |
+| Edge smoothing | off | on | on | on |
+| Material filtering | trilinear | trilinear | trilinear | 16× anisotropic |
+| Flame tongues / sparks per brazier | 3 / 2 | 4 / 3 | 6 / 5 | 9 / 10 |
+| Reduced creature meshes beyond | 5 m and 10 m | 6.5 m and 12 m | 8 m and 14 m | 14 m and 24 m |
+
+The composite's radii are given in High's pixels and scaled by each step's scene size (`Profile::radius_scale`), so bloom and occlusion cover the same part of the screen at every step. Ultra's brazier shadows are screen-space: for the three braziers nearest the camera, `light_blocked` in `shaders/composite.wgsl` marches from each surface toward a point just above the flame and checks the depth buffer with a limited thickness (so the first-person weapon and distant silhouettes never cast), and the share of that brazier's light that is blocked (from the world shader's diffuse model) is taken away. Only what is on screen can cast, and the brazier's own bowl is skipped. The interface is drawn at full resolution at every step.
+
+`--fidelity-review` renders two staged arena frames (a brazier with four creatures, and the Mourning Court with 24) at each step with game time frozen, so every step draws the same frame. Each stage warms up for 60 frames, then measures 300 frame intervals with VSync and the frame limit off, then saves a capture (never a timed frame) to `captures/fidelity/`. The load average before and after each stage goes in `report.json`. Then it opens the Display page, clicks the Low and Ultra stops with the pointer and steps left twice with the D-pad through the controller cursor, checking the setting after each. Add `--fidelity-offscreen` to draw to an offscreen target and wait for the GPU every frame (`captures/fidelity/offscreen/`), which times each step's whole CPU and GPU work without the compositor's pacing:
+
+```sh
+XDG_DATA_HOME=$PWD/captures/home scripts/nested-kwin.sh -- target/release/gravewake --fidelity-review
+XDG_DATA_HOME=$PWD/captures/home scripts/nested-kwin.sh -- target/release/gravewake --fidelity-review --fidelity-offscreen
+```
 
 ## Controllers
 

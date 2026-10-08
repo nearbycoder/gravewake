@@ -6,6 +6,8 @@ mod audio_review;
 mod controls;
 mod dismemberment;
 mod encounters;
+mod fidelity;
+mod fidelity_review;
 mod fullscreen_review;
 mod input_review;
 mod keymap;
@@ -84,6 +86,7 @@ struct App {
     survival_review: bool,
     text_review: Option<text_review::Review>,
     model_review: Option<model_review::Review>,
+    fidelity_review: Option<fidelity_review::Review>,
     world_review: Option<world_review::Review>,
     fullscreen_review: Option<fullscreen_review::Review>,
     pacing_review: Option<pacing_review::Review>,
@@ -272,6 +275,9 @@ impl App {
             text_review: std::env::args()
                 .any(|a| a == "--text-review")
                 .then(|| text_review::Review::new(std::env::args().any(|a| a == "--review-small"))),
+            fidelity_review: std::env::args()
+                .any(|a| a == "--fidelity-review")
+                .then(fidelity_review::Review::new),
             model_review: std::env::args().any(|a| a == "--model-review").then(|| {
                 model_review::Review::new(std::env::args().any(|a| a == "--model-before"))
             }),
@@ -443,6 +449,7 @@ impl App {
                 }
                 if self.stage == 6 {
                     self.game.settings = true;
+                    self.game.journal_page = game::JournalPage::Display;
                 }
                 if self.stage == 7 {
                     self.game.settings = false;
@@ -965,6 +972,13 @@ impl App {
                 return;
             }
             path
+        } else if let Some(review) = &mut self.fidelity_review {
+            let path = review.step(&mut self.game);
+            if review.finished() {
+                event_loop.exit();
+                return;
+            }
+            path
         } else if let Some(review) = &mut self.text_review {
             let path = review.step(&mut self.game, self.frames);
             if review.finished() {
@@ -1023,6 +1037,7 @@ impl App {
             || self.pacing_review.is_some()
             || self.text_review.is_some()
             || self.model_review.is_some()
+            || self.fidelity_review.is_some()
             || self.world_review.is_some()
         {
             review_path.as_deref()
@@ -1097,6 +1112,7 @@ impl App {
             && !self.benchmark
             && self.text_review.is_none()
             && self.model_review.is_none()
+            && self.fidelity_review.is_none()
             && self.world_review.is_none()
             && self.stage == 7)
             || (self.armory_review && self.stage == 17)
@@ -1212,6 +1228,7 @@ impl App {
             && !self.survival_review
             && self.text_review.is_none()
             && self.model_review.is_none()
+            && self.fidelity_review.is_none()
             && self.world_review.is_none())
             || self.review
         {
@@ -1221,7 +1238,10 @@ impl App {
             }
         }
         let simulation_start = Instant::now();
-        if self.text_review.is_none() && self.model_review.is_none() {
+        if self.text_review.is_none()
+            && self.model_review.is_none()
+            && self.fidelity_review.is_none()
+        {
             self.game.update(dt);
         }
         if let Some(review) = &mut self.world_review {
@@ -1499,11 +1519,11 @@ impl App {
         if self.shader_review && self.stage == 6 && matches!(self.stage_frames, 20 | 21 | 50 | 51) {
             let r = input.screen_rect.unwrap();
             let scale = (r.width() / 1440.).min(r.height() / 900.);
-            // Ends of the journal's Hollowlight slider (row 4).
+            // Ends of the Display page's Hollowlight slider.
             let x = if self.stage_frames < 40 { 615. } else { 975. };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + (ui::JOURNAL_SLIDER_Y + 4. * ui::JOURNAL_SLIDER_STEP + 1.) * scale,
+                r.min.y + (ui::DISPLAY_HOLLOWLIGHT_Y + 1.) * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1526,7 +1546,7 @@ impl App {
             };
             let pos = egui::pos2(
                 r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
-                r.min.y + (ui::JOURNAL_TOGGLES_Y + ui::JOURNAL_TOGGLE_STEP + 17.5) * scale,
+                r.min.y + (ui::DISPLAY_TOGGLES_Y + 17.5) * scale,
             );
             input.events.push(egui::Event::PointerMoved(pos));
             input.events.push(egui::Event::PointerButton {
@@ -1536,11 +1556,49 @@ impl App {
                 modifiers: egui::Modifiers::NONE,
             });
         }
+        if let Some(review) = &self.fidelity_review {
+            let r = input.screen_rect.unwrap();
+            let scale = (r.width() / 1440.).min(r.height() / 900.);
+            let to_screen = |(x, y): (f32, f32)| {
+                egui::pos2(
+                    r.min.x + (r.width() - 1440. * scale) * 0.5 + x * scale,
+                    r.min.y + y * scale,
+                )
+            };
+            if let Some((at, pressed)) = review.click() {
+                let pos = to_screen(at);
+                input.events.push(egui::Event::PointerMoved(pos));
+                input.events.push(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+            // The D-pad steps the slider through the real controller cursor.
+            if let Some((start, buttons)) = review.pad() {
+                if self.pad.cursor.pos.is_none() {
+                    self.pad.cursor.pos = Some(to_screen(start));
+                }
+                let frame = gamepad::Frame {
+                    pressed: buttons.clone(),
+                    held: buttons,
+                    ..Default::default()
+                };
+                let targets = ui::pad_targets(&self.ctx);
+                let (events, _) = self.pad.cursor.step(&frame, 1. / 60., r, &targets);
+                input.events.extend(events);
+            }
+        }
         let out = self.ctx.run(input, |ctx| {
             if self
                 .model_review
                 .as_ref()
                 .is_none_or(|review| review.show_ui())
+                && self
+                    .fidelity_review
+                    .as_ref()
+                    .is_none_or(|review| review.show_ui())
             {
                 ui::draw(ctx, &mut self.game, renderer.view_projection);
             }
@@ -1583,6 +1641,9 @@ impl App {
                 [renderer.config.width, renderer.config.height],
                 format!("{:?}", renderer.config.present_mode),
             );
+        }
+        if let Some(review) = &mut self.fidelity_review {
+            review.record(frame_interval, [renderer.config.width, renderer.config.height]);
         }
         if let Some(review) = &mut self.world_review {
             review.record(
@@ -1925,6 +1986,7 @@ fn main() {
             || a == "--benchmark"
             || a == "--text-review"
             || a == "--model-review"
+            || a == "--fidelity-review"
             || a == "--world-review"
             || a == "--fullscreen-review"
             || a == "--pacing-review"

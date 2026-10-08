@@ -1,4 +1,4 @@
-struct Camera { vp:mat4x4<f32>, inverse_vp:mat4x4<f32>, eye:vec4<f32>, info:vec4<f32>, lights:array<vec4<f32>,6> };
+struct Camera { vp:mat4x4<f32>, inverse_vp:mat4x4<f32>, eye:vec4<f32>, info:vec4<f32>, quality:vec4<f32>, detail:vec4<f32>, lights:array<vec4<f32>,8> };
 @group(0) @binding(0) var<uniform> cam:Camera;
 @group(0) @binding(1) var materials:texture_2d<f32>;
 @group(0) @binding(2) var material_sampler:sampler;
@@ -136,7 +136,7 @@ fn soil_noise(p:vec2<f32>)->f32 {
   base*=1.-wet*0.14;
  }
  let moon=max(dot(n,normalize(vec3(-0.4,0.8,0.2))),0.);var lighting=vec3(0.095,0.15,0.18)+moon*vec3(0.12,0.19,0.22);
- for(var i=0;i<6;i++){let delta=cam.lights[i].xyz-in.world;let d=length(delta);let attenuation=9.0/(1.+d*d*0.55);let flicker=0.95+0.05*sin(cam.info.x*9.+f32(i)*3.);lighting+=vec3(1.8,0.68,0.17)*attenuation*(0.16+0.84*max(dot(n,normalize(delta)),0.))*flicker;}
+ for(var i=0;i<i32(cam.detail.x);i++){let delta=cam.lights[i].xyz-in.world;let d=length(delta);let attenuation=9.0/(1.+d*d*0.55);let flicker=0.95+0.05*sin(cam.info.x*9.+f32(i)*3.);lighting+=vec3(1.8,0.68,0.17)*attenuation*(0.16+0.84*max(dot(n,normalize(delta)),0.))*flicker;}
  let bone=material>1.5 && material<2.5;
  let worn=material>10.5 && material<14.5;
  let closeFill=select(1.,select(0.62,0.45,worn),bone || worn);
@@ -152,7 +152,7 @@ fn soil_noise(p:vec2<f32>)->f32 {
   if stone {
    let moonHalf=normalize(view+normalize(vec3(-0.4,0.8,0.2)));
    color+=vec3(0.045,0.105,0.14)*pow(max(dot(n,moonHalf),0.),45.)*wet;
-   for(var i=0;i<6;i++) {
+   for(var i=0;i<i32(cam.detail.x);i++) {
     let d=cam.lights[i].xyz-in.world;let len=length(d);let half=normalize(view+normalize(d));
     let highlight=pow(max(dot(n,half),0.),mix(24.,95.,wet));
     color+=vec3(1.45,0.48,0.065)*highlight*wet/(1.+len*len*0.12);
@@ -183,7 +183,7 @@ fn soil_noise(p:vec2<f32>)->f32 {
   let keyTint=select(vec3(0.18,0.28,0.34),vec3(0.8,0.65,0.43),studio);
   color+=fresnel*(keyTint*spec+vec3(0.18,0.25,0.29)*specRim);
   if cam.info.y<0.5 && metal {
-   for(var i=0;i<6;i++) {
+   for(var i=0;i<i32(cam.detail.x);i++) {
     let d=cam.lights[i].xyz-in.world;let half=normalize(v+normalize(d));
     color+=fresnel*vec3(1.1,0.43,0.13)*pow(max(dot(n,half),0.),exponent)*(1.-roughness)*fx/(1.+dot(d,d)*0.08);
    }

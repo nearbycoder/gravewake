@@ -288,9 +288,10 @@ fn noise(i: u32) -> f32 {
 fn tint(c: [f32; 3], s: f32) -> [f32; 3] {
     [c[0] * s, c[1] * s, c[2] * s]
 }
-/// The closest six lights illuminate each view; all bowls retain visible flames.
+/// The closest lights (six at High fidelity) illuminate each view; all bowls
+/// retain visible flames.
 pub use crate::world_layout::FIRES;
-pub fn nearest_lights(eye: Vec3) -> [[f32; 4]; 6] {
+pub fn nearest_lights(eye: Vec3) -> [[f32; 4]; crate::fidelity::MAX_LIGHTS] {
     let mut lights = FIRES;
     lights.sort_by(|a, b| {
         Vec3::from_array(*a)
@@ -1287,9 +1288,10 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
             // Close combat keeps the sculpted mesh; distant crowds use the
             // authored silhouette-preserving Blender reductions.
             let distance_squared = game.run.pos.distance_squared(e.pos);
-            let lod = if distance_squared > 196. {
+            let profile = game.prefs.fidelity.profile();
+            let lod = if distance_squared > profile.detail_far * profile.detail_far {
                 2
-            } else if distance_squared > 64. {
+            } else if distance_squared > profile.detail_near * profile.detail_near {
                 1
             } else {
                 0
@@ -1387,12 +1389,13 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
         }
     }
     m.instance_spheres = false;
+    let fire = game.prefs.fidelity.profile();
     for p in FIRES {
         let p = Vec3::from_array(p);
         if optimized && !visibility.contains(p + Vec3::Y * 0.7, 1.6) {
             continue;
         }
-        for j in 0..6 {
+        for j in 0..fire.tongues {
             let t = game.elapsed * 5. + j as f32 * 1.74;
             let pos = p + Vec3::new(
                 t.sin() * 0.10,
@@ -1413,7 +1416,7 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
                 9.,
             );
         }
-        for j in 0..5 {
+        for j in 0..fire.sparks {
             let t = (game.elapsed * 0.7 + j as f32 * 0.31).fract();
             let pos = p + Vec3::new((game.elapsed + j as f32).sin() * t * 0.5, t * 1.7, 0.);
             m.cube(pos, Vec3::splat(0.024 * (1. - t)), [4., 1., 0.1], 9.);

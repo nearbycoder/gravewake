@@ -580,8 +580,14 @@ impl<'a> Canvas<'a> {
         });
         self.line((x, y), (x + w, y), C::from_rgb(91, 66, 40), 5.);
         self.line((x, y - 1.), (x + w * t, y - 1.), GOLD, 2.);
-        for i in 0..=10 {
-            let xx = x + i as f32 * w / 10.;
+        // A stepped slider marks its stops; a smooth one, tenths.
+        let ticks = if step == crate::gamepad::SLIDER_STEP {
+            10
+        } else {
+            (1. / step).round() as usize
+        };
+        for i in 0..=ticks {
+            let xx = x + i as f32 * w / ticks as f32;
             self.line((xx, y + 8.), (xx, y + 11.), INK.gamma_multiply(0.45), 0.7);
         }
         self.seal(x + w * t, y, 10., INK);
@@ -3519,25 +3525,23 @@ fn journal(c: &Canvas, g: &mut Game) {
     );
     c.center(720., 190., "PREFERENCES  &  FIELD NOTES", 11., INK);
     c.flourish(720., 213., 530., INK);
-    for (id, x, label, page) in [
-        ("journal_preferences", 372., "PREFERENCES", JournalPage::Preferences),
-        ("journal_controls", 612., "KEYBOARD", JournalPage::Keyboard),
-        ("journal_controller", 852., "CONTROLLER", JournalPage::Controller),
-    ] {
+    for (id, x, label, page) in JOURNAL_TABS {
         let open = g.journal_page == page;
-        if c.button(id, x, 236., 216., 38., label, open) {
+        if c.button(id, x, 236., JOURNAL_TAB_WIDTH, 38., label, open) {
             g.journal_page = page;
             g.rebinding = None;
             g.pad_rebinding = None;
             g.controls_note.clear();
         }
         if open {
-            c.line((x + 38., 284.), (x + 178., 284.), INK, 2.);
-            c.diamond(x + 108., 284., 5., INK);
+            let mid = x + JOURNAL_TAB_WIDTH * 0.5;
+            c.line((mid - 62., 284.), (mid + 62., 284.), INK, 2.);
+            c.diamond(mid, 284., 5., INK);
         }
     }
     match g.journal_page {
         JournalPage::Preferences => journal_preferences(c, g),
+        JournalPage::Display => journal_display(c, g),
         JournalPage::Keyboard => journal_controls(c, g),
         JournalPage::Controller => journal_controller(c, g),
     }
@@ -3597,15 +3601,6 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             max_fov,
             Some("°"),
         ),
-        (
-            4,
-            "Hollowlight / F6",
-            "hollowlight_effects",
-            &mut g.shader_intensity,
-            0.,
-            1.,
-            Some("%"),
-        ),
     ] {
         let y = JOURNAL_SLIDER_Y + row as f32 * JOURNAL_SLIDER_STEP;
         c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
@@ -3620,27 +3615,6 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
         }
     }
-    // The frame limit steps through its listed rates.
-    let limits = crate::pacing::FRAME_LIMITS;
-    let y = JOURNAL_SLIDER_Y + 5. * JOURNAL_SLIDER_STEP;
-    let mut stop = limits
-        .iter()
-        .position(|&l| l == g.prefs.frame_limit)
-        .unwrap_or(0) as f32;
-    c.text(392., y, "Frame limit", 17., INK, true, Align2::LEFT_CENTER);
-    let last = (limits.len() - 1) as f32;
-    c.stepped_slider("frame_limit", 615., y + 1., 360., &mut stop, 0., last, 1. / last);
-    g.prefs.frame_limit = limits[stop.round() as usize];
-    c.center(
-        1010.,
-        y + 1.,
-        match g.prefs.frame_limit {
-            0 => "OFF".to_string(),
-            fps => format!("{fps} FPS"),
-        },
-        12.,
-        INK,
-    );
     for (id, x, y, label, on) in [
         ("invert_y", 392., JOURNAL_TOGGLES_Y, "INVERT LOOK", g.prefs.invert_y),
         (
@@ -3663,7 +3637,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "field_tips",
         392.,
-        JOURNAL_TOGGLES_Y + 2. * JOURNAL_TOGGLE_STEP,
+        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if tips {
@@ -3675,39 +3649,11 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     ) {
         g.set_field_tips(!tips);
     }
-    if c.button(
-        "hud_scale",
-        734.,
-        JOURNAL_TOGGLES_Y + 2. * JOURNAL_TOGGLE_STEP,
-        310.,
-        35.,
-        &format!("HUD SIZE {:.0}%", g.prefs.hud_scale * 100.),
-        false,
-    ) {
-        g.prefs.hud_scale = g.prefs.next_hud_scale();
-    }
-    let fullscreen = g.prefs.fullscreen;
-    if c.button(
-        "fullscreen",
-        392.,
-        JOURNAL_TOGGLES_Y + 3. * JOURNAL_TOGGLE_STEP,
-        310.,
-        35.,
-        if fullscreen {
-            "F11 / FULLSCREEN ON"
-        } else {
-            "F11 / FULLSCREEN OFF"
-        },
-        false,
-    ) {
-        g.prefs.fullscreen = !fullscreen;
-        g.fullscreen_changed = true;
-    }
     let toggle = g.prefs.toggle_sprint;
     if c.button(
         "toggle_sprint",
         734.,
-        JOURNAL_TOGGLES_Y + 3. * JOURNAL_TOGGLE_STEP,
+        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
         310.,
         35.,
         if toggle {
@@ -3719,10 +3665,73 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     ) {
         g.prefs.toggle_sprint = !toggle;
     }
+    let y = JOURNAL_TOGGLES_Y + 2. * JOURNAL_TOGGLE_STEP;
+    let size = format!("RETICLE SIZE {:.0}%", g.prefs.reticle_size * 100.);
+    if c.button("reticle_size", 392., y, 310., 35., &size, false) {
+        g.prefs.reticle_size = g.prefs.next_reticle_size();
+    }
+    let color = format!("RETICLE / {}", g.prefs.reticle_color.name());
+    if c.button("reticle_color", 734., y, 310., 35., &color, false) {
+        g.prefs.reticle_color = g.prefs.reticle_color.next();
+    }
+}
+/// The Display page: graphics fidelity beside the frame limit, the
+/// Hollowlight treatment, and how the window and HUD are presented.
+fn journal_display(c: &Canvas, g: &mut Game) {
+    use crate::fidelity::Fidelity;
+    let y = DISPLAY_FIDELITY_Y;
+    let last = (Fidelity::ALL.len() - 1) as f32;
+    let mut stop = g.prefs.fidelity.index() as f32;
+    c.text(392., y, "Graphics fidelity", 17., INK, true, Align2::LEFT_CENTER);
+    c.stepped_slider("fidelity", 615., y + 1., 360., &mut stop, 0., last, 1. / last);
+    g.prefs.fidelity = Fidelity::ALL[stop.round() as usize];
+    // Each stop is named under the track; the chosen one is inked and
+    // underlined, so the slider needs no readout of its own.
+    for (i, step) in Fidelity::ALL.into_iter().enumerate() {
+        let x = 615. + 360. * i as f32 / last;
+        if step == g.prefs.fidelity {
+            c.center(x, y + 30., step.name(), 12., INK);
+            c.line((x - 22., y + 41.), (x + 22., y + 41.), INK, 1.2);
+        } else {
+            c.center(x, y + 30., step.name(), 11., INK.gamma_multiply(0.72));
+        }
+    }
+    c.center(720., y + 62., g.prefs.fidelity.summary(), 12., INK);
+    let y = DISPLAY_HOLLOWLIGHT_Y;
+    c.text(392., y, "Hollowlight / F6", 17., INK, true, Align2::LEFT_CENTER);
+    c.slider("hollowlight_effects", 615., y + 1., 360., &mut g.shader_intensity, 0., 1.);
+    c.center(
+        1010.,
+        y + 1.,
+        format!("{}%", (g.shader_intensity * 100.).round()),
+        12.,
+        INK,
+    );
+    // The frame limit steps through its listed rates.
+    let limits = crate::pacing::FRAME_LIMITS;
+    let y = DISPLAY_FRAME_LIMIT_Y;
+    let mut stop = limits
+        .iter()
+        .position(|&l| l == g.prefs.frame_limit)
+        .unwrap_or(0) as f32;
+    c.text(392., y, "Frame limit", 17., INK, true, Align2::LEFT_CENTER);
+    let last = (limits.len() - 1) as f32;
+    c.stepped_slider("frame_limit", 615., y + 1., 360., &mut stop, 0., last, 1. / last);
+    g.prefs.frame_limit = limits[stop.round() as usize];
+    c.center(
+        1010.,
+        y + 1.,
+        match g.prefs.frame_limit {
+            0 => "OFF".to_string(),
+            fps => format!("{fps} FPS"),
+        },
+        12.,
+        INK,
+    );
     if c.button(
         "vsync",
         392.,
-        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
+        DISPLAY_TOGGLES_Y,
         310.,
         35.,
         if g.vsync {
@@ -3738,7 +3747,7 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     if c.button(
         "fpscounter",
         734.,
-        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
+        DISPLAY_TOGGLES_Y,
         310.,
         35.,
         if g.show_fps {
@@ -3751,14 +3760,33 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         g.show_fps = !g.show_fps;
         g.save_performance();
     }
-    let y = JOURNAL_TOGGLES_Y + 4. * JOURNAL_TOGGLE_STEP;
-    let size = format!("RETICLE SIZE {:.0}%", g.prefs.reticle_size * 100.);
-    if c.button("reticle_size", 392., y, 310., 35., &size, false) {
-        g.prefs.reticle_size = g.prefs.next_reticle_size();
+    let fullscreen = g.prefs.fullscreen;
+    if c.button(
+        "fullscreen",
+        392.,
+        DISPLAY_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
+        310.,
+        35.,
+        if fullscreen {
+            "F11 / FULLSCREEN ON"
+        } else {
+            "F11 / FULLSCREEN OFF"
+        },
+        false,
+    ) {
+        g.prefs.fullscreen = !fullscreen;
+        g.fullscreen_changed = true;
     }
-    let color = format!("RETICLE / {}", g.prefs.reticle_color.name());
-    if c.button("reticle_color", 734., y, 310., 35., &color, false) {
-        g.prefs.reticle_color = g.prefs.reticle_color.next();
+    if c.button(
+        "hud_scale",
+        734.,
+        DISPLAY_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
+        310.,
+        35.,
+        &format!("HUD SIZE {:.0}%", g.prefs.hud_scale * 100.),
+        false,
+    ) {
+        g.prefs.hud_scale = g.prefs.next_hud_scale();
     }
 }
 fn journal_controls(c: &Canvas, g: &mut Game) {
@@ -3947,15 +3975,29 @@ fn journal_controller(c: &Canvas, g: &mut Game) {
         g.save_preferences();
     }
 }
-/// Top row of the Preferences page sliders, `JOURNAL_SLIDER_STEP` apart;
-/// the Hollowlight slider is row 4.
+/// Top row of the Preferences page sliders, `JOURNAL_SLIDER_STEP` apart.
 pub const JOURNAL_SLIDER_Y: f32 = 312.;
 pub const JOURNAL_SLIDER_STEP: f32 = 40.;
 /// Top of the Preferences page switches, `JOURNAL_TOGGLE_STEP` apart:
-/// invert and flashes, then the presentation row (VSync, FPS), then field
-/// tips and HUD size, then fullscreen and sprint, then the reticle.
-pub const JOURNAL_TOGGLES_Y: f32 = 542.;
+/// invert and flashes, field tips and sprint, then the reticle.
+pub const JOURNAL_TOGGLES_Y: f32 = 492.;
 pub const JOURNAL_TOGGLE_STEP: f32 = 41.;
+/// Top of the Display page switches: VSync and FPS, then fullscreen and
+/// HUD size.
+pub const DISPLAY_TOGGLES_Y: f32 = 512.;
+/// The Display page's sliders: Graphics fidelity (with its stop names and
+/// summary below it), Hollowlight and the frame limit.
+pub const DISPLAY_FIDELITY_Y: f32 = 312.;
+pub const DISPLAY_HOLLOWLIGHT_Y: f32 = 412.;
+pub const DISPLAY_FRAME_LIMIT_Y: f32 = 452.;
+/// The journal's page tabs, left to right.
+pub const JOURNAL_TAB_WIDTH: f32 = 168.;
+pub const JOURNAL_TABS: [(&str, f32, &str, JournalPage); 4] = [
+    ("journal_preferences", 372., "PREFERENCES", JournalPage::Preferences),
+    ("journal_display", 548., "DISPLAY", JournalPage::Display),
+    ("journal_controls", 724., "KEYBOARD", JournalPage::Keyboard),
+    ("journal_controller", 900., "CONTROLLER", JournalPage::Controller),
+];
 
 #[cfg(test)]
 mod tests {

@@ -310,7 +310,30 @@ struct Camera {
     inverse_vp: [[f32; 4]; 4],
     eye: [f32; 4],
     info: [f32; 4],
-    lights: [[f32; 4]; 6],
+    /// Composite work for the fidelity step: occlusion taps, mist steps,
+    /// bloom mode and shadowed lights.
+    quality: [f32; 4],
+    /// Lights in use, the composite radius scale, edge smoothing (0 or 1).
+    detail: [f32; 4],
+    lights: [[f32; 4]; crate::fidelity::MAX_LIGHTS],
+}
+impl Camera {
+    fn fidelity(profile: &crate::fidelity::Profile, radius_scale: f32) -> ([f32; 4], [f32; 4]) {
+        (
+            [
+                profile.occlusion_taps as f32,
+                profile.mist_steps as f32,
+                profile.bloom as f32,
+                profile.shadow_lights as f32,
+            ],
+            [
+                profile.lights as f32,
+                radius_scale,
+                if profile.edge_smoothing { 1. } else { 0. },
+                0.,
+            ],
+        )
+    }
 }
 pub struct Renderer {
     pub timings: [f64; 3],
@@ -342,6 +365,10 @@ pub struct Renderer {
     composite: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     camera_bind: wgpu::BindGroup,
+    /// The same, sampling the material atlas with anisotropic filtering.
+    camera_bind_sharp: wgpu::BindGroup,
+    /// The fidelity step the scene targets were made for.
+    fidelity: crate::fidelity::Fidelity,
     camera_layout: wgpu::BindGroupLayout,
     material_view: wgpu::TextureView,
     material_sampler: wgpu::Sampler,
@@ -416,9 +443,10 @@ impl Renderer {
         };
         surface.configure(&device, &config);
         crate::watchdog::milestone("surface configured");
-        let offscreen_target = (std::env::args()
+        let offscreen_target = ((std::env::args()
             .any(|arg| arg == "--model-offscreen" || arg == "--world-offscreen")
             && std::env::args().any(|arg| arg == "--model-review" || arg == "--world-review"))
+            || crate::fidelity_review::offscreen())
         .then(|| Self::review_target(&device, &config));
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Camera and lights"),
@@ -582,6 +610,40 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&material_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&weapon_color),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&weapon_surface),
+                },
+            ],
+        });
+        let sharp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            lod_max_clamp: 6.,
+            anisotropy_clamp: crate::fidelity::Fidelity::Ultra.profile().anisotropy,
+            ..Default::default()
+        });
+        let camera_bind_sharp = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera with anisotropic materials"),
+            layout: &camera_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&material_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sharp_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -809,7 +871,7 @@ impl Renderer {
             ],
         });
         let (scene_view, depth, scene_bind) =
-            Self::targets(&device, &scene_layout, &config, &camera_buffer);
+            Self::targets(&device, &scene_layout, &config, &camera_buffer, crate::fidelity::Fidelity::High);
         let post_shader =
             device.create_shader_module(wgpu::include_wgsl!("../shaders/composite.wgsl"));
         let post_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -895,6 +957,8 @@ impl Renderer {
             composite,
             camera_buffer,
             camera_bind,
+            camera_bind_sharp,
+            fidelity: crate::fidelity::Fidelity::High,
             camera_layout,
             material_view,
             material_sampler,
@@ -967,7 +1031,9 @@ impl Renderer {
                     inverse_vp: vp.inverse().to_cols_array_2d(),
                     eye: eye.extend(1.).to_array(),
                     info: [0., 1., 1., 0.],
-                    lights: [[0.; 4]; 6],
+                    quality: [8., 8., 3., 0.],
+                    detail: [6., 1., 1., 0.],
+                    lights: [[0.; 4]; crate::fidelity::MAX_LIGHTS],
                 };
                 let cb = self
                     .device
@@ -1077,9 +1143,9 @@ impl Renderer {
         layout: &wgpu::BindGroupLayout,
         config: &wgpu::SurfaceConfiguration,
         camera: &wgpu::Buffer,
+        fidelity: crate::fidelity::Fidelity,
     ) -> (wgpu::TextureView, wgpu::TextureView, wgpu::BindGroup) {
-        let width = config.width.clamp(640, 1440);
-        let height = (width as f32 * config.height as f32 / config.width as f32) as u32;
+        let (width, height) = fidelity.profile().scene_size(config.width, config.height);
         let size = wgpu::Extent3d {
             width,
             height: height.max(1),
@@ -1172,9 +1238,26 @@ impl Renderer {
             &self.scene_layout,
             &self.config,
             &self.camera_buffer,
+            self.fidelity,
         );
     }
     pub fn camera(&mut self, game: &Game) {
+        if game.prefs.fidelity != self.fidelity {
+            // A new step takes effect at once: the scene targets change size.
+            self.fidelity = game.prefs.fidelity;
+            (self.scene_view, self.depth, self.scene_bind) = Self::targets(
+                &self.device,
+                &self.scene_layout,
+                &self.config,
+                &self.camera_buffer,
+                self.fidelity,
+            );
+        }
+        let profile = self.fidelity.profile();
+        let (quality, detail) = Camera::fidelity(
+            &profile,
+            profile.radius_scale(self.config.width, self.config.height),
+        );
         let mode = if game.vsync {
             wgpu::PresentMode::AutoVsync
         } else {
@@ -1233,6 +1316,8 @@ impl Renderer {
                 (game.flash / 0.095).clamp(0., 1.)
                     * if game.prefs.reduce_flashes { 0.35 } else { 1. },
             ],
+            quality,
+            detail,
             lights: scene::nearest_lights(eye),
         };
         self.queue
@@ -1361,7 +1446,12 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_bind_group(0, &self.camera_bind, &[]);
+            let camera_bind = if self.fidelity.profile().anisotropy > 1 {
+                &self.camera_bind_sharp
+            } else {
+                &self.camera_bind
+            };
+            pass.set_bind_group(0, camera_bind, &[]);
             pass.set_pipeline(&self.sky);
             pass.draw(0..3, 0..1);
             pass.set_pipeline(&self.world);
