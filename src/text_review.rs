@@ -38,6 +38,9 @@ enum Screen {
     Settings,
     /// The journal's Display page: 0 at High, 1 at Ultra.
     Display(u8),
+    /// The Collector a tenth of a second after the arena gave way to it,
+    /// mid-fade.
+    Fade,
     /// The controller cursor after D-pad presses: 0 the Collector, 1 the
     /// journal's sliders.
     PadMenu(u8),
@@ -144,6 +147,7 @@ impl Review {
             ("settings".into(), Screen::Settings),
             ("display".into(), Screen::Display(0)),
             ("display-ultra".into(), Screen::Display(1)),
+            ("fade-into-collector".into(), Screen::Fade),
             ("pad-collector-dpad".into(), Screen::PadMenu(0)),
             ("pad-journal-slider".into(), Screen::PadMenu(1)),
             ("controls".into(), Screen::Controls(0)),
@@ -220,6 +224,9 @@ impl Review {
         let screen = self.screens[self.index].1;
         if self.frame == 1 {
             Self::setup(game, screen);
+        }
+        if matches!(screen, Screen::Fade) && self.frame == 27 {
+            game.mode = Mode::Shop;
         }
         // Advance UI/preview animation while holding combat and all game values fixed.
         game.elapsed = global_frame as f32 / 30.;
@@ -763,6 +770,10 @@ impl Review {
                 game.show_fps = true;
                 game.prefs.volume = 1.;
                 game.prefs.frame_limit = 144;
+            }
+            Screen::Fade => {
+                game.mode = Mode::Arena;
+                game.notice_time = 0.;
             }
             Screen::Display(kind) => {
                 game.mode = Mode::Paused;

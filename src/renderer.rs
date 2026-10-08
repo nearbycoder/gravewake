@@ -313,7 +313,8 @@ struct Camera {
     /// Composite work for the fidelity step: occlusion taps, mist steps,
     /// bloom mode and shadowed lights.
     quality: [f32; 4],
-    /// Lights in use, the composite radius scale, edge smoothing (0 or 1).
+    /// Lights in use, the composite radius scale, edge smoothing (0 or 1),
+    /// and how far the scene is blurred and dimmed behind a menu (0 to 1).
     detail: [f32; 4],
     lights: [[f32; 4]; crate::fidelity::MAX_LIGHTS],
 }
@@ -369,6 +370,10 @@ pub struct Renderer {
     camera_bind_sharp: wgpu::BindGroup,
     /// The fidelity step the scene targets were made for.
     fidelity: crate::fidelity::Fidelity,
+    /// How far the scene is blurred behind a menu, eased toward its target
+    /// in real time, and when that was last updated.
+    backdrop: f32,
+    backdrop_clock: std::time::Instant,
     camera_layout: wgpu::BindGroupLayout,
     material_view: wgpu::TextureView,
     material_sampler: wgpu::Sampler,
@@ -959,6 +964,8 @@ impl Renderer {
             camera_bind,
             camera_bind_sharp,
             fidelity: crate::fidelity::Fidelity::High,
+            backdrop: 0.,
+            backdrop_clock: std::time::Instant::now(),
             camera_layout,
             material_view,
             material_sampler,
@@ -1254,10 +1261,26 @@ impl Renderer {
             );
         }
         let profile = self.fidelity.profile();
-        let (quality, detail) = Camera::fidelity(
+        let (quality, mut detail) = Camera::fidelity(
             &profile,
             profile.radius_scale(self.config.width, self.config.height),
         );
+        // The pause menu, a level-up, an ending, the journal and the new-run
+        // dialog soften and dim the scene behind them over about a fifth of
+        // a second; closing them clears it as quickly.
+        let menu = matches!(
+            game.mode,
+            Mode::Paused | Mode::LevelUp | Mode::Dead | Mode::Victory
+        ) || game.settings
+            || game.confirm_new_run;
+        let dt = self.backdrop_clock.elapsed().as_secs_f32().min(0.1);
+        self.backdrop_clock = std::time::Instant::now();
+        let target = if menu { 1. } else { 0. };
+        self.backdrop += (target - self.backdrop) * (dt * 14.).min(1.);
+        if (target - self.backdrop).abs() < 0.002 {
+            self.backdrop = target;
+        }
+        detail[3] = self.backdrop;
         let mode = if game.vsync {
             wgpu::PresentMode::AutoVsync
         } else {

@@ -1638,6 +1638,12 @@ impl App {
             }
         });
         state.handle_platform_output(window, out.platform_output.clone());
+        // Menu buttons' ticks and clacks follow the sound volume.
+        for cue in ui::take_cues(&self.ctx) {
+            if !self.smoke && !self.review {
+                self.audio.play(cue, self.game.prefs.volume * 0.8);
+            }
+        }
         let rendered = match renderer.render(&self.game, &self.bones, &self.ctx, out, capture) {
             Ok(()) => true,
             Err(e @ (wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {

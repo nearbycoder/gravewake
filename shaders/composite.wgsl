@@ -1,6 +1,7 @@
 // Hollowlight composite. HDR scene and depth are sampled before egui draws the UI.
 // quality: occlusion taps, mist steps, bloom mode (1, 3 or 5), shadowed lights.
-// detail: lights in use, radius scale (scene pixels per High pixel), edge smoothing.
+// detail: lights in use, radius scale (scene pixels per High pixel), edge smoothing,
+// and how far the scene is blurred and dimmed behind a menu.
 struct Camera { vp:mat4x4<f32>, inverse_vp:mat4x4<f32>, eye:vec4<f32>, info:vec4<f32>, quality:vec4<f32>, detail:vec4<f32>, lights:array<vec4<f32>,8> };
 @group(0) @binding(0) var scene:texture_2d<f32>;
 @group(0) @binding(1) var scene_sampler:sampler;
@@ -22,6 +23,11 @@ fn position(uv:vec2<f32>,d:f32)->vec3<f32> {
 fn luminance(c:vec3<f32>)->f32 {return dot(c,vec3(0.2126,0.7152,0.0722));}
 fn filmic(x:vec3<f32>)->vec3<f32> {
  return clamp((x*(2.51*x+vec3(0.03)))/(x*(2.43*x+vec3(0.59))+vec3(0.14)),vec3(0.),vec3(1.));
+}
+// Behind a menu the scene loses a third of its colour and some brightness.
+fn backdrop(c:vec3<f32>,menu:f32)->vec3<f32> {
+ let grey=vec3(luminance(c))*vec3(0.92,0.97,1.04);
+ return mix(c,grey,0.35*menu)*(1.-0.28*menu);
 }
 fn occluder(uv:vec2<f32>,p:vec3<f32>,normal:vec3<f32>)->f32 {
  let qUV=clamp(uv,vec2(0.001),vec2(0.999));
@@ -60,7 +66,18 @@ fn light_blocked(p:vec3<f32>,n:vec3<f32>,flame:vec3<f32>)->f32 {
 }
 @fragment fn fs(in:Out)->@location(0) vec4<f32> {
  let uv=in.uv;let texel=1./vec2<f32>(textureDimensions(scene));
- let original=textureSample(scene,scene_sampler,uv).rgb;
+ var original=textureSample(scene,scene_sampler,uv).rgb;
+ // Behind a menu: a soft two-ring disc blur, so the menu reads first.
+ let menu=cam.detail.w;
+ if menu>0.001 {
+  var sum=original;
+  for(var i=0;i<12;i++) {
+   let a=f32(i)*0.5236+f32(i%2)*0.2618;
+   let r=select(6.,14.,i%2==1)*cam.detail.y;
+   sum+=textureSampleLevel(scene,scene_sampler,uv+vec2(cos(a),sin(a))*texel*r,0.).rgb;
+  }
+  original=mix(original,sum/13.,menu);
+ }
  let z=read_depth(uv);let p=position(uv,z);let delta=p-cam.eye.xyz;
  let distance=min(length(delta),85.);let ray=normalize(delta);
  let dx=dpdx(p);let dy=dpdy(p);
@@ -74,7 +91,7 @@ fn light_blocked(p:vec3<f32>,n:vec3<f32>,flame:vec3<f32>)->f32 {
   }}
   var c=original+bloom/25.*0.38;
   c*=1.-0.5*pow(length((uv-0.5)*1.35),1.5);
-  return vec4(c/(c+vec3(0.84)),1.);
+  return vec4(backdrop(c/(c+vec3(0.84)),menu),1.);
  }
  var color=original;
  // Depth-reconstructed local occlusion: neighbouring geometry darkens creases,
@@ -190,5 +207,5 @@ fn light_blocked(p:vec3<f32>,n:vec3<f32>,flame:vec3<f32>)->f32 {
  let neutral=color/(color+vec3(0.84));
  var result=mix(neutral,graded,amount);
  result*=1.-0.30*pow(length((uv-0.5)*1.35),1.8);
- return vec4(result,1.);
+ return vec4(backdrop(result,menu),1.);
 }

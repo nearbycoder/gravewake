@@ -145,6 +145,18 @@ const HUD_LAYOUT: &str = "hud_layout";
 /// frame starts empty, and a dialog or the journal empties it again, so
 /// controls it hides can't be reached.
 const PAD_TARGETS: &str = "pad_targets";
+/// Sounds the interface asks for, played by `main.rs` after each frame.
+const CUES: &str = "interface_cues";
+fn cue(ctx: &egui::Context, name: &'static str) {
+    ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<Vec<&'static str>>(Id::new(CUES))
+            .push(name)
+    });
+}
+/// The sounds the interface asked for since the last call.
+pub fn take_cues(ctx: &egui::Context) -> Vec<&'static str> {
+    ctx.data_mut(|d| std::mem::take(d.get_temp_mut_or_default::<Vec<&'static str>>(Id::new(CUES))))
+}
 fn clear_pad_targets(ctx: &egui::Context) {
     ctx.data_mut(|d| d.insert_temp(Id::new(PAD_TARGETS), Vec::<Target>::new()));
 }
@@ -396,10 +408,24 @@ impl<'a> Canvas<'a> {
             .ui
             .interact(self.rect(x, y, w, h), Id::new(id), Sense::click());
         self.target(Target::button(r.rect));
+        // A tick when the pointer or the focus frame first lands on the
+        // button, and a clack when it's pressed.
+        let ctx = self.ui.ctx();
+        let hot = r.hovered() || r.has_focus();
+        let key = Id::new((id, "hot"));
+        if ctx.data(|d| d.get_temp::<bool>(key)).unwrap_or(false) != hot {
+            ctx.data_mut(|d| d.insert_temp(key, hot));
+            if hot {
+                cue(ctx, "ui_hover");
+            }
+        }
+        if r.clicked() {
+            cue(ctx, "ui_press");
+        }
         let hover = self
             .ui
             .ctx()
-            .animate_bool(Id::new((id, "hover")), r.hovered() || r.has_focus());
+            .animate_bool(Id::new((id, "hover")), hot);
         let press = if r.is_pointer_button_down_on() {
             2.0
         } else {
@@ -3399,7 +3425,49 @@ pub fn pad_cursor(ctx: &egui::Context, pos: Pos2) {
     p.circle_stroke(pos, 11., Stroke::new(2., GOLD));
     p.circle_filled(pos, 2.5, IVORY);
 }
+/// A screen, as far as transitions go: the mode, and whether the journal or
+/// the new-run dialog is open over it.
+type ScreenKey = (Mode, bool, bool);
+/// How a new screen arrives: a fade from dark of this strength (0 to 1)
+/// over this many seconds, or at once. Resuming the fight is never delayed.
+fn screen_fade(from: ScreenKey, to: ScreenKey) -> Option<(f32, f32)> {
+    if from == to {
+        return None;
+    }
+    if from.0 == to.0 {
+        // The journal or the dialog opening or closing over the same screen.
+        return Some((0.35, 0.18));
+    }
+    match (from.0, to.0) {
+        (Mode::Paused | Mode::LevelUp, Mode::Arena) => None,
+        (Mode::Arena, Mode::Paused | Mode::LevelUp) => Some((0.4, 0.2)),
+        (_, Mode::Dead | Mode::Victory) => Some((0.9, 0.7)),
+        (_, Mode::Arena) => Some((0.85, 0.5)),
+        _ => Some((0.6, 0.28)),
+    }
+}
+/// The fade over the screen this frame, from the screen's last change.
+fn fade_alpha(strength: f32, seconds: f32, since: f32) -> f32 {
+    let t = (since / seconds).clamp(0., 1.);
+    strength * (1. - t * t * (3. - 2. * t))
+}
 pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
+    // Screens fade in from dark when they change, timed by egui's clock,
+    // which runs in every session and review.
+    let now = ctx.input(|i| i.time) as f32;
+    let key: ScreenKey = (g.mode, g.settings, g.confirm_new_run);
+    let fade_id = Id::new("screen_fade");
+    let fade = match ctx.data(|d| d.get_temp::<(ScreenKey, f32, f32, f32)>(fade_id)) {
+        Some(state) if state.0 == key => state,
+        previous => {
+            let (strength, seconds) = previous
+                .and_then(|(old, ..)| screen_fade(old, key))
+                .unwrap_or((0., 1.));
+            let state = (key, now, strength, seconds);
+            ctx.data_mut(|d| d.insert_temp(fade_id, state));
+            state
+        }
+    };
     let old = ctx.data(|d| d.get_temp::<(Mode, f32)>(Id::new("mode_transition")));
     if old.is_none_or(|(mode, _)| mode != g.mode) {
         ctx.data_mut(|d| d.insert_temp(Id::new("mode_transition"), (g.mode, g.elapsed)));
@@ -3509,6 +3577,11 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
                     journal(&c, g);
                 }
             });
+    }
+    let alpha = fade_alpha(fade.2, fade.3, now - fade.1);
+    if alpha > 0.003 {
+        ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, fade_id))
+            .rect_filled(ctx.screen_rect(), 0., C::from_black_alpha((alpha * 255.) as u8));
     }
 }
 /// The Hunter's Journal: a Preferences page and a Controls page.
@@ -4015,6 +4088,68 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| (f.take().unwrap())(&Canvas::new(ui, 0.)));
         });
+    }
+    #[test]
+    fn screens_fade_in_but_the_fight_resumes_at_once() {
+        let arena = (Mode::Arena, false, false);
+        let paused = (Mode::Paused, false, false);
+        assert_eq!(screen_fade(arena, arena), None);
+        assert_eq!(screen_fade(paused, arena), None, "resume at once");
+        assert_eq!(screen_fade((Mode::LevelUp, false, false), arena), None);
+        assert!(screen_fade(arena, paused).is_some());
+        assert!(screen_fade((Mode::Shop, false, false), arena).is_some(), "a descent begins");
+        assert!(screen_fade((Mode::Title, false, false), (Mode::Title, true, false)).is_some());
+        assert!(screen_fade((Mode::Shop, false, false), (Mode::Pack, false, false)).is_some());
+        for (from, to) in [(paused, (Mode::Shop, false, false)), (arena, (Mode::Dead, false, false))] {
+            let (strength, seconds) = screen_fade(from, to).unwrap();
+            assert!(strength > 0. && strength <= 1. && seconds <= 0.75);
+            assert_eq!(fade_alpha(strength, seconds, 0.), strength);
+            assert!(fade_alpha(strength, seconds, seconds * 0.5) < strength);
+            assert_eq!(fade_alpha(strength, seconds, seconds), 0.);
+        }
+    }
+    #[test]
+    fn buttons_tick_once_when_reached_and_clack_once_when_pressed() {
+        let ctx = egui::Context::default();
+        configure(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440., 900.));
+        let mut frame = |events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let mut clicked = false;
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        let c = Canvas::new(ui, 0.);
+                        clicked = c.button("cue_test", 600., 400., 240., 44., "TEST", false);
+                    });
+            });
+            (take_cues(&ctx), clicked)
+        };
+        let on = Pos2::new(720., 422.);
+        let off = Pos2::new(100., 100.);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: on,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        assert_eq!(frame(vec![egui::Event::PointerMoved(off)]).0, Vec::<&str>::new());
+        assert_eq!(frame(vec![egui::Event::PointerMoved(on)]).0, ["ui_hover"]);
+        // Resting on it stays quiet.
+        for _ in 0..3 {
+            assert_eq!(frame(vec![]).0, Vec::<&str>::new());
+        }
+        assert_eq!(frame(vec![button(true)]).0, Vec::<&str>::new());
+        assert_eq!(frame(vec![button(false)]), (vec!["ui_press"], true));
+        assert_eq!(frame(vec![]).0, Vec::<&str>::new());
+        // Leaving and coming back ticks again.
+        assert_eq!(frame(vec![egui::Event::PointerMoved(off)]).0, Vec::<&str>::new());
+        assert_eq!(frame(vec![egui::Event::PointerMoved(on)]).0, ["ui_hover"]);
     }
     /// Draw `f` on a 1440×900 canvas filled with `background` and rasterize
     /// egui's own triangles into RGB pixels.

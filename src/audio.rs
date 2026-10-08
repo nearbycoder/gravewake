@@ -36,6 +36,8 @@ pub const EVENTS: &[&str] = &[
     "warn_dive",
     "warn_summon",
     "warn_blink",
+    "ui_hover",
+    "ui_press",
 ];
 pub struct Audio {
     output: crate::output::Output,
@@ -256,6 +258,18 @@ fn designed(event: &str, variant: u32) -> Vec<f32> {
             // A reversed whoosh that snaps shut as the reaper vanishes.
             mid * 0.5 * crate::motion::window(0., 0.32, 0.36, 0.4, t)
                 + high * 0.2 * decay(t, 0.36, 90.)
+        } else if event == "ui_hover" {
+            // A soft brass tick as the pointer or focus frame finds a control.
+            ((tau * 2350. * pitch * t).sin() * 0.07 + (tau * 3480. * t).sin() * 0.03)
+                * decay(t, 0., 150.)
+                + high * 0.025 * decay(t, 0., 400.)
+        } else if event == "ui_press" {
+            // A leather-backed brass clack: a damped knock, then the plate's ring.
+            let knock = (low * 2.2 + mid * 0.35) * decay(t, 0., 45.);
+            let ring = ((tau * 780. * pitch * t).sin() * 0.12 + (tau * 1150. * t).sin() * 0.06)
+                * decay(t, 0.004, 32.);
+            let latch = high * 0.09 * decay(t, 0.016, 260.);
+            (knock + ring + latch) * 0.4
         } else if event == "deny" {
             (tau * 100. * t).sin() * decay(t, 0., 18.) * 0.14
         } else {
