@@ -721,7 +721,11 @@ fn weapon_card(
     c.center(
         x + w * 0.5,
         y + 35.,
-        crate::weapons::GROUPS[card.kind.spec().group].to_uppercase(),
+        format!(
+            "{}  /  {}",
+            rarity_name(card),
+            crate::weapons::GROUPS[card.kind.spec().group].to_uppercase()
+        ),
         10.,
         ink,
     );
@@ -749,12 +753,16 @@ fn weapon_card(
         true,
         TypeRole::Engraved,
     );
-    c.center(
+    let traits = trait_line(card);
+    let size = c.fit_type(&traits, TypeRole::Reading, 18., w - 40.);
+    c.text_role(
         x + w * 0.5,
         y + h * 0.663,
-        rarity_line(card),
-        16.,
+        traits,
+        size,
         ink,
+        TypeRole::Reading,
+        Align2::CENTER_CENTER,
     );
     let damage = if card.kind.melee() {
         format!(
@@ -798,20 +806,29 @@ fn weapon_card(
         false
     }
 }
-/// Rarity, then the weapon's trait: what it does beyond a plain hit, and
-/// whether its shots burst over an area.
-fn rarity_line(card: &Card) -> String {
-    let rarity = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"][card.rarity.min(3)];
-    let spec = card.kind.spec();
-    let mut tags: Vec<&str> = spec.effect.tag().into_iter().collect();
-    if spec.radius > 0. && !matches!(spec.effect, Effect::Blast | Effect::Chain) {
-        tags.push("SPLASH");
-    }
-    if tags.is_empty() {
-        rarity.into()
+fn rarity_name(card: &Card) -> &'static str {
+    ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"][card.rarity.min(3)]
+}
+/// The weapon's trait, what it does beyond a plain hit, and how many
+/// creatures one attack reaches: "BURN + 2.4m SPLASH", "PIERCES 4",
+/// "139° SWEEP", or "ONE TARGET".
+fn trait_line(card: &Card) -> String {
+    let kind = card.kind;
+    let effect = kind.spec().effect;
+    // Piercing, chains and blasts are named by their reach instead.
+    let tag = effect
+        .tag()
+        .filter(|_| !matches!(effect, Effect::Pierce | Effect::Chain | Effect::Blast));
+    let parts: Vec<String> = tag.map(String::from).into_iter().chain(kind.reach()).collect();
+    if parts.is_empty() {
+        "ONE TARGET".into()
     } else {
-        format!("{rarity}  /  {}", tags.join(" + "))
+        parts.join(" + ")
     }
+}
+/// Rarity, then the trait line.
+fn rarity_line(card: &Card) -> String {
+    format!("{}  /  {}", rarity_name(card), trait_line(card))
 }
 // Estimated damage per second, inked green or red against the equipped card.
 fn dps_comparison(card: &Card, equipped: &Card) -> (String, C) {
@@ -3904,6 +3921,47 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| (f.take().unwrap())(&Canvas::new(ui, 0.)));
         });
+    }
+    #[test]
+    fn every_cards_trait_line_and_header_fit_a_pack_card() {
+        for (width, height) in [(1440., 900.), (960., 600.)] {
+            let ctx = egui::Context::default();
+            configure(&ctx);
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, height))),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        let c = Canvas::new(ui, 0.);
+                        let long = "LEGENDARY  /  120° SWEEP + 3.2m SPLASH + VENOM";
+                        assert!(c.fit_type(long, TypeRole::Reading, 18., 240.) < 17.);
+                        for kind in crate::weapons::WeaponKind::ALL {
+                            let card = Card {
+                                kind,
+                                rarity: 3,
+                                ..Card::starter()
+                            };
+                            // A 280-wide pack card, as drawn by `weapon_card`.
+                            let traits = trait_line(&card);
+                            let fitted = c.fit_type(&traits, TypeRole::Reading, 18., 240.);
+                            assert!(
+                                fitted >= 17.,
+                                "{traits} shrinks to {fitted:.1} at {width}x{height}"
+                            );
+                            let header = format!(
+                                "{}  /  {}",
+                                rarity_name(&card),
+                                crate::weapons::GROUPS[kind.spec().group].to_uppercase()
+                            );
+                            let wide = c.text_width(&header, 10.);
+                            assert!(wide <= 236., "{header} is {wide:.0} wide at {width}x{height}");
+                        }
+                    });
+            });
+        }
     }
     /// The busiest HUD, as in the `hud-size-*-busy` review fixtures: every
     /// power at full rank, the boss under the last-threat bearing, a bound

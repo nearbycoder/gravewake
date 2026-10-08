@@ -787,6 +787,54 @@ impl WeaponKind {
             _ => Self::Repeater,
         }
     }
+    /// Creatures one shot can pass through, nearest first; each after the
+    /// first takes 18% less than the one before.
+    pub fn pierce_limit(self) -> usize {
+        match self {
+            _ if self.spec().effect != Effect::Pierce || self.melee() => 1,
+            Self::Duelist => 2,
+            Self::SlugGun => 3,
+            _ => 4,
+        }
+    }
+    /// Further creatures a chain jumps to, each the nearest within
+    /// `spec().radius` of the last; each jump takes 28% less.
+    pub fn chain_jumps(self) -> usize {
+        match self {
+            _ if self.spec().effect != Effect::Chain => 0,
+            Self::StormWand => 3,
+            _ => 2,
+        }
+    }
+    /// A melee swing's width: it hits every creature in front within
+    /// `spec().range` whose bearing is inside this many degrees.
+    pub fn sweep_degrees(self) -> f32 {
+        2. * self.spec().spread.clamp(-1., 1.).acos().to_degrees()
+    }
+    /// How far an attack reaches beyond one creature, for the card face, or
+    /// `None` for one creature (or a scattergun's pellets, which the card
+    /// counts already).
+    pub fn reach(self) -> Option<String> {
+        let s = self.spec();
+        if self.melee() {
+            let sweep = format!("{:.0}° SWEEP", self.sweep_degrees());
+            return Some(if s.radius > 0. {
+                format!("{sweep} + {:.1}m SPLASH", s.radius)
+            } else {
+                sweep
+            });
+        }
+        match s.effect {
+            Effect::Pierce => Some(format!("PIERCES {}", self.pierce_limit())),
+            Effect::Chain => Some(format!(
+                "CHAINS TO {} MORE IN {:.1}m",
+                self.chain_jumps(),
+                s.radius
+            )),
+            _ if s.radius > 0. => Some(format!("{:.1}m SPLASH", s.radius)),
+            _ => None,
+        }
+    }
     pub fn tint(self) -> [f32; 3] {
         match self.spec().effect {
             Effect::Burn => [3., 0.4, 0.03],

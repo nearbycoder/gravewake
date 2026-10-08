@@ -1380,16 +1380,7 @@ impl Game {
             range: hits.first().map_or(range, |hit| hit.1),
             energy: damage,
         });
-        let limit = if s.effect == Effect::Pierce {
-            match kind {
-                WeaponKind::Duelist => 2,
-                WeaponKind::SlugGun => 3,
-                _ => 4,
-            }
-        } else {
-            1
-        };
-        for (n, &(i, distance, part)) in hits.iter().take(limit).enumerate() {
+        for (n, &(i, distance, part)) in hits.iter().take(kind.pierce_limit()).enumerate() {
             self.apply_hit_at(
                 i,
                 damage * 0.82f32.powi(n as i32),
@@ -1480,7 +1471,7 @@ impl Game {
     fn chain_from(&mut self, first: usize, kind: WeaponKind, damage: f32) {
         let mut seen = vec![first];
         let mut point = self.run.enemies[first].pos + Vec3::Y * 1.2;
-        for n in 0..if kind == WeaponKind::StormWand { 3 } else { 2 } {
+        for n in 0..kind.chain_jumps() as i32 {
             let next = self
                 .run
                 .enemies
@@ -3726,6 +3717,72 @@ mod tests {
             g.update(1. / 120.);
         }
         assert_eq!(g.run.enemies[0].hp, 500.);
+    }
+    #[test]
+    fn what_a_card_says_about_reach_is_what_combat_does() {
+        let hit = |g: &Game| g.run.enemies.iter().filter(|e| e.hp < 500.).count();
+        let shoot = |kind: WeaponKind, enemies: Vec<Enemy>, yaw: f32| {
+            let mut g = Game::new(false);
+            g.new_run();
+            g.run.pos = Vec3::new(0., 1.65, 0.);
+            g.run.yaw = yaw;
+            g.run.weapon.kind = kind;
+            g.run.ammo = g.run.weapon.capacity();
+            g.run.enemies = enemies;
+            g.fire(false);
+            for _ in 0..80 {
+                g.update(1. / 120.);
+            }
+            g
+        };
+        // Piercing: six in a line, of which the card's count are hit.
+        for kind in [
+            WeaponKind::Duelist,
+            WeaponKind::SlugGun,
+            WeaponKind::Longrifle,
+            WeaponKind::Crossbow,
+        ] {
+            let line = (0..6).map(|i| target(0., -3. - i as f32 * 1.5)).collect();
+            let g = shoot(kind, line, 0.);
+            assert_eq!(hit(&g), kind.pierce_limit(), "{kind:?}");
+            assert_eq!(kind.reach().unwrap(), format!("PIERCES {}", kind.pierce_limit()));
+        }
+        // Chains: a row running off to one side three metres apart, inside
+        // the jump distance; the first and the card's number more are hit.
+        for kind in [WeaponKind::Ricochet, WeaponKind::StormWand] {
+            let row = (0..6).map(|i| target(i as f32 * 3., -6.)).collect();
+            let g = shoot(kind, row, 0.);
+            assert_eq!(hit(&g), 1 + kind.chain_jumps(), "{kind:?}");
+            assert!(kind.reach().unwrap().starts_with(&format!(
+                "CHAINS TO {} MORE IN {:.1}m",
+                kind.chain_jumps(),
+                kind.spec().radius
+            )));
+        }
+        // Splash: a creature beside the one struck is inside the radius, one
+        // beyond it isn't.
+        let g = shoot(
+            WeaponKind::HandCannon,
+            vec![target(0., -6.), target(1.2, -6.), target(3.6, -6.)],
+            0.,
+        );
+        assert!(g.run.enemies[0].hp < 500. && g.run.enemies[1].hp < 500.);
+        assert_eq!(g.run.enemies[2].hp, 500.);
+        assert_eq!(WeaponKind::HandCannon.reach().unwrap(), "2.0m SPLASH");
+        // Melee: inside the sweep's half-angle is hit, outside isn't.
+        let half = WeaponKind::Cleaver.sweep_degrees().to_radians() / 2.;
+        let at = |angle: f32| target(2. * angle.sin(), -2. * angle.cos());
+        let g = shoot(
+            WeaponKind::Cleaver,
+            vec![at(half - 0.15), at(-(half - 0.15)), at(half + 0.2)],
+            0.,
+        );
+        assert!(g.run.enemies[0].hp < 500. && g.run.enemies[1].hp < 500.);
+        assert_eq!(g.run.enemies[2].hp, 500.);
+        assert_eq!(WeaponKind::Cleaver.reach().unwrap(), "139° SWEEP");
+        // Single-target weapons say nothing about reach.
+        assert_eq!(WeaponKind::GraveRevolver.reach(), None);
+        assert_eq!(WeaponKind::Needler.reach(), None);
     }
     #[test]
     fn bursts_spend_each_round_and_melee_waits_for_contact() {
