@@ -1642,3 +1642,90 @@ Deferred, with reasons:
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, whether the synthesized score stays,
   aim assist's default and strength, and the frame limit's default.
+
+## Round 11 scope
+
+Round 10 was merged and pushed on 2026-10-08. Nearly the whole original
+backlog has shipped, so this round comes from a fresh look at the screens a
+player sees first and at how the game opens on a desktop. The reticle is a
+1-pixel ivory cross with no outline (`captures/legibility/normal/04-hud-new-run.png`):
+over fog, bone, braziers or the pale chapel it all but disappears, and it is
+the one thing a shooter's player looks at all the time. The window opens at
+1440×900 logical pixels on every launch, whatever the screen: on a 1366×768
+laptop, or a 13-inch MacBook Air whose desktop is 1440×900 with a menu bar,
+it is bigger than the screen, and a size the player chose is forgotten.
+And the private KWin the test scripts use has been leaving helpers behind
+(round 10's left about 80 `ksecretd` processes). Elite enemies, crowd
+damage estimates, Windows and the browser build stay deferred (no playtests
+or platforms here).
+
+### A. A reticle you can see
+
+Acceptance criteria:
+- The reticle always has a dark outline, so it reads on pale and bright
+  surfaces as well as dark ones.
+- The journal's Preferences page gets **Reticle size** (100%, 150% or 200%)
+  and **Reticle colour** (ivory, green, yellow, cyan or magenta), saved in
+  `settings.json` (`reticle_size`, `reticle_color`); older files load as
+  100% ivory, the reticle's present size and colour. The firing spread still
+  widens it.
+- The Preferences page still fits at 960×600 and 1440×900, and the
+  scripted reviews that click its controls still find them.
+
+Verification: unit tests for the preference round-trip, older files and
+out-of-range values; a pixel test on a real egui frame that the reticle's
+outline is drawn under its strokes at each size. Text-review captures of
+the HUD over a pale surface at each size and colour, and of the Preferences
+page at both window sizes. `--shader-review` and `scripts/fullscreen-review.sh`
+still pass (they click journal controls by position).
+
+### B. A window that fits the screen and remembers its size
+
+Acceptance criteria:
+- A normal launch opens the window at the size it had when the game last
+  closed windowed (`window_size` in `settings.json`), or 1440×900 the first
+  time, shrunk if needed to fit 90% of the screen it opens on (never below
+  the 960×600 minimum). Once the window is on a screen, it is shrunk the same
+  way if that screen turns out smaller.
+- Resizing the window is remembered; fullscreen doesn't overwrite the
+  windowed size. Scripted runs keep their fixed sizes and never read or
+  write it.
+
+Verification: unit tests for the fit (a small screen, a large one, a saved
+size, a damaged or tiny saved size, a screen smaller than the minimum) and
+the preference round-trip. A scripted review in the private KWin on a
+1366×768 output checks the window opens inside the screen; a second launch
+after a resize reopens at that size, with `settings.json` checked between.
+Window position isn't covered: Wayland doesn't let a client place itself.
+
+### C. The private KWin stops the helpers it starts
+
+Acceptance criteria:
+- `scripts/nested-kwin.sh` starts the private KWin in a new session of its
+  own and, when it ends, stops any process still in that session (such as a
+  `ksecretd` or a portal that its D-Bus bus started), and only those.
+
+Verification: a run of the script, listing `ksecretd` and other processes
+in its session before and after, recorded in the round's log; nothing
+outside its session is touched.
+
+### D. Fire on the Keyboard page (if time allows)
+
+Acceptance criteria:
+- Fire joins the Keyboard page's actions, bound to the left mouse button
+  by default, and can move to any key or other mouse button (a key in use
+  swaps, as for the others). Menus still click with the left button.
+  Older files load with Fire on the left button.
+- Prompts that say "Mouse Fire" name the bound key.
+
+Verification: unit tests for the binding, swap and older files; the input
+review rebinds Fire to a key with real key presses and fires with it.
+
+### Deferred this round
+
+- Elite enemy variants (rest of #8) and crowd damage estimates from play
+  data: both need playtests.
+- Windows validation (#12) and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  aim assist's default and strength, and the frame limit's default.
