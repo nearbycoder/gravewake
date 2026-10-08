@@ -74,6 +74,9 @@ impl Review {
             "captures/legibility/{}",
             if small { "small" } else { "normal" }
         );
+        if let Some((w, h)) = crate::capture::size() {
+            directory = format!("captures/legibility/{w}x{h}");
+        }
         if let Some((name, _)) = quit_screen {
             directory = format!("captures/quit/{name}");
         }
@@ -423,7 +426,8 @@ impl Review {
                 game.run.survival.remaining = 180;
                 game.run.survival.level = 99;
                 game.run.survival.xp = 798;
-                game.show_fps = true;
+                // Trailer and README captures leave out the staged counter.
+                game.show_fps = crate::capture::size().is_none();
                 if kind == 0 || (4..=12).contains(&kind) || kind == 16 || kind >= 19 {
                     game.run.time = 0.;
                     game.run.wave = 1;

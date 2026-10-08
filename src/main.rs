@@ -3,6 +3,7 @@ mod anatomy_review;
 mod architecture_assets;
 mod audio;
 mod audio_review;
+mod capture;
 mod controls;
 mod dismemberment;
 mod encounters;
@@ -109,6 +110,8 @@ struct App {
     perf: perf::Benchmark,
     shader_frame_times: Vec<f32>,
     review_audio: Vec<f32>,
+    /// `--capture-full-mix`: the score and ambience under `review_audio`.
+    review_bed: Option<capture::Bed>,
     frames: u32,
     stage: usize,
     stage_frames: u32,
@@ -330,6 +333,10 @@ impl App {
             } else {
                 vec![]
             },
+            review_bed: (capture::full_mix()
+                && (review
+                    || std::env::args().any(|a| a == "--anatomy-review" || a == "--survival-review")))
+            .then(capture::Bed::new),
             frames: 0,
             stage: if std::env::args().any(|a| a == "--armory-review") {
                 7
@@ -823,6 +830,11 @@ impl App {
             }
             _ => {}
         }
+        // The staged targets walk up and strike once the wave is under way;
+        // keep the player standing until the last reload is checked.
+        if self.frames > 400 {
+            self.game.run.hp = self.game.max_hp();
+        }
     }
     fn survival_step(&mut self) {
         if self.frames <= 36 {
@@ -1313,6 +1325,10 @@ impl App {
                 prefs.music_volume * prefs.volume * 1.5
             },
         );
+        if let Some(bed) = &mut self.review_bed {
+            let at = (self.frames as usize - 1) * (audio::RATE as usize / 60);
+            bed.frame(&self.game, &mut self.review_audio, at);
+        }
         let (listener, yaw) = (self.game.run.pos, self.game.run.yaw);
         for (event, source) in self.game.world_sounds.drain(..) {
             let gains = audio::spatial(listener, yaw, source);
@@ -1640,6 +1656,15 @@ impl App {
         state.handle_platform_output(window, out.platform_output.clone());
         // Menu buttons' ticks and clacks follow the sound volume.
         for cue in ui::take_cues(&self.ctx) {
+            if self.review_bed.is_some() {
+                let offset = (self.frames as usize - 1) * (audio::RATE as usize / 60) * 2;
+                let gain = capture::cue_gain(&self.game);
+                for (i, value) in audio::synthesize(cue, self.frames % 4).iter().enumerate() {
+                    if let Some(s) = self.review_audio.get_mut(offset + i) {
+                        *s += value * gain;
+                    }
+                }
+            }
             if !self.smoke && !self.review {
                 self.audio.play(cue, self.game.prefs.volume * 0.8);
             }
@@ -1757,7 +1782,11 @@ impl ApplicationHandler for App {
                     Window::default_attributes()
                         .with_title("Gravewake — The Hollow Tithe")
                         .with_inner_size(
-                            if self.review
+                            if let Some((w, h)) =
+                                capture::size().filter(|_| self.smoke || self.review)
+                            {
+                                LogicalSize::new(w, h)
+                            } else if self.review
                                 || self.survival_review
                                 || ((self.text_review.is_some() || self.world_review.is_some())
                                     && std::env::args().any(|a| a == "--review-small"))
@@ -2105,6 +2134,19 @@ fn main() {
     watchdog::milestone("event loop created");
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let mut app = App::new(smoke, review);
+    if smoke || review {
+        if let Some(step) = capture::fidelity() {
+            app.game.prefs.fidelity = step;
+        }
+        if let Some((w, h)) = capture::size() {
+            println!("CAPTURE: window {w}x{h}");
+        }
+        println!(
+            "CAPTURE: fidelity {}{}",
+            app.game.prefs.fidelity.name(),
+            if app.review_bed.is_some() { ", score, ambience and menu cues in review audio" } else { "" }
+        );
+    }
     // Reviews that launch like a player keep quiet from the first moment;
     // the ambience otherwise plays until the first frame sets the volume.
     if app.window_review.is_some() || app.input_review.is_some() {

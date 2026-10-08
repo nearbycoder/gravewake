@@ -50,20 +50,10 @@ impl Audio {
     pub fn new() -> Self {
         let output = crate::output::Output::start();
         let ambience = output.sink();
-        let rate = 22050;
-        let mut data = Vec::with_capacity(rate * 8);
-        let mut seed = 92837u32;
-        let mut wind = 0.;
-        for i in 0..rate * 8 {
-            let t = i as f32 / rate as f32;
-            let noise = random(&mut seed);
-            wind = wind * 0.995 + noise * 0.005;
-            let drone = (t * 55. * std::f32::consts::TAU).sin() * 0.022
-                + (t * 82.5 * std::f32::consts::TAU).sin() * 0.012;
-            data.push(drone + wind * 0.3);
-        }
-        ambience.append(rodio::buffer::SamplesBuffer::new(1, rate as u32, data).repeat_infinite());
-        ambience.set_volume(0.3);
+        ambience.append(
+            rodio::buffer::SamplesBuffer::new(1, AMBIENCE_RATE, ambience_loop()).repeat_infinite(),
+        );
+        ambience.set_volume(AMBIENCE_LEVEL);
         let bank = EVENTS
             .iter()
             .map(|&e| (e, (0..4).map(|v| synthesize(e, v)).collect()))
@@ -78,7 +68,7 @@ impl Audio {
         }
     }
     pub fn volume(&self, v: f32) {
-        self.ambience.set_volume(v * 0.3);
+        self.ambience.set_volume(v * AMBIENCE_LEVEL);
     }
     /// The output device, for diagnostics and the audio review.
     pub fn output(&self) -> &crate::output::Output {
@@ -114,6 +104,25 @@ impl Audio {
         let source = rodio::buffer::SamplesBuffer::new(2, RATE, samples).amplify(volume);
         self.output.play(source);
     }
+}
+/// The cemetery's wind and drone: an eight-second mono loop at
+/// `AMBIENCE_RATE`, played at `AMBIENCE_LEVEL` of the sound volume.
+pub const AMBIENCE_RATE: u32 = 22050;
+pub const AMBIENCE_LEVEL: f32 = 0.3;
+pub fn ambience_loop() -> Vec<f32> {
+    let rate = AMBIENCE_RATE as usize;
+    let mut data = Vec::with_capacity(rate * 8);
+    let mut seed = 92837u32;
+    let mut wind = 0.;
+    for i in 0..rate * 8 {
+        let t = i as f32 / rate as f32;
+        let noise = random(&mut seed);
+        wind = wind * 0.995 + noise * 0.005;
+        let drone = (t * 55. * std::f32::consts::TAU).sin() * 0.022
+            + (t * 82.5 * std::f32::consts::TAU).sin() * 0.012;
+        data.push(drone + wind * 0.3);
+    }
+    data
 }
 /// Left/right gains for a sound at `source` heard from `listener` facing
 /// `yaw`: equal-power panning by relative bearing, distance attenuation, and
