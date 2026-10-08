@@ -1729,3 +1729,50 @@ review rebinds Fire to a key with real key presses and fires with it.
 - Owner decisions, unchanged: release downloads and tag workflows, macOS
   signing and notarization, licences, whether the synthesized score stays,
   aim assist's default and strength, and the frame limit's default.
+
+## Round 11 results
+
+All four scoped items shipped on `improvements-11`, D included. Native checks
+ran on the same CachyOS / Radeon 8060S / KDE Wayland machine, every windowed
+run inside the private KWin with a throwaway `XDG_DATA_HOME`; nothing opened
+on the shared desktop and nothing played through its speakers.
+`~/.local/share/gravewake` didn't exist before or after the round. Load
+averages were 4–37 during the round; the input reviews waited for a load
+under 24 and ran at 23.5–25.5.
+
+| Item | Verification |
+| --- | --- |
+| A. A reticle you can see (`afa8c76`) | `the_reticle_is_outlined_so_it_reads_on_a_pale_surface` rasterizes egui's own triangles for all three sizes and five colours on an ivory background, and checks each tick and the dot cross as background, dark outline, the full colour, outline, background; with the outline removed it fails. `the_reticle_size_and_colour_are_saved_and_older_files_keep_the_original` covers the round-trip, older files (100% ivory), sizes snapping to the list and an unknown colour. Text-review captures over a drudge's ribcage at each setting (`round11/reticle-sizes-colours.jpg`, `round11/reticle-over-bone.jpg`; before: `round11/reticle-before.jpg`) and of the Preferences page at both sizes (`round11/journal-reticle*.jpg`). **Found while testing:** the original 1-pixel ticks sat on the boundary between two pixel rows at 1440×900, so they drew as two half-strength rows; strokes are now whole pixels centred on the pixel grid. **Changed from the plan:** the Preferences page needed a fifth row of switches, so sliders and switches are 40 and 41 units apart instead of 44; the shader and fullscreen reviews, which click those controls, use the new spacing and pass. |
+| B. A window that fits the screen and remembers its size (`9d2582f`) | `the_window_fits_the_screen_and_remembers_its_size` covers small and large screens, saved sizes, the minimum and damaged values. `scripts/window-review.sh` (log `captures/window/review.log`) in the private KWin: a first launch on a 1366×768 output opened at 1105×691; KWin then resized it to 1100×650 through KWin scripting, as a drag would, the preference followed and `settings.json` held `[1100.0, 650.0]` after quitting; the next launch reopened at 1100×650; with 3000×1800 saved, a launch on a 1920×1080 output opened at 1620×972. With the launch reverted to a fixed 1440×900, the review fails. **Found while testing:** asked for 1440×900 after opening, KWin gave the window 1440×900 on the 1366×768 output, bigger than the screen; but KWin does squeeze a brand-new window to the screen, so on Plasma the old launch filled a small screen rather than spilling off it. Whether macOS or other desktops would have let it overflow wasn't tested. Also, a size the game requests itself applies at once with no resize event on Wayland, so the game records that size directly. **Not covered:** macOS, X11, several monitors, fractional scaling and window position (Wayland doesn't let a client place itself). |
+| C. The private KWin stops the helpers it starts (`c5c1a01`) | A run whose command left a `sleep` running in the background: the script listed and stopped it, and nothing outside the session was touched. No `ksecretd` started in any of this round's private sessions (watched during the smoke run and the input review), so the cleanup never had a `ksecretd` to stop; the 84–86 `ksecretd` processes on the machine during the round were already running before its first private session (84 at the start, 86 at the end), and none were touched. |
+| D. Fire on the Keyboard page (`bb213d1`) | `fire_moves_off_the_left_button_and_older_files_keep_it_there`: Fire to a free key leaves the left button unbound, Melee to the left button and back swaps, saved by name, older files keep Fire on the left button; the controller prompt test now includes Fire. The input review (log `captures/input/review.log`, at load 24): an F press bound Fire to F; in the arena a left click didn't fire and an F press did; the real pointer clicked Fire's button once (waiting) and again (bound to the left button), `settings.json` held it, and a left click fired. Captures: `round11/input-fire-left-button.jpg`, `round11/keyboard-fire-waiting*.jpg` (both sizes). **Design choice:** a left click elsewhere is how the journal is used, so the left button is bound by clicking the waiting action's button a second time (before, that second click cancelled); the waiting note says so. |
+
+Final state: 165 unit tests pass (161 before the round), with no warnings.
+On the final code commit (`bb213d1`, clean tree), in the private KWin (logs
+`captures/r11/final-*.log`, load 22.6–32.2): `cargo test --locked`,
+`--smoke`, `--smoke --gamepad`, `--text-review` (normal and
+`--review-small`, 116 captures across 113 fixtures each),
+`--shader-review`, `--armory-review`, `scripts/fullscreen-review.sh`,
+`scripts/window-review.sh`, `scripts/input-review.sh` (load 24.0) and
+`scripts/layout-review.sh` all exited 0. The audio review, the survival,
+world, pacing and model reviews and the benchmark weren't rerun: nothing they
+exercise changed, apart from the input and window reviews now muting the
+ambience before their first frame.
+
+Not verified: macOS (CI builds and runs the unit tests after the push),
+Windows, X11, NVIDIA and Intel GPUs, a physical keyboard, mouse or
+controller, the reticle in a hand-played fight, and the window's size on a
+real Plasma session, another desktop or a second monitor.
+
+Deferred, with reasons:
+- Elite enemy variants (rest of #8) and crowd damage estimates from play
+  data: both need playtests.
+- Windows validation (#12) and the browser build (#15): nothing here to
+  test on.
+- Remembering a maximized window, and the window's position: winit can't
+  place a window under Wayland, and maximized wasn't in scope.
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  aim assist's default and strength, and the frame limit's default. New:
+  whether the reticle's default should stay the original 100% ivory (it
+  does, now outlined).
