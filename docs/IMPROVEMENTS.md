@@ -1894,3 +1894,78 @@ then checks `settings.json`.
   signing and notarization, licences, whether the synthesized score stays,
   aim assist's default and strength, the frame limit's default and the
   reticle's default. New: whether High should stay the default fidelity.
+
+## Round 12 results
+
+All four scoped items shipped on `improvements-12`. Every windowed run was in
+the private KWin with a throwaway `XDG_DATA_HOME`; nothing opened on the
+shared desktop or played through its speakers, and
+`~/.local/share/gravewake` didn't exist before or after the round. The
+machine was busy throughout: load averages of 18–107, and the shared iGPU
+reported 97–99% busy from other programs with no Gravewake running
+(`gpu_busy_percent`), so frame intervals mostly measure waiting for the GPU.
+That is why the fidelity review also times this game's own GPU work with
+timestamp queries (`b01a6ce`).
+
+| Item | Verification |
+| --- | --- |
+| A. Graphics Fidelity, Low to Ultra (`c61cd0b`, timing `b01a6ce`) | Unit tests: the preference round-trip and older or unknown values (High), High's profile equal to the old constants, each step doing at least as much as the one below, and scene sizes at 960×600, 1440×900 and 3840×2160. **High is unchanged:** with item A alone, the shader review's six arena captures matched `main`'s within one level of 255 per channel (`magick compare`; the only other difference was the FPS counter's digits). `--fidelity-review` (log `captures/r12/final-fidelity.log`, reports `captures/r12/measure/`) captured the same staged frame at every step and moved the slider through the real journal: pointer clicks on Low and Ultra, then two D-pad presses left. Captures: `round12/fidelity-brazier-steps.jpg`, `round12/fidelity-court-steps.jpg`, `round12/shadows-high-vs-ultra.jpg`, `round12/display-page.jpg`, `round12/display-ultra-small.jpg`. The shader and fullscreen reviews, which click the moved Hollowlight, VSync and fullscreen controls, pass. **Found while testing:** Ultra's first shadows let each brazier's own bowl darken the pool of light at its foot; the shadow test now aims above the flame and skips the bowl. |
+| B. Living fire (`d5ab665`) | Before/after of the shader review's firelight frame (`round12/fire-before-after.jpg`, `round12/firelight-before.jpg`, `round12/firelight-after.jpg`), and the fire at each step in the fidelity grids. GPU time at High, brazier scene, median of three runs: 1.43 ms with the old cones (`c61cd0b` with the same timing change) and 1.43 ms with the new flames; court 1.63 and 1.58 ms. |
+| C. Menus that feel finished (`84d7ad1`) | `buttons_tick_once_when_reached_and_clack_once_when_pressed` (one tick on arrival, none while resting, one clack on release, a tick again after leaving and returning) and `screens_fade_in_but_the_fight_resumes_at_once`. Cue levels from `--export-audio` (`captures/r12/cue-levels.txt`): tick peak −19.9 dBFS, clack −14.7 (the card flip −16.7, the coin −8.1); the clack first peaked at −6.8 and was lowered. Captures: `round12/pause-backdrop.jpg` (blurred, dimmed arena), `round12/fade-into-collector.jpg` (0.1 s into a fade). The smoke captures' mean brightness matched the round's start, so none is caught mid-fade. Not heard by ear. |
+| D. Menus with the keyboard (`e739e6c`) | `arrow_keys_and_enter_work_menus_like_the_dpad_and_a` (no press before the focus frame shows, a tap between frames, held repeat, Enter and Space, slider steps) and `up_and_down_reach_a_slider_whose_knob_is_at_the_far_end`. The input review (log `captures/r12/final-input.log`, started at load 22.4) brought up the focus frame with Down, reached Graphics fidelity, stepped it Low and back to Ultra with real arrow presses, closed the journal with Enter, and found `ultra` in `settings.json` (`round12/display-fidelity-by-keys.jpg`). **Found while testing:** up from a slider whose knob sat at the left end skipped the two sliders above (knobs at the right end) and landed on a tab, for the D-pad too; sliders are now reached from the nearest point of their track. |
+
+Graphics fidelity, step by step. Both staged frames at 1440×900; GPU time
+is the world and composite passes from timestamp queries, frame time the
+interval between frames with VSync and the frame limit off; medians of three
+runs (`captures/r12/measure/summary.txt`, load 19–33 at the starts):
+
+| Step | What it changes | Scene | Brazier GPU / frame | Court (24 creatures) GPU / frame |
+| --- | --- | --- | --- | --- |
+| Low | 60% scene resolution (480–960 wide), 4 lights, no occlusion, 4 mist steps, one bloom lobe, no edge smoothing, 3 tongues and 2 sparks per brazier, reduced creature meshes from 5 m | 864×540 | 0.82 ms / 9.8 ms | 0.90 ms / 11.9 ms |
+| Medium | 80% (560–1200), 4-tap occlusion, 6 mist steps, 4 tongues and 3 sparks, reduced meshes from 6.5 m | 1152×720 | 1.18 ms / 10.9 ms | 1.25 ms / 15.0 ms |
+| High (default, the renderer before this round) | 100% (640–1440), 6 lights, 8-tap occlusion, 8 mist steps, three bloom lobes, 6 tongues and 5 sparks, reduced meshes from 8 m | 1440×900 | 1.43 ms / 13.1 ms | 1.58 ms / 13.5 ms |
+| Ultra | 2× supersampled (up to 3840 wide), screen-space shadows from the 3 nearest braziers, 8 lights, 16-tap two-ring occlusion, 12 mist steps, 5×5 bloom lobes, 16× anisotropic materials, 9 tongues and 10 sparks, reduced meshes from 14 m | 2880×1800 | 7.31 ms / 19.1 ms | 8.13 ms / 18.8 ms |
+
+Low takes about 55% of High's GPU time, and Ultra about 5×, nearly all of it
+from drawing four times the pixels. Frame times varied two- to threefold
+between runs with the GPU shared, so they show only that every step stayed
+interactive here; the final-check run at load 50 measured 1.11 / 1.41 / 1.69
+/ 9.41 ms of GPU time in the brazier scene. This is one strong iGPU
+(Radeon 8060S); on a weak GPU Low's saving should be larger in absolute
+terms, but no weaker GPU was tested.
+
+Final state: 173 unit tests pass (165 before the round).
+On the final code commit (`b01a6ce`, no modified tracked files), in the
+private KWin (logs `captures/r12/final-*.log`, summary
+`captures/r12/final-summary.txt`): `cargo test --locked`, `--smoke`,
+`--smoke --gamepad`, `--text-review` (normal and `--review-small`, 119
+captures across 116 fixtures each), `--shader-review`, `--armory-review`,
+`--fidelity-review`, `scripts/fullscreen-review.sh`,
+`scripts/window-review.sh`, `scripts/layout-review.sh` and
+`scripts/input-review.sh` all exited 0. The fullscreen, window and layout
+reviews ran during a load spike (85–107); the input review waited for a load
+under 24. `cargo test` there built with one warning (an unneeded
+`mut` in the new cue test), fixed in the next commit; on the round's tip,
+`cargo test --locked` (no warnings), `--smoke` and `--smoke --gamepad` ran
+again (logs `captures/r12/tip-*.log`). The audio review, the survival, world, pacing and model reviews and
+the benchmark weren't rerun: nothing they check changed beyond the new
+sound cues (exported and measured above).
+
+Not verified: macOS (CI builds and runs the unit tests after the push),
+Windows, X11, NVIDIA and Intel GPUs, any GPU without timestamp queries (the
+review then reports frame times only), a weak GPU, a physical keyboard,
+mouse or controller, the cues by ear, and the fire and shadows in a
+hand-played fight.
+
+Deferred, with reasons:
+- Real shadow maps for the moon or the braziers: no shadow pass exists, and
+  Ultra's screen-space shadows (only on-screen geometry casts) cover the
+  common case. Next step if Ultra needs more.
+- Elite enemy variants (rest of #8) and crowd damage estimates from play
+  data: both need playtests. Windows validation (#12) and the browser build
+  (#15): nothing here to test on.
+- Owner decisions: release downloads and tag workflows, macOS signing and
+  notarization, licences, whether the synthesized score stays, aim assist's
+  default and strength, the frame limit's and the reticle's defaults. New:
+  whether High stays the default fidelity, and whether Ultra's 2×
+  supersampling (about 5× High's GPU time) should be 1.5× instead.
