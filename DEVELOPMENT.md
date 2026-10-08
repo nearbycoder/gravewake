@@ -346,7 +346,7 @@ The report is written to `captures/watchdog-<pid>.txt` first and printed from a 
 XDG_DATA_HOME=$PWD/captures/home scripts/nested-kwin.sh -- cargo run --release --locked -- --text-review
 ```
 
-It needs KDE Plasma 6's `kwin_wayland` and `dbus-run-session`; working files go under `captures/` and are removed afterwards.
+It needs KDE Plasma 6's `kwin_wayland` and `dbus-run-session`; working files go under `captures/` and are removed afterwards. The private KWin runs in a session of its own (`setsid`), and when the command ends the script lists and stops anything still running in that session, such as a helper its D-Bus bus started on demand (round 10's test desktops left about 80 `ksecretd` processes behind), so a run leaves nothing running; processes outside that session are never touched.
 
 `--fake-input` lets clients of that private KWin inject key and mouse events through KWin's `org_kde_kwin_fake_input` protocol: it starts KWin with `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` (only that KWin; the desktop in use is unaffected) and sets `GRAVEWAKE_FAKE_INPUT=1` inside.
 
