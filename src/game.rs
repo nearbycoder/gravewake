@@ -460,6 +460,32 @@ pub struct Preferences {
     pub reticle_size: f32,
     #[serde(deserialize_with = "lenient")]
     pub reticle_color: ReticleColor,
+    /// The window's last windowed size in logical pixels, reopened at the
+    /// next launch if it fits the screen.
+    #[serde(deserialize_with = "lenient")]
+    pub window_size: Option<[f32; 2]>,
+}
+/// The window's size on a first launch, in logical pixels.
+pub const DEFAULT_WINDOW: [f32; 2] = [1440., 900.];
+/// The smallest window the HUD and menus are laid out for.
+pub const MIN_WINDOW: [f32; 2] = [960., 600.];
+/// The most of the screen a window opens across, leaving room for a title
+/// bar, a panel or a menu bar.
+pub const SCREEN_SHARE: f32 = 0.9;
+/// The windowed size to open at: the saved size, or `DEFAULT_WINDOW`, scaled
+/// down (keeping its shape) to fit `SCREEN_SHARE` of the screen, if the
+/// screen is known, and never below `MIN_WINDOW`.
+pub fn fit_window(saved: Option<[f32; 2]>, screen: Option<[f32; 2]>) -> [f32; 2] {
+    let [w, h] = saved.unwrap_or(DEFAULT_WINDOW);
+    let scale = screen
+        .filter(|s| s.iter().all(|v| v.is_finite() && *v > 0.))
+        .map_or(1., |[sw, sh]| {
+            (sw * SCREEN_SHARE / w).min(sh * SCREEN_SHARE / h).min(1.)
+        });
+    [
+        (w * scale).floor().max(MIN_WINDOW[0]),
+        (h * scale).floor().max(MIN_WINDOW[1]),
+    ]
 }
 /// The reticle's colours. Ivory is the original; the others stand out
 /// against the cemetery's greys, bone and firelight.
@@ -538,6 +564,7 @@ impl Default for Preferences {
             frame_limit: 0,
             reticle_size: 1.,
             reticle_color: ReticleColor::Ivory,
+            window_size: None,
         }
     }
 }
@@ -611,6 +638,11 @@ impl Preferences {
                 d.reticle_size
             },
             reticle_color: self.reticle_color,
+            // A damaged size is forgotten; a tiny one grows to the minimum.
+            window_size: self
+                .window_size
+                .filter(|s| s.iter().all(|v| v.is_finite() && *v > 0. && *v < 16384.))
+                .map(|[w, h]| [w.max(MIN_WINDOW[0]), h.max(MIN_WINDOW[1])]),
         }
     }
     pub(crate) fn from_json(bytes: &[u8]) -> Option<Self> {
@@ -2670,6 +2702,51 @@ mod tests {
                 ReticleColor::Ivory
             ]
         );
+    }
+    #[test]
+    fn the_window_fits_the_screen_and_remembers_its_size() {
+        // First launch: 1440×900 where it fits.
+        assert_eq!(fit_window(None, Some([1920., 1080.])), [1440., 900.]);
+        assert_eq!(fit_window(None, Some([2560., 1440.])), [1440., 900.]);
+        assert_eq!(fit_window(None, None), [1440., 900.], "no screen known");
+        // A 1366×768 laptop and a 13-inch MacBook Air's 1440×900 desktop:
+        // shrunk, keeping its shape, to 90% of the screen.
+        assert_eq!(fit_window(None, Some([1366., 768.])), [1105., 691.]);
+        assert_eq!(fit_window(None, Some([1440., 900.])), [1296., 810.]);
+        for screen in [[1366., 768.], [1440., 900.], [1280., 800.]] {
+            let [w, h] = fit_window(None, Some(screen));
+            assert!(w <= screen[0] * 0.9 && h <= screen[1] * 0.9, "{screen:?}");
+            assert!((w / h - 1.6).abs() < 0.01, "keeps its shape on {screen:?}");
+        }
+        // A saved size reopens as it was, unless the screen is now smaller.
+        assert_eq!(fit_window(Some([1100., 650.]), Some([1366., 768.])), [1100., 650.]);
+        assert_eq!(fit_window(Some([1800., 1000.]), Some([2560., 1440.])), [1800., 1000.]);
+        assert_eq!(fit_window(Some([3000., 1800.]), Some([1920., 1080.])), [1620., 972.]);
+        // Never below the minimum, even on a screen smaller than it.
+        assert_eq!(fit_window(None, Some([800., 600.])), MIN_WINDOW);
+        assert_eq!(fit_window(Some([2000., 700.]), Some([1366., 768.])), [1229., 600.]);
+        // A screen that reports nothing useful is ignored.
+        assert_eq!(fit_window(None, Some([0., 0.])), [1440., 900.]);
+        assert_eq!(fit_window(None, Some([f32::NAN, 900.])), [1440., 900.]);
+        // Saved in settings.json; older files have none; damaged or tiny
+        // sizes are forgotten or grown to the minimum.
+        let prefs = Preferences {
+            window_size: Some([1100., 650.]),
+            ..Preferences::default()
+        };
+        let bytes = serde_json::to_vec(&prefs).unwrap();
+        assert_eq!(Preferences::from_json(&bytes).unwrap().window_size, Some([1100., 650.]));
+        assert_eq!(Preferences::from_json(br#"{"volume":0.5}"#).unwrap().window_size, None);
+        for (json, expected) in [
+            (r#"{"window_size":[300,200],"volume":0.4}"#, Some(MIN_WINDOW)),
+            (r#"{"window_size":[1200,-5],"volume":0.4}"#, None),
+            (r#"{"window_size":[1e9,900],"volume":0.4}"#, None),
+            (r#"{"window_size":"big","volume":0.4}"#, None),
+            (r#"{"window_size":[1200],"volume":0.4}"#, None),
+        ] {
+            let loaded = Preferences::from_json(json.as_bytes()).unwrap();
+            assert_eq!((loaded.window_size, loaded.volume), (expected, 0.4), "{json}");
+        }
     }
     #[test]
     fn the_frame_limit_is_saved_off_by_default_and_snaps_to_a_listed_rate() {

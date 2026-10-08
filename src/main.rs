@@ -31,6 +31,7 @@ mod ui;
 mod watchdog;
 mod weapon_assets;
 mod weapons;
+mod window_review;
 mod world_layout;
 mod world_review;
 use game::{Game, Mode};
@@ -87,6 +88,13 @@ struct App {
     pacing_review: Option<pacing_review::Review>,
     input_review: Option<input_review::Review>,
     layout_review: Option<layout_review::Review>,
+    window_review: Option<window_review::Review>,
+    /// A player's launch: the window opens at the saved size fitted to the
+    /// screen, and later windowed sizes are recorded.
+    sized_window: bool,
+    /// Frames left to shrink the window if the screen it landed on turns
+    /// out smaller than the one it was sized for.
+    fit_frames: u32,
     /// The keyboard layout's key characters, sent once if they can be read.
     layout: std::sync::mpsc::Receiver<keymap::Glyphs>,
     /// The frame limit's schedule.
@@ -100,6 +108,78 @@ struct App {
     stage_frames: u32,
 }
 impl App {
+    /// A player's launch opens at the saved windowed size, or 1440×900,
+    /// fitted to the screen it's likely to open on: the primary one, or
+    /// where that's unknown (Wayland) the largest, since `fit_to_screen`
+    /// shrinks the window once it's on a smaller one.
+    fn launch_size(&mut self, event_loop: &ActiveEventLoop) -> LogicalSize<f32> {
+        let logical = |m: winit::monitor::MonitorHandle| {
+            let s = m.size().to_logical::<f32>(m.scale_factor());
+            [s.width, s.height]
+        };
+        let screen = event_loop.primary_monitor().map(logical).or_else(|| {
+            event_loop
+                .available_monitors()
+                .map(logical)
+                .max_by(|a, b| (a[0] * a[1]).total_cmp(&(b[0] * b[1])))
+        });
+        let saved = self.game.prefs.window_size;
+        let [w, h] = game::fit_window(saved, screen);
+        if let Some(review) = &mut self.window_review {
+            review.launch = Some(window_review::Launch {
+                saved,
+                screen,
+                size: [w, h],
+            });
+        }
+        LogicalSize::new(w, h)
+    }
+    /// Shrink a player's window once, if the screen it opened on is
+    /// smaller than the one it was sized for.
+    fn fit_to_screen(&mut self) {
+        if self.fit_frames == 0 {
+            return;
+        }
+        self.fit_frames -= 1;
+        let Some(window) = &self.window else { return };
+        if window.fullscreen().is_some() || window.is_maximized() {
+            self.fit_frames = 0;
+            return;
+        }
+        let Some(monitor) = window.current_monitor() else {
+            return;
+        };
+        let screen = monitor.size().to_logical::<f32>(monitor.scale_factor());
+        let inner = window.inner_size().to_logical::<f32>(window.scale_factor());
+        let [w, h] = game::fit_window(Some([inner.width, inner.height]), Some([screen.width, screen.height]));
+        if w + 1. < inner.width || h + 1. < inner.height {
+            // A size applied at once sends no resize event, so record it here.
+            if let Some(size) = window.request_inner_size(LogicalSize::new(w, h)) {
+                self.record_window_size(size);
+            }
+        }
+        self.fit_frames = 0;
+    }
+    /// Remember a player's windowed size, but not a fullscreen or maximized
+    /// one.
+    fn record_window_size(&mut self, size: winit::dpi::PhysicalSize<u32>) {
+        if !self.sized_window || self.game.prefs.fullscreen {
+            return;
+        }
+        let Some(window) = &self.window else { return };
+        if window.fullscreen().is_some() || window.is_maximized() || size.width == 0 {
+            return;
+        }
+        let logical = size.to_logical::<f32>(window.scale_factor());
+        // A window covering the whole screen is fullscreen in all but name.
+        if let Some(monitor) = window.current_monitor() {
+            let screen = monitor.size().to_logical::<f32>(monitor.scale_factor());
+            if logical.width >= screen.width && logical.height >= screen.height {
+                return;
+            }
+        }
+        self.game.prefs.window_size = Some([logical.width.round(), logical.height.round()]);
+    }
     fn quit_game(&mut self, event_loop: &ActiveEventLoop) {
         self.game.quit_requested = false;
         self.game.save_preferences();
@@ -162,7 +242,9 @@ impl App {
             held: HashSet::new(),
             // The input review keeps a physical controller out of its checks.
             pad: gamepad::Pad::new(
-                !smoke && !review && !std::env::args().any(|a| a == "--input-review"),
+                !smoke
+                    && !review
+                    && !std::env::args().any(|a| a == "--input-review" || a == "--window-review"),
             ),
             pad_events: vec![],
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
@@ -204,6 +286,11 @@ impl App {
             layout_review: std::env::args()
                 .any(|a| a == "--layout-review")
                 .then(layout_review::Review::new),
+            window_review: std::env::args()
+                .any(|a| a == "--window-review")
+                .then(window_review::Review::new),
+            sized_window: !smoke && !review,
+            fit_frames: 0,
             // Scripted runs keep the default key names, except the review
             // that checks the layout's.
             layout: if (smoke || review) && !std::env::args().any(|a| a == "--layout-review") {
@@ -839,6 +926,11 @@ impl App {
                 .push(self.last.elapsed().as_secs_f32() * 1000.);
         }
         self.last = Instant::now();
+        self.fit_to_screen();
+        if self.window_step() {
+            self.quit_game(event_loop);
+            return;
+        }
         if self.survival_review {
             self.survival_step();
         }
@@ -1558,6 +1650,8 @@ impl ApplicationHandler for App {
                                     && std::env::args().any(|a| a == "--review-small"))
                             {
                                 LogicalSize::new(960., 600.)
+                            } else if self.sized_window {
+                                self.launch_size(event_loop)
                             } else {
                                 LogicalSize::new(1440., 900.)
                             },
@@ -1572,6 +1666,9 @@ impl ApplicationHandler for App {
                 .expect("create window"),
         );
         watchdog::milestone("window created");
+        if self.sized_window {
+            self.fit_frames = 120;
+        }
         self.egui_state = Some(egui_winit::State::new(
             self.ctx.clone(),
             egui::ViewportId::ROOT,
@@ -1613,6 +1710,7 @@ impl ApplicationHandler for App {
                 if let Some(r) = &mut self.renderer {
                     r.resize(size.width, size.height);
                 }
+                self.record_window_size(size);
             }
             WindowEvent::RedrawRequested => self.frame(event_loop),
             WindowEvent::Focused(true) => self.focused = true,
@@ -1839,6 +1937,12 @@ fn main() {
             std::process::exit(2);
         }
     }
+    if std::env::args().any(|a| a == "--window-review") {
+        if let Some(reason) = window_review::refusal() {
+            eprintln!("Refusing to run: {reason}.");
+            std::process::exit(2);
+        }
+    }
     let input_review = std::env::args().any(|a| a == "--input-review");
     if input_review {
         if let Some(reason) = input_review::refusal() {
@@ -1874,7 +1978,7 @@ fn main() {
         music::export("captures/audio").unwrap();
         return;
     }
-    if smoke || review || input_review {
+    if smoke || review || input_review || std::env::args().any(|a| a == "--window-review") {
         // Scripted runs report progress; a long silence aborts with a core
         // dump. GRAVEWAKE_WATCHDOG_SECS overrides the limit.
         let limit = std::env::var("GRAVEWAKE_WATCHDOG_SECS")
@@ -1887,6 +1991,12 @@ fn main() {
     watchdog::milestone("event loop created");
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let mut app = App::new(smoke, review);
+    // Reviews that launch like a player keep quiet from the first moment;
+    // the ambience otherwise plays until the first frame sets the volume.
+    if app.window_review.is_some() || app.input_review.is_some() {
+        app.game.prefs.volume = 0.;
+        app.audio.volume(0.);
+    }
     // The fullscreen review checks that switches are saved, in the throwaway
     // data folder `fullscreen_review::refusal` insists on.
     if app.fullscreen_review.is_some() {
