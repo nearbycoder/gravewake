@@ -28,8 +28,10 @@ opt-level = 2
 lto = "thin"
 codegen-units = 1
 
-# The input review's fake keyboard and mouse (`src/input_review.rs`). Both
-# crates are already in winit's dependency tree on Linux.
+# The input review's fake keyboard and mouse (`src/input_review.rs`), and
+# reading the keyboard layout (`src/keymap.rs`). All three crates are already
+# in winit's dependency tree on Linux.
 [target.'cfg(target_os = "linux")'.dependencies]
 wayland-client = "0.31"
 wayland-protocols-plasma = { version = "0.3", features = ["client"] }
+xkbcommon-dl = "0.4"

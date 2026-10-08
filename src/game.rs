@@ -714,6 +714,9 @@ pub struct Game {
     pub pad_rebinding: Option<(PadAction, usize)>,
     /// The Keyboard or Controller page's latest confirmation or refusal.
     pub controls_note: String,
+    /// The keyboard layout's character for each bindable key, when the
+    /// compositor's keymap could be read (`keymap`).
+    pub layout: crate::keymap::Glyphs,
     pub quit_requested: bool,
     /// The journal's Fullscreen switch changed `prefs.fullscreen`; the
     /// window applies it on the next frame.
@@ -821,6 +824,7 @@ impl Game {
             rebinding: None,
             pad_rebinding: None,
             controls_note: String::new(),
+            layout: Vec::new(),
             quit_requested: false,
             fullscreen_changed: false,
             sprint_latched: false,
@@ -1192,6 +1196,7 @@ impl Game {
         self.controls_note = match bindings.assign(action, trigger, glyph) {
             Ok(displaced) => {
                 self.rebinding = None;
+                bindings.learn_layout(&self.layout);
                 let mut note = format!("{} is now {}.", action.name(), bindings.label(action));
                 if let Some(other) = displaced {
                     note += &format!(" {} moved to {}.", other.name(), bindings.label(other));
@@ -1202,6 +1207,11 @@ impl Game {
             Err(reason) => format!("{reason} Choose another key for {}.", action.name()),
         };
         self.save_preferences();
+    }
+    /// Name keys after the keyboard layout's characters from now on.
+    pub fn use_layout(&mut self, glyphs: crate::keymap::Glyphs) {
+        self.layout = glyphs;
+        self.prefs.bindings.learn_layout(&self.layout);
     }
     /// The input that performs `action` on the device the player used last.
     pub fn prompt(&self, action: Action) -> String {

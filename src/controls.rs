@@ -233,6 +233,13 @@ impl Trigger {
     }
 }
 
+/// The bindable keys whose label may be the layout's own character.
+pub fn glyph_keys() -> impl Iterator<Item = KeyCode> {
+    KEYS.iter()
+        .map(|k| k.0)
+        .filter(|&code| Trigger::Key(code).takes_glyph())
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Binding {
     pub trigger: Trigger,
@@ -371,6 +378,13 @@ impl Bindings {
             }
         }
         changed
+    }
+    /// Remember the characters a layout gives (`keymap::Glyphs`) for every
+    /// bound key. Returns true if a label changed.
+    pub fn learn_layout(&mut self, glyphs: &[(KeyCode, char)]) -> bool {
+        glyphs
+            .iter()
+            .fold(false, |changed, &(code, glyph)| self.learn_glyph(code, glyph) || changed)
     }
     /// "W A S D", or the four current movement labels.
     pub fn movement_label(&self) -> String {

@@ -1081,6 +1081,7 @@ dependencies = [
  "wayland-protocols-plasma",
  "wgpu",
  "winit",
+ "xkbcommon-dl",
 ]
 
 [[package]]

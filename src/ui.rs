@@ -3772,6 +3772,7 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
         false,
     ) {
         g.prefs.bindings = Default::default();
+        g.prefs.bindings.learn_layout(&g.layout);
         g.rebinding = None;
         g.controls_note = "Default keys restored.".into();
         g.save_preferences();

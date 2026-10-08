@@ -4,20 +4,26 @@
 # never reach the desktop in use. Streams the command's output and exits with
 # its status. Needs kwin_wayland (KDE Plasma 6) and dbus-run-session.
 #
-#   scripts/nested-kwin.sh [--size 1920x1080] [--fake-input] -- command [args...]
+#   scripts/nested-kwin.sh [--size 1920x1080] [--fake-input] [--layout fr] -- command [args...]
 #
 # Inside, WAYLAND_DISPLAY names the private compositor, DISPLAY is unset and
 # GRAVEWAKE_NESTED_KWIN=1 is set. --fake-input lets any client of this
 # private KWin inject key and mouse events (KWIN_WAYLAND_NO_PERMISSION_CHECKS)
-# and sets GRAVEWAKE_FAKE_INPUT=1 inside; the desktop in use is unaffected. Working files go under captures/ and are
-# removed afterwards.
+# and sets GRAVEWAKE_FAKE_INPUT=1 inside; the desktop in use is unaffected.
+# --layout gives the private KWin that XKB keyboard layout, through a
+# kxkbrc in its own throwaway XDG_CONFIG_HOME. Working files go under
+# captures/ and are removed afterwards.
 set -euo pipefail
 
 size=1920x1080
 fake_input=0
-while [[ ${1:-} == --size || ${1:-} == --fake-input ]]; do
+layout=
+while [[ ${1:-} == --size || ${1:-} == --fake-input || ${1:-} == --layout ]]; do
   if [[ $1 == --size ]]; then
     size=$2
+    shift 2
+  elif [[ $1 == --layout ]]; then
+    layout=$2
     shift 2
   else
     fake_input=1
@@ -26,7 +32,7 @@ while [[ ${1:-} == --size || ${1:-} == --fake-input ]]; do
 done
 [[ ${1:-} == -- ]] && shift
 if (($# == 0)); then
-  echo "usage: $0 [--size WxH] [--fake-input] -- command [args...]" >&2
+  echo "usage: $0 [--size WxH] [--fake-input] [--layout XKB] -- command [args...]" >&2
   exit 2
 fi
 for tool in kwin_wayland dbus-run-session; do
@@ -51,9 +57,14 @@ echo \$? >$(printf %q "$work/status")
 EOF
 chmod +x "$work/session"
 
-permissions=()
-((fake_input)) && permissions=(env KWIN_WAYLAND_NO_PERMISSION_CHECKS=1)
-dbus-run-session -- "${permissions[@]}" kwin_wayland --virtual --no-lockscreen --no-global-shortcuts \
+kwin_env=()
+((fake_input)) && kwin_env+=(KWIN_WAYLAND_NO_PERMISSION_CHECKS=1)
+if [[ -n $layout ]]; then
+  mkdir -p "$work/config"
+  printf '[Layout]\nLayoutList=%s\nUse=true\n' "$layout" >"$work/config/kxkbrc"
+  kwin_env+=(XDG_CONFIG_HOME="$work/config")
+fi
+dbus-run-session -- env "${kwin_env[@]}" kwin_wayland --virtual --no-lockscreen --no-global-shortcuts \
   --no-kactivities --socket "gravewake-nested-$$" \
   --width "${size%x*}" --height "${size#*x}" \
   --exit-with-session "$work/session" >"$work/kwin.log" 2>&1 &

@@ -8,6 +8,8 @@ mod dismemberment;
 mod encounters;
 mod fullscreen_review;
 mod input_review;
+mod keymap;
+mod layout_review;
 mod enemy_assets;
 mod environment_assets;
 mod game;
@@ -84,6 +86,9 @@ struct App {
     fullscreen_review: Option<fullscreen_review::Review>,
     pacing_review: Option<pacing_review::Review>,
     input_review: Option<input_review::Review>,
+    layout_review: Option<layout_review::Review>,
+    /// The keyboard layout's key characters, sent once if they can be read.
+    layout: std::sync::mpsc::Receiver<keymap::Glyphs>,
     /// The frame limit's schedule.
     pacer: pacing::Pacer,
     benchmark: bool,
@@ -196,6 +201,16 @@ impl App {
             input_review: std::env::args()
                 .any(|a| a == "--input-review")
                 .then(input_review::Review::new),
+            layout_review: std::env::args()
+                .any(|a| a == "--layout-review")
+                .then(layout_review::Review::new),
+            // Scripted runs keep the default key names, except the review
+            // that checks the layout's.
+            layout: if (smoke || review) && !std::env::args().any(|a| a == "--layout-review") {
+                std::sync::mpsc::channel().1
+            } else {
+                keymap::start()
+            },
             pacing_review: std::env::args()
                 .any(|a| a == "--pacing-review")
                 .then(pacing_review::Review::new),
@@ -856,6 +871,13 @@ impl App {
             path
         } else if self.input_review.is_some() {
             self.input_step()
+        } else if self.layout_review.is_some() {
+            let path = self.layout_step();
+            if self.layout_review.as_ref().is_some_and(|r| r.finished) {
+                event_loop.exit();
+                return;
+            }
+            path
         } else if self.fullscreen_review.is_some() {
             let path = self.fullscreen_step();
             if self.fullscreen_review.as_ref().is_some_and(|r| r.finished) {
@@ -894,6 +916,7 @@ impl App {
         };
         let capture = if self.benchmark
             || self.fullscreen_review.is_some()
+            || self.layout_review.is_some()
             || self.pacing_review.is_some()
             || self.text_review.is_some()
             || self.model_review.is_some()
@@ -989,6 +1012,9 @@ impl App {
             }
             event_loop.exit();
             return;
+        }
+        if let Ok(glyphs) = self.layout.try_recv() {
+            self.game.use_layout(glyphs);
         }
         let mut pad_frame = self.pad.poll();
         if !self.focused {
@@ -1799,7 +1825,14 @@ fn main() {
             || a == "--world-review"
             || a == "--fullscreen-review"
             || a == "--pacing-review"
+            || a == "--layout-review"
     });
+    if std::env::args().any(|a| a == "--layout-review") {
+        if let Some(reason) = layout_review::refusal() {
+            eprintln!("Refusing to run: {reason}.");
+            std::process::exit(2);
+        }
+    }
     if std::env::args().any(|a| a == "--fullscreen-review") {
         if let Some(reason) = fullscreen_review::refusal() {
             eprintln!("Refusing to run: {reason}.");
