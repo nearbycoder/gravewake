@@ -1517,3 +1517,93 @@ Deferred, with reasons:
   and aim assist's default and strength. New: whether the frame limit
   should default to something other than Off (it keeps today's behaviour;
   a 60 or display-rate default would save laptop power in menus).
+
+## Round 10 scope
+
+Round 9 was merged and pushed on 2026-10-07. Nearly every item on the
+original backlog has shipped, so this round takes the three known issues in
+the README that a player can run into and that can be checked on this
+machine. The audio library floods the terminal when the device fails, and
+sound never comes back until a restart. Non-QWERTY players see the wrong key
+names until they've pressed each key. Cards estimate damage against a single
+target, so splash, chain, piercing and melee weapons look weaker than they
+are, and the card doesn't say how far they reach. Elite enemies, crowd damage
+estimates based on play data, Windows and the browser build stay deferred
+(no playtests or platforms here).
+
+### A. Audio that reports a failure once and recovers
+
+Acceptance criteria:
+- The game opens its own output stream (cpal through rodio's mixer) instead
+  of `OutputStream::try_default`, so the error callback is ours. A stream
+  error prints one line, then at most one summary line (with a count) every
+  ten seconds while errors continue; a million errors in a burst produce a
+  handful of lines.
+- After an error, the game closes the failed stream and reopens the default
+  device, retrying with a growing delay (1 s, 2 s, 4 s, up to 10 s).
+  Ambience and music keep playing after the reopen without being restarted
+  by the game. If no device can be opened at launch, the game keeps
+  retrying in the same way, so sound starts when a device appears.
+- While there's no stream, sounds are dropped instead of queuing up.
+- If the default output device changes name (another device becomes the
+  default, as on macOS when headphones connect), the game moves to it.
+  Linux's `default` device under PipeWire or PulseAudio already follows the
+  system, so nothing changes there.
+
+Verification: unit tests for the error reporter (a million errors, the
+summary cadence), the retry schedule and the device-change check. A scripted
+review (`scripts/audio-review.sh`) runs the game with a throwaway `HOME`
+whose `.asoundrc` points ALSA's default device at files under
+`captures/audio-review/` (so nothing plays through the shared machine's
+speakers): it checks that sound reaches the file, then points the default
+at a device that doesn't exist and checks the game keeps running silently,
+then points it back and checks sound resumes, and it pushes a burst of
+errors through the stream's error handler and counts the lines printed.
+Whatever part of that can't be driven through ALSA for real will be
+reported as simulated.
+
+### B. Key names that follow the keyboard layout from the first launch
+
+Acceptance criteria:
+- On Linux under Wayland, the game reads the compositor's keymap at startup
+  (a second Wayland connection, `wl_keyboard.keymap`, compiled with the
+  libxkbcommon that winit already loads) and labels every bound letter,
+  digit and punctuation key with the character it types on the first
+  layout, so an AZERTY keyboard shows Z Q S D on the first banner without a
+  key being pressed. Keys that produce no printable character keep their
+  names.
+- If anything fails (X11, macOS, no keyboard on the seat, no
+  libxkbcommon), labels behave as before: each key shows its own character
+  once pressed. Startup isn't delayed.
+
+Verification: a unit test compiling real `us` and `fr` keymaps with
+libxkbcommon and checking the labels (skipped with a message if the
+library is missing). A scripted review (`--layout-review`) in the private
+KWin started with a French layout, checking the movement label is
+`Z Q S D` before any key is pressed, with a capture of the opening banner,
+and the same review with the default layout showing `W A S D`. X11 and
+macOS aren't covered.
+
+### C. How far each card's damage reaches
+
+Acceptance criteria:
+- Pack, offer and armory cards for weapons that hit more than one creature
+  say how: how many creatures a piercing shot passes through, how many
+  more a chain jumps to and within what distance, a splash's radius, a
+  scattergun's pellet count, a melee weapon's sweep. The numbers come
+  from the same values combat uses.
+- The damage estimate says it is for one target.
+- Cards still fit at 960×600 and 1440×900.
+
+Verification: unit tests tying each line to the combat values (pierce
+limits, chain jumps, radius), and text-review captures of a pack and the
+armory at both sizes.
+
+### Deferred this round
+
+- Elite enemy variants (rest of #8) and crowd damage estimates from play
+  data: both need playtests.
+- Windows validation (#12) and the browser build (#15).
+- Owner decisions, unchanged: release downloads and tag workflows, macOS
+  signing and notarization, licences, whether the synthesized score stays,
+  aim assist's default and strength, and the frame limit's default.
