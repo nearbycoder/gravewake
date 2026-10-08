@@ -49,7 +49,7 @@ A district label, compass and final-threat bearing help with orientation. Reinfo
 | --- | --- |
 | W A S D | Move |
 | Mouse | Look |
-| Left mouse (hold) | Fire |
+| Left mouse (hold) | Fire (rebindable) |
 | R | Reload |
 | Shift | Sprint |
 | Space | Dodge, with a short invulnerable interval |
@@ -66,7 +66,7 @@ A player's launch opens the window at `window_size` from `settings.json` (its la
 
 `scripts/window-review.sh` runs `--window-review` (`src/window_review.rs`) three times in the private KWin with one throwaway data folder: a first launch on a 1366×768 output opens at 1105×691; asked for 1440×900 without fitting, KWin gives 1440×900, bigger than the output, so nothing there would have shrunk a window that asks for too much after it opened (KWin does squeeze a brand-new window to the screen, so on Plasma the old fixed 1440×900 filled a small screen rather than spilling off it; other desktops may not); KWin then resizes the window to 1100×650 through KWin scripting, as dragging its edge would, and the preference follows and is saved on quit. The second launch reopens at 1100×650, and with 3000×1800 written into `settings.json` a launch on a 1920×1080 output opens at 1620×972. The log is `captures/window/review.log`. Window position isn't remembered: Wayland doesn't let a client place its window.
 
-The keys above are defaults. The journal's **Keyboard** page rebinds the nine keyboard actions (`src/controls.rs`). Bindings store physical key positions, plus the character each key last produced, so labels match the player's layout after the key has been pressed once. Until then, a default key shows its US label. Right, middle and side mouse buttons can be bound too. Binding a key that's already in use swaps the two actions. Escape, F6, F7, F8, F11 and the left mouse button are reserved. Bindings are saved in `settings.json`. A damaged bindings entry resets only the bindings, and the other preferences still load. Every on-screen prompt (the HUD, the opening banner and notices) uses the current labels.
+The keys above are defaults. The journal's **Keyboard** page rebinds the ten keyboard actions (`src/controls.rs`), Fire included. Bindings store physical key positions, plus the character each key last produced, so labels match the player's layout after the key has been pressed once. Until then, a default key shows its US label. Every mouse button can be bound too. The left one, which also clicks the journal, is bound by clicking the waiting action's button a second time (`ui::journal_controls`); before Fire could move, that second click cancelled. Fire is on the left button by default and in older files, and whatever is bound to it fires while held in the arena, with a press latched until the next frame (`App::fire_input`); the opening banner and the melee prompt name it. Binding a key that's already in use swaps the two actions; moving Fire to a free key leaves the left button unbound. Escape, F6, F7, F8 and F11 are reserved. Bindings are saved in `settings.json`. A damaged bindings entry resets only the bindings, and the other preferences still load. Every on-screen prompt (the HUD, the opening banner and notices) uses the current labels.
 
 ## Save data
 
@@ -373,7 +373,8 @@ Bindings store physical keys, so a label is only right for the player's layout o
 - with **Sprint / Hold**, W and Shift move and sprint, and sprint ends when Shift is released while W stays down; with **Sprint / Toggle**, a Shift tap (press and release sent together) starts sprinting, it stays on for 30 frames, and the next tap stops it;
 - with the Keyboard page waiting for Reload's key (set directly, as a click on its button leaves it), a T press binds Reload to T, then an E press binds it to E and moves Melee to T, the page notes the swap, `settings.json` holds the new bindings when the journal closes, and E then starts a reload in the arena;
 - a quick left click (press and release together) fires once, a held one keeps firing, and 200 counts of mouse motion turn the view 0.5 rad at the default sensitivity;
-- F11 goes fullscreen at the output's size and back to the 1440×900 window, and `settings.json` records each.
+- F11 goes fullscreen at the output's size and back to the 1440×900 window, and `settings.json` records each;
+- with the Keyboard page waiting for Fire's key, an F press binds Fire to F and leaves the left button free; back in the arena a left click doesn't fire and an F press does; then, with the real pointer placed on Fire's button (the window's position found from where the output's centre lands in it), one click waits for a new input and a second binds Fire to the left button, `settings.json` holds it when the journal closes, and a left click fires again.
 
 It then quits through the normal save-and-quit path. Captures and the log go to `captures/input/`. Like the fullscreen review, it refuses to run outside that compositor or without a throwaway data folder (`input_review::refusal`). Its first run found that a tap whose press and release both landed between two frames was never seen, since sprint and the left mouse button were read once per frame from what was held: toggle sprint didn't start and a quick click didn't fire. Both now latch a press until the next frame (`sprint_pressed`, `fire_pressed` in `main.rs`); with the fire latch removed, the review fails waiting for the quick click. KWin injects the events, so this isn't a physical keyboard on a real Plasma session, and controller buttons aren't exercised.
 

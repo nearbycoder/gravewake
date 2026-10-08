@@ -2770,7 +2770,8 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
     } else if g.run.time < 7. {
         let y = c.h - TIP_FROM_BOTTOM;
         let (fire, pause) = match g.device {
-            Device::Keyboard => ("Mouse", "Esc"),
+            Device::Keyboard if g.fire_prompt() == "LMB" => ("Mouse".into(), "Esc"),
+            Device::Keyboard => (g.fire_prompt(), "Esc"),
             Device::Controller => (g.fire_prompt(), "Start"),
         };
         c.hud_panel(338., y + 20., 764., 35.);
@@ -3787,8 +3788,17 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
             waiting,
         ) {
             clicked_key = true;
-            g.rebinding = (!waiting).then_some(action);
-            g.controls_note.clear();
+            if waiting {
+                // A left click elsewhere is how the journal is used, so the
+                // left button is bound by clicking the waiting button again.
+                g.bind(
+                    crate::controls::Trigger::Mouse(winit::event::MouseButton::Left),
+                    None,
+                );
+            } else {
+                g.rebinding = Some(action);
+                g.controls_note.clear();
+            }
         }
     }
     // Clicking anywhere else stops waiting for a key.
@@ -3796,7 +3806,7 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
         g.rebinding = None;
     }
     for (i, line) in [
-        "Left mouse  fire    1 2 3  choose a power    Esc  pause    F11  fullscreen",
+        "1 2 3  choose a power    Esc  pause    F11  fullscreen",
         "F6  Hollowlight    F7  VSync    F8  FPS counter",
     ]
     .into_iter()
@@ -3808,7 +3818,8 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
     }
     let note = if let Some(action) = g.rebinding {
         format!(
-            "Press a key or mouse button for {}. Escape cancels.",
+            "Press a key or mouse button for {}, or click it again for the left button. \
+             Escape cancels.",
             action.name()
         )
     } else if g.controls_note.is_empty() {

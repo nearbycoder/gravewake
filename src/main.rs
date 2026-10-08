@@ -57,7 +57,8 @@ struct App {
     pad: gamepad::Pad,
     pad_events: Vec<egui::Event>,
     gamepad_smoke: bool,
-    mouse_fire: bool,
+    /// The fire binding (a key or mouse button) is held in the arena.
+    fire_held: bool,
     /// Sprint and fire pressed since the last frame. A press and release
     /// that both land between two frames still count for one frame, so a
     /// quick tap toggles sprint or fires.
@@ -248,7 +249,7 @@ impl App {
             ),
             pad_events: vec![],
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
-            mouse_fire: false,
+            fire_held: false,
             sprint_pressed: false,
             fire_pressed: false,
             pointer_ignored: false,
@@ -349,6 +350,16 @@ impl App {
         if self.game.prefs.bindings.action(trigger) == Some(controls::Action::Sprint) {
             self.sprint_pressed = true;
         }
+    }
+    /// Fire while the fire binding is held in the arena; a press and
+    /// release between two frames still fires once (`fire_pressed`).
+    fn fire_input(&mut self, trigger: controls::Trigger, pressed: bool) {
+        if self.game.prefs.bindings.action(trigger) != Some(controls::Action::Fire) {
+            return;
+        }
+        self.fire_held = self.game.mode == Mode::Arena && pressed && self.game.rebinding.is_none();
+        self.fire_pressed |= self.fire_held;
+        self.game.input.fire = self.fire_held;
     }
     /// Run the one-shot action bound to a key or mouse button, if any.
     fn press(&mut self, trigger: controls::Trigger) {
@@ -1116,7 +1127,7 @@ impl App {
             self.game.notify(&notice);
         }
         if pad_frame.lost && !self.smoke && !self.review && self.game.controller_lost() {
-            self.mouse_fire = false;
+            self.fire_held = false;
             self.sync_cursor();
         }
         if pad_frame.deliberate() {
@@ -1167,7 +1178,7 @@ impl App {
                 }
             } else {
                 self.pad.cursor.hide();
-                self.game.input.fire = self.mouse_fire || pad.fire || self.fire_pressed;
+                self.game.input.fire = self.fire_held || pad.fire || self.fire_pressed;
                 let prefs = self.game.prefs;
                 let assist = if pad.look == glam::Vec2::ZERO {
                     1.
@@ -1731,7 +1742,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Focused(false) => {
                 self.focused = false;
-                self.mouse_fire = false;
+                self.fire_held = false;
                 if self.game.mode == Mode::Arena && !self.smoke && !self.review {
                     self.game.back();
                     self.sync_cursor();
@@ -1760,6 +1771,9 @@ impl ApplicationHandler for App {
                         }
                     }
                     return;
+                }
+                if !event.repeat {
+                    self.fire_input(trigger, pressed);
                 }
                 if pressed {
                     if let Some(glyph) = key_glyph(&event) {
@@ -1805,26 +1819,17 @@ impl ApplicationHandler for App {
                     self.sync_cursor();
                 }
             }
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } if !self.smoke && !self.review => {
-                if state == ElementState::Pressed {
-                    self.game.device = controls::Device::Keyboard;
-                }
-                self.mouse_fire = self.game.mode == Mode::Arena && state == ElementState::Pressed;
-                self.fire_pressed |= self.mouse_fire;
-                self.game.input.fire = self.mouse_fire;
-            }
             WindowEvent::MouseInput { state, button, .. } if !self.smoke && !self.review => {
                 let trigger = controls::Trigger::Mouse(button);
                 let pressed = state == ElementState::Pressed;
                 if pressed {
                     self.game.device = controls::Device::Keyboard;
                 }
+                self.fire_input(trigger, pressed);
                 if self.game.rebinding.is_some() {
-                    if pressed {
+                    // The left button clicks the journal; clicking the
+                    // waiting button again binds it (`ui::journal_controls`).
+                    if pressed && button != MouseButton::Left {
                         self.game.bind(trigger, None);
                     }
                 } else if pressed {

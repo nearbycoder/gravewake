@@ -1339,11 +1339,15 @@ impl Game {
             Device::Controller => "Start",
         }
     }
-    /// The left mouse button (not rebindable), or the controller's fire button.
-    pub fn fire_prompt(&self) -> &'static str {
+    /// The fire binding, short: "LMB" for the left mouse button, as before
+    /// fire could move, or the key or controller button that fires.
+    pub fn fire_prompt(&self) -> String {
+        let left = crate::controls::Trigger::Mouse(winit::event::MouseButton::Left);
         match self.device {
-            Device::Keyboard => "LMB",
-            Device::Controller => self.prefs.pad_bindings.label(PadAction::Fire),
+            Device::Keyboard if self.prefs.bindings.get(Action::Fire).trigger == left => {
+                "LMB".into()
+            }
+            _ => self.prompt(Action::Fire),
         }
     }
     /// The controller driving the game disconnected. A fight played with it

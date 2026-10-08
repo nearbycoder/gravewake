@@ -18,14 +18,18 @@ pub enum Action {
     Reload,
     Melee,
     Bolt,
+    Fire,
 }
 impl Action {
-    pub const ALL: [Action; 9] = [
+    /// In the Keyboard page's order: movement and sprint, then fire and the
+    /// one-shot actions.
+    pub const ALL: [Action; 10] = [
         Action::Forward,
         Action::Back,
         Action::Left,
         Action::Right,
         Action::Sprint,
+        Action::Fire,
         Action::Dodge,
         Action::Reload,
         Action::Melee,
@@ -42,6 +46,7 @@ impl Action {
             Action::Reload => "Reload",
             Action::Melee => "Melee",
             Action::Bolt => "Ember Bolt",
+            Action::Fire => "Fire",
         }
     }
     fn index(self) -> usize {
@@ -57,6 +62,7 @@ impl Action {
             Action::Reload => Some(PadAction::Reload),
             Action::Melee => Some(PadAction::Melee),
             Action::Bolt => Some(PadAction::Bolt),
+            Action::Fire => Some(PadAction::Fire),
         }
     }
 }
@@ -167,13 +173,14 @@ const KEYS: &[(KeyCode, &str, &str)] = &[
     (KeyCode::F12, "F12", "F12"),
 ];
 const BUTTONS: &[(MouseButton, &str, &str)] = &[
+    (MouseButton::Left, "MouseLeft", "LEFT MOUSE"),
     (MouseButton::Right, "MouseRight", "RIGHT MOUSE"),
     (MouseButton::Middle, "MouseMiddle", "MIDDLE MOUSE"),
     (MouseButton::Back, "MouseBack", "MOUSE 4"),
     (MouseButton::Forward, "MouseForward", "MOUSE 5"),
 ];
 /// Keys with fixed jobs: pause/back, the three presentation toggles and
-/// fullscreen. The left mouse button always fires.
+/// fullscreen. The left mouse button can be bound, and still clicks menus.
 const RESERVED: &[(KeyCode, &str)] = &[
     (KeyCode::Escape, "Escape"),
     (KeyCode::F6, "F6"),
@@ -215,9 +222,6 @@ impl Trigger {
     /// Why this input can't be bound, if it can't.
     pub fn refusal(self) -> Option<String> {
         match self {
-            Trigger::Mouse(MouseButton::Left) => {
-                Some("The left mouse button always fires.".into())
-            }
             Trigger::Key(code) => {
                 if let Some((_, name)) = RESERVED.iter().find(|r| r.0 == code) {
                     Some(format!("{name} is reserved."))
@@ -266,7 +270,7 @@ struct Stored {
 /// One binding per action. Every action has a distinct input.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(from = "Vec<Stored>", into = "Vec<Stored>")]
-pub struct Bindings([Binding; 9]);
+pub struct Bindings([Binding; 10]);
 impl Default for Bindings {
     fn default() -> Self {
         let key = |code| Binding {
@@ -279,6 +283,10 @@ impl Default for Bindings {
             key(KeyCode::KeyA),
             key(KeyCode::KeyD),
             key(KeyCode::ShiftLeft),
+            Binding {
+                trigger: Trigger::Mouse(MouseButton::Left),
+                glyph: None,
+            },
             key(KeyCode::Space),
             key(KeyCode::KeyR),
             key(KeyCode::KeyE),
@@ -431,14 +439,45 @@ mod tests {
             assert!(b.assign(Action::Bolt, Trigger::Key(code), None).is_err());
         }
         assert!(
-            b.assign(Action::Bolt, Trigger::Mouse(MouseButton::Left), None)
-                .is_err()
-        );
-        assert!(
             b.assign(Action::Bolt, Trigger::Key(KeyCode::MediaPlayPause), None)
                 .is_err()
         );
         assert_eq!(b, Bindings::default());
+    }
+    #[test]
+    fn fire_moves_off_the_left_button_and_older_files_keep_it_there() {
+        let mut b = Bindings::default();
+        for action in Action::ALL {
+            assert_eq!(b.action(b.get(action).trigger), Some(action), "{action:?} at its index");
+        }
+        assert_eq!(b.get(Action::Fire).trigger, Trigger::Mouse(MouseButton::Left));
+        assert_eq!(b.label(Action::Fire), "LEFT MOUSE");
+        // To a free key: the left button is left unbound.
+        assert_eq!(b.assign(Action::Fire, Trigger::Key(KeyCode::KeyF), Some('f')), Ok(None));
+        assert_eq!(b.action(Trigger::Key(KeyCode::KeyF)), Some(Action::Fire));
+        assert_eq!(b.action(Trigger::Mouse(MouseButton::Left)), None);
+        assert_eq!(b.label(Action::Fire), "F");
+        // The left button for melee; then fire back on it, swapping with melee.
+        assert_eq!(b.assign(Action::Melee, Trigger::Mouse(MouseButton::Left), None), Ok(None));
+        assert_eq!(
+            b.assign(Action::Fire, Trigger::Mouse(MouseButton::Left), None),
+            Ok(Some(Action::Melee))
+        );
+        assert_eq!(b.get(Action::Melee).trigger, Trigger::Key(KeyCode::KeyF));
+        assert!(!b.has_duplicates());
+        // Saved by name, and files from before Fire could move keep it on the
+        // left button, with their other keys.
+        let json = serde_json::to_string(&b).unwrap();
+        assert!(json.contains(r#"{"action":"Fire","input":"MouseLeft"}"#), "{json}");
+        assert_eq!(serde_json::from_str::<Bindings>(&json).unwrap(), b);
+        let older = r#"[{"action":"Reload","input":"KeyT"},{"action":"Melee","input":"MouseRight"}]"#;
+        let old: Bindings = serde_json::from_str(older).unwrap();
+        assert_eq!(old.get(Action::Fire).trigger, Trigger::Mouse(MouseButton::Left));
+        assert_eq!(old.get(Action::Reload).trigger, Trigger::Key(KeyCode::KeyT));
+        // A file that put another action on the left button and fire on it too
+        // is damaged: defaults.
+        let clash = r#"[{"action":"Melee","input":"MouseLeft"}]"#;
+        assert_eq!(serde_json::from_str::<Bindings>(clash).unwrap(), Bindings::default());
     }
     #[test]
     fn labels_follow_the_keyboard_layout() {

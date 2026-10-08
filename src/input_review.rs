@@ -12,6 +12,7 @@ use crate::App;
 use crate::controls::{Action, Trigger};
 use crate::game::{Ending, Game, JournalPage, Mode, Preferences, Records};
 use winit::dpi::PhysicalSize;
+use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
 const DIR: &str = "captures/input";
@@ -26,9 +27,16 @@ mod code {
     pub const W: u32 = 17;
     pub const E: u32 = 18;
     pub const T: u32 = 20;
+    pub const F: u32 = 33;
     pub const LEFT_SHIFT: u32 = 42;
     pub const F11: u32 = 87;
     pub const BUTTON_LEFT: u32 = 0x110;
+}
+
+/// The middle of Fire's button on the journal's Keyboard page, in design
+/// units: the first row of the second column (`ui::journal_controls`).
+fn fire_button() -> (f64, f64) {
+    (372. + 372. + 128. + 98., 304. + 18.)
 }
 
 /// Why the review may not run here, if it may not.
@@ -528,9 +536,171 @@ impl App {
                     "INPUT REVIEW: F11 returned to the {}x{} window and settings.json recorded it",
                     r.windowed.width, r.windowed.height
                 );
+                // Pause, for the Keyboard page.
+                r.tap(code::ESC);
+                (Done, None)
+            }
+            // Fire moves to F: a left click no longer fires, F does.
+            21 => {
+                if self.game.mode != Mode::Paused {
+                    return (Wait("Escape to pause"), None);
+                }
+                assert_eq!(bindings.get(Action::Fire).trigger, Trigger::Mouse(MouseButton::Left));
+                self.game.settings = true;
+                self.game.journal_page = JournalPage::Keyboard;
+                self.game.rebinding = Some(Action::Fire);
+                r.tap(code::F);
+                (Done, None)
+            }
+            22 => {
+                if bindings.get(Action::Fire).trigger != Trigger::Key(KeyCode::KeyF) {
+                    return (Wait("an F press to bind Fire"), None);
+                }
+                assert_eq!(
+                    bindings.action(Trigger::Mouse(MouseButton::Left)),
+                    None,
+                    "the left button is free"
+                );
+                println!("INPUT REVIEW: an F press bound Fire to F ({})", self.game.controls_note);
+                self.game.save_preferences();
+                self.game.settings = false;
+                r.tap(code::ESC);
+                (Done, None)
+            }
+            23 if r.held_since.is_none() => {
+                if !(self.game.mode == Mode::Arena && self.captured) {
+                    return (Wait("Escape to resume"), None);
+                }
+                if self.game.reload > 0. || self.game.cooldown > 0. {
+                    return (Wait("the weapon to be ready"), None);
+                }
+                self.game.run.ammo = self.game.run.weapon.capacity();
+                r.ammo = self.game.run.ammo;
+                r.fake().button(code::BUTTON_LEFT, true);
+                r.fake().button(code::BUTTON_LEFT, false);
+                r.held_since = Some(r.frames);
+                (Wait("frames after a left click"), None)
+            }
+            23 => {
+                if r.frames < r.held_since.unwrap() + 30 {
+                    return (Wait("frames after a left click"), None);
+                }
+                assert_eq!(self.game.run.ammo, r.ammo, "a left click no longer fires");
+                println!("INPUT REVIEW: with Fire on F, a left click didn't fire");
+                r.tap(code::F);
+                (Done, None)
+            }
+            24 => {
+                if self.game.run.ammo >= r.ammo {
+                    return (Wait("an F press to fire"), None);
+                }
+                println!(
+                    "INPUT REVIEW: an F press fired ({} of {} rounds left)",
+                    self.game.run.ammo,
+                    self.game.run.weapon.capacity()
+                );
+                r.tap(code::ESC);
+                (Done, None)
+            }
+            // Back to the left button by clicking Fire's button twice on the
+            // Keyboard page, with the real pointer.
+            25 if r.held_since.is_none() => {
+                if self.game.mode != Mode::Paused {
+                    return (Wait("Escape to pause"), None);
+                }
+                self.game.settings = true;
+                self.game.journal_page = JournalPage::Keyboard;
+                self.game.controls_note.clear();
+                let output = window.current_monitor().expect("an output").size();
+                r.output = output;
+                r.fake().move_to(output.width as f64 / 2., output.height as f64 / 2.);
+                r.held_since = Some(r.frames);
+                (Wait("the pointer over the window"), None)
+            }
+            25 => {
+                if r.frames < r.held_since.unwrap() + 20 {
+                    return (Wait("the pointer over the window"), None);
+                }
+                // The output's centre, as the window sees it, places the window.
+                let seen = self.last_pointer.expect("the pointer crossed the window");
+                let origin = (
+                    r.output.width as f64 / 2. - seen.x,
+                    r.output.height as f64 / 2. - seen.y,
+                );
+                let size = window.inner_size();
+                let scale = (size.width as f64 / 1440.).min(size.height as f64 / 900.);
+                let (x, y) = fire_button();
+                r.fake().move_to(
+                    origin.0 + (size.width as f64 - 1440. * scale) / 2. + x * scale,
+                    origin.1 + y * scale,
+                );
+                (Done, None)
+            }
+            26 if r.held_since.is_none() => {
+                if r.frames < 10 {
+                    return (Wait("the pointer on Fire's button"), None);
+                }
+                r.fake().button(code::BUTTON_LEFT, true);
+                r.fake().button(code::BUTTON_LEFT, false);
+                r.held_since = Some(r.frames);
+                (Wait("a click on Fire's button"), None)
+            }
+            26 => {
+                if self.game.rebinding != Some(Action::Fire) {
+                    return (Wait("a click on Fire's button to wait for a key"), None);
+                }
+                println!("INPUT REVIEW: a click on Fire's button waits for its new input");
+                r.fake().button(code::BUTTON_LEFT, true);
+                r.fake().button(code::BUTTON_LEFT, false);
+                (Done, None)
+            }
+            27 => {
+                if bindings.get(Action::Fire).trigger != Trigger::Mouse(MouseButton::Left) {
+                    return (Wait("a second click to bind Fire to the left button"), None);
+                }
+                assert!(self.game.rebinding.is_none(), "binding stops waiting");
+                assert_eq!(bindings.action(Trigger::Key(KeyCode::KeyF)), None, "F is free");
+                let since = *r.held_since.get_or_insert(r.frames);
+                if r.frames < since + 20 {
+                    return (Wait("the page to draw the new binding"), None);
+                }
+                println!(
+                    "INPUT REVIEW: a second click on Fire's button bound it to the left button ({})",
+                    self.game.controls_note
+                );
+                self.game.save_preferences();
+                self.game.settings = false;
+                r.tap(code::ESC);
+                (Done, Some(format!("{DIR}/05-keyboard-fire-left-button.png")))
+            }
+            28 if r.held_since.is_none() => {
+                if !(self.game.mode == Mode::Arena && self.captured) {
+                    return (Wait("Escape to resume"), None);
+                }
+                if self.game.reload > 0. || self.game.cooldown > 0. {
+                    return (Wait("the weapon to be ready"), None);
+                }
+                let saved = std::fs::read(Game::save_path().with_file_name("settings.json"))
+                    .ok()
+                    .and_then(|b| Preferences::from_json(&b))
+                    .expect("settings.json saved when the journal closed");
+                assert_eq!(saved.bindings, bindings, "settings.json holds Fire on the left button");
+                self.game.run.ammo = self.game.run.weapon.capacity();
+                r.ammo = self.game.run.ammo;
+                r.fake().button(code::BUTTON_LEFT, true);
+                r.fake().button(code::BUTTON_LEFT, false);
+                r.held_since = Some(r.frames);
+                (Wait("a left click to fire again"), None)
+            }
+            28 => {
+                if self.game.run.ammo >= r.ammo {
+                    return (Wait("a left click to fire again"), None);
+                }
+                println!("INPUT REVIEW: back on the left button, a left click fired");
                 println!(
                     "INPUT REVIEW PASS: Escape, hold and toggle sprint, rebinding with real key \
-                     presses, the rebound key, mouse fire and look, and F11 both ways"
+                     presses, the rebound key, mouse fire and look, F11 both ways, and Fire \
+                     moved to a key and back to the left button"
                 );
                 r.finished = true;
                 self.game.quit_requested = true;

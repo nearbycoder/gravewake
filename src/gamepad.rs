@@ -744,10 +744,11 @@ mod tests {
                     Action::Reload => a.reload,
                     Action::Melee => a.melee,
                     Action::Bolt => a.spell,
+                    Action::Fire => a.fire,
                 };
                 assert!(performed, "{action:?} / {label}");
             }
-            assert!(arena(&pressing(g.fire_prompt()), &bindings).fire);
+            assert!(arena(&pressing(&g.fire_prompt()), &bindings).fire);
         }
         // Remapped prompts follow the bindings.
         let mut g = crate::game::Game::new(false);
