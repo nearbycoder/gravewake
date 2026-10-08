@@ -270,9 +270,9 @@ impl Review {
         let presses: &[(u32, crate::gamepad::Button)] = match kind {
             // The first press lands near the centre; then over and down.
             0 => &[(8, DPadDown), (14, DPadRight), (20, DPadDown)],
-            // Onto the Hollowlight slider, up to field of view, then two
-            // steps along it (70° to 73°).
-            _ => &[(8, DPadDown), (13, DPadUp), (18, DPadRight), (23, DPadRight)],
+            // The first press lands on field of view, the slider nearest
+            // the centre; then two steps along it (70° to 73°).
+            _ => &[(8, DPadDown), (18, DPadRight), (23, DPadRight)],
         };
         Some(
             presses
