@@ -3690,13 +3690,13 @@ fn journal_display(c: &Canvas, g: &mut Game) {
     for (i, step) in Fidelity::ALL.into_iter().enumerate() {
         let x = 615. + 360. * i as f32 / last;
         if step == g.prefs.fidelity {
-            c.center(x, y + 30., step.name(), 12., INK);
-            c.line((x - 22., y + 41.), (x + 22., y + 41.), INK, 1.2);
+            c.center(x, y + 35., step.name(), 12., INK);
+            c.line((x - 22., y + 46.), (x + 22., y + 46.), INK, 1.2);
         } else {
-            c.center(x, y + 30., step.name(), 11., INK.gamma_multiply(0.72));
+            c.center(x, y + 35., step.name(), 11., INK.gamma_multiply(0.72));
         }
     }
-    c.center(720., y + 62., g.prefs.fidelity.summary(), 12., INK);
+    c.center(720., y + 68., g.prefs.fidelity.summary(), 12., INK);
     let y = DISPLAY_HOLLOWLIGHT_Y;
     c.text(392., y, "Hollowlight / F6", 17., INK, true, Align2::LEFT_CENTER);
     c.slider("hollowlight_effects", 615., y + 1., 360., &mut g.shader_intensity, 0., 1.);

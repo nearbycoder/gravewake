@@ -30,6 +30,11 @@ mod code {
     pub const F: u32 = 33;
     pub const LEFT_SHIFT: u32 = 42;
     pub const F11: u32 = 87;
+    pub const ENTER: u32 = 28;
+    pub const UP: u32 = 103;
+    pub const LEFT: u32 = 105;
+    pub const RIGHT: u32 = 106;
+    pub const DOWN: u32 = 108;
     pub const BUTTON_LEFT: u32 = 0x110;
 }
 
@@ -697,10 +702,124 @@ impl App {
                     return (Wait("a left click to fire again"), None);
                 }
                 println!("INPUT REVIEW: back on the left button, a left click fired");
+                r.tap(code::ESC);
+                (Done, None)
+            }
+            // The journal's Display page with the keyboard alone: an arrow
+            // brings up the focus frame, arrows reach Graphics fidelity and
+            // step it, and Enter on Close saves it.
+            29 => {
+                if self.game.mode != Mode::Paused {
+                    return (Wait("Escape to pause"), None);
+                }
+                if r.held_since.is_none() {
+                    self.game.settings = true;
+                    self.game.journal_page = JournalPage::Display;
+                    self.game.prefs.fidelity = crate::fidelity::Fidelity::High;
+                    self.pad.cursor.hide();
+                    r.held_since = Some(r.frames);
+                }
+                if r.frames < r.held_since.unwrap() + 30 {
+                    return (Wait("the journal to open"), None);
+                }
+                assert!(self.pad.cursor.pos.is_none(), "no focus frame before a key");
+                r.tap(code::DOWN);
+                (Done, None)
+            }
+            30 => {
+                if self.pad.cursor.pos.is_none() {
+                    return (Wait("an arrow key to bring up the focus frame"), None);
+                }
+                println!("INPUT REVIEW: an arrow key brought up the focus frame");
+                (Done, None)
+            }
+            31 => {
+                // Up or down until the frame rests on the topmost slider,
+                // Graphics fidelity, one press every 12 frames.
+                let targets = crate::ui::pad_targets(&self.ctx);
+                let slider = targets
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.track.is_some())
+                    .min_by(|a, b| a.1.point.y.total_cmp(&b.1.point.y))
+                    .map(|(i, _)| i)
+                    .expect("the Display page's sliders");
+                let pos = self.pad.cursor.pos.expect("the focus frame");
+                if crate::gamepad::focused(pos, &targets) == Some(slider) {
+                    println!("INPUT REVIEW: arrow keys reached Graphics fidelity");
+                    return (Done, None);
+                }
+                if r.frames % 12 == 11 {
+                    r.tap(if pos.y > targets[slider].point.y { code::UP } else { code::DOWN });
+                }
+                if r.frames % 60 == 59 {
+                    println!(
+                        "INPUT REVIEW: the focus frame is at {pos:?} on {:?}; Graphics fidelity is at {:?}",
+                        crate::gamepad::focused(pos, &targets).map(|i| targets[i].rect),
+                        targets[slider].point
+                    );
+                }
+                (Wait("arrow keys to reach Graphics fidelity"), None)
+            }
+            // Left twice to Low, then right three times to Ultra.
+            32..=36 => {
+                use crate::fidelity::Fidelity;
+                let (key, expected) = match r.step {
+                    32 => (code::LEFT, Fidelity::Medium),
+                    33 => (code::LEFT, Fidelity::Low),
+                    34 => (code::RIGHT, Fidelity::Medium),
+                    35 => (code::RIGHT, Fidelity::High),
+                    _ => (code::RIGHT, Fidelity::Ultra),
+                };
+                if r.held_since.is_none() {
+                    r.tap(key);
+                    r.held_since = Some(r.frames);
+                }
+                if self.game.prefs.fidelity != expected {
+                    return (Wait("an arrow key to step Graphics fidelity"), None);
+                }
+                println!("INPUT REVIEW: an arrow key stepped Graphics fidelity to {}", expected.name());
+                let capture = (r.step == 36).then(|| format!("{DIR}/06-display-fidelity-by-keys.png"));
+                (Done, capture)
+            }
+            37 => {
+                // Down to the lowest control, Close the journal.
+                let targets = crate::ui::pad_targets(&self.ctx);
+                let close = targets
+                    .iter()
+                    .enumerate()
+                    .max_by(|a, b| a.1.point.y.total_cmp(&b.1.point.y))
+                    .map(|(i, _)| i)
+                    .expect("the journal's controls");
+                let pos = self.pad.cursor.pos.expect("the focus frame");
+                if crate::gamepad::focused(pos, &targets) == Some(close) {
+                    r.tap(code::ENTER);
+                    return (Done, None);
+                }
+                if r.frames % 12 == 11 {
+                    r.tap(code::DOWN);
+                }
+                (Wait("arrow keys to reach Close the journal"), None)
+            }
+            38 => {
+                if self.game.settings {
+                    return (Wait("Enter to close the journal"), None);
+                }
+                let saved = std::fs::read(Game::save_path().with_file_name("settings.json"))
+                    .ok()
+                    .and_then(|b| Preferences::from_json(&b))
+                    .expect("settings.json saved when the journal closed");
+                assert_eq!(
+                    saved.fidelity,
+                    crate::fidelity::Fidelity::Ultra,
+                    "settings.json holds the fidelity chosen with the keys"
+                );
+                println!("INPUT REVIEW: Enter on Close saved Graphics fidelity Ultra to settings.json");
                 println!(
                     "INPUT REVIEW PASS: Escape, hold and toggle sprint, rebinding with real key \
-                     presses, the rebound key, mouse fire and look, F11 both ways, and Fire \
-                     moved to a key and back to the left button"
+                     presses, the rebound key, mouse fire and look, F11 both ways, Fire \
+                     moved to a key and back to the left button, and the journal worked \
+                     with arrow keys and Enter"
                 );
                 r.finished = true;
                 self.game.quit_requested = true;

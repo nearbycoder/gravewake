@@ -121,6 +121,7 @@ Default keys and buttons are listed below. Rebind them on the **Keyboard** and *
 | Q | Ember Bolt after binding a Hollow Chalice |
 | 1 / 2 / 3 | Choose a soul power when leveling |
 | Escape | Pause / back |
+| Arrow keys / Enter or Space | In menus: move the brass focus frame between controls and step sliders / press the control under it |
 | F11 | Fullscreen (remembered between launches) |
 | F6 | Toggle Hollowlight shader treatment |
 | F7 / F8 | Toggle VSync / FPS counter |

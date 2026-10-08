@@ -58,6 +58,8 @@ struct App {
     held: HashSet<controls::Trigger>,
     pad: gamepad::Pad,
     pad_events: Vec<egui::Event>,
+    /// Menu keys (`gamepad::MENU_KEYS`) pressed since the last frame.
+    menu_presses: Vec<KeyCode>,
     gamepad_smoke: bool,
     /// The fire binding (a key or mouse button) is held in the arena.
     fire_held: bool,
@@ -251,6 +253,7 @@ impl App {
                     && !std::env::args().any(|a| a == "--input-review" || a == "--window-review"),
             ),
             pad_events: vec![],
+            menu_presses: vec![],
             gamepad_smoke: smoke && std::env::args().any(|a| a == "--gamepad"),
             fire_held: false,
             sprint_pressed: false,
@@ -1184,7 +1187,18 @@ impl App {
                 } else {
                     ui::pad_targets(&self.ctx)
                 };
-                let (events, back) = self.pad.cursor.step(&pad_frame, dt, screen, &targets);
+                // The arrow keys and Enter work menus as the D-pad and A do;
+                // on the level-up screen, 1, 2 and 3 choose instead.
+                let mut menu_frame = pad_frame.clone();
+                if self.game.mode != Mode::LevelUp {
+                    gamepad::add_menu_keys(
+                        &mut menu_frame,
+                        |key| self.held.contains(&controls::Trigger::Key(key)),
+                        &self.menu_presses,
+                        self.pad.cursor.pos.is_some(),
+                    );
+                }
+                let (events, back) = self.pad.cursor.step(&menu_frame, dt, screen, &targets);
                 self.pad_events.extend(events);
                 if back {
                     self.escape();
@@ -1224,6 +1238,7 @@ impl App {
         }
         self.sprint_pressed = false;
         self.fire_pressed = false;
+        self.menu_presses.clear();
         if (self.smoke
             && !self.survival_review
             && self.text_review.is_none()
@@ -1336,6 +1351,22 @@ impl App {
         renderer.optimized = !self.benchmark || self.frames > 1260;
         renderer.camera(&self.game);
         let mut input = state.take_egui_input(window);
+        // Menu keys reach controls through the focus frame only; egui's own
+        // keyboard focus would press a control a second time.
+        input.events.retain(|event| match event {
+            egui::Event::Key { key, .. } => !matches!(
+                key,
+                egui::Key::ArrowLeft
+                    | egui::Key::ArrowRight
+                    | egui::Key::ArrowUp
+                    | egui::Key::ArrowDown
+                    | egui::Key::Enter
+                    | egui::Key::Space
+                    | egui::Key::Tab
+            ),
+            egui::Event::Text(text) => text != " ",
+            _ => true,
+        });
         if self.smoke || self.review {
             // Scripted UI input shares the simulation clock and must not race
             // desktop pointer/focus events or GPU capture time.
@@ -1835,6 +1866,12 @@ impl ApplicationHandler for App {
                 }
                 if !event.repeat {
                     self.fire_input(trigger, pressed);
+                }
+                if pressed
+                    && !event.repeat
+                    && gamepad::MENU_KEYS.iter().any(|(key, _)| *key == code)
+                {
+                    self.menu_presses.push(code);
                 }
                 if pressed {
                     if let Some(glyph) = key_glyph(&event) {

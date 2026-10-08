@@ -366,6 +366,50 @@ impl Target {
     }
 }
 
+/// Keys that work menus as the D-pad and A do: the arrows move the focus
+/// frame between controls and step sliders, and Enter or Space presses the
+/// control under it. Escape already goes back.
+pub const MENU_KEYS: [(winit::keyboard::KeyCode, Button); 7] = {
+    use winit::keyboard::KeyCode::*;
+    [
+        (ArrowLeft, Button::DPadLeft),
+        (ArrowRight, Button::DPadRight),
+        (ArrowUp, Button::DPadUp),
+        (ArrowDown, Button::DPadDown),
+        (Enter, Button::South),
+        (NumpadEnter, Button::South),
+        (Space, Button::South),
+    ]
+};
+/// Add the menu keys held now (`held`), and pressed since the last update
+/// (`pressed`, so a tap between two updates still counts), to a controller
+/// frame for the menu cursor. Enter and Space press only once the focus
+/// frame is showing (`cursor_shown`): the first arrow brings it up, and a
+/// stray key never clicks the middle of the screen.
+pub fn add_menu_keys(
+    frame: &mut Frame,
+    held: impl Fn(winit::keyboard::KeyCode) -> bool,
+    pressed: &[winit::keyboard::KeyCode],
+    cursor_shown: bool,
+) {
+    for (key, button) in MENU_KEYS {
+        if button == Button::South && !cursor_shown {
+            continue;
+        }
+        let down = held(key);
+        let fresh = pressed.contains(&key);
+        if down && !frame.held.contains(&button) {
+            frame.held.push(button);
+        }
+        if fresh && !frame.pressed.contains(&button) {
+            frame.pressed.push(button);
+            if !down {
+                frame.released.push(button);
+            }
+        }
+    }
+}
+
 /// The D-pad directions in screen space (y down): left, right, up, down.
 const DPAD: [(Button, egui::Vec2); 4] = [
     (Button::DPadLeft, egui::vec2(-1., 0.)),
@@ -382,14 +426,19 @@ pub const SLIDER_STEP: f32 = 1. / 20.;
 /// The target the D-pad reaches from `from` in direction `dir`: the nearest
 /// within about 50° of it, weighing sideways distance double, or failing
 /// that the nearest anywhere on that side. The target under the cursor is
-/// skipped.
+/// skipped. A slider counts from the nearest point of its track, not its
+/// knob, so a knob at the far end doesn't hide the slider.
 pub fn neighbour(from: Pos2, dir: egui::Vec2, targets: &[Target]) -> Option<usize> {
     let mut best: Option<(bool, f32, usize)> = None;
     for (i, t) in targets.iter().enumerate() {
         if t.rect.contains(from) {
             continue;
         }
-        let v = t.point - from;
+        let aim = match t.track {
+            Some((x0, x1)) => Pos2::new(from.x.clamp(x0, x1), t.point.y),
+            None => t.point,
+        };
+        let v = aim - from;
         let along = v.dot(dir);
         if along < 1. {
             continue;
@@ -1077,6 +1126,99 @@ mod tests {
         let next = focused(cursor.pos.unwrap(), &targets).unwrap();
         assert_eq!(next, 1, "the button on the card, in line, not the card");
         assert_eq!(cursor.pos, Some(targets[next].point));
+    }
+    #[test]
+    fn up_and_down_reach_a_slider_whose_knob_is_at_the_far_end() {
+        // The Display page: a tab above three sliders, the lowest with its
+        // knob at the left end and the two above at the right end.
+        let slider = |y: f32, knob: f32| Target {
+            rect: rect(603., y - 15., 384., 30.),
+            point: Pos2::new(knob, y),
+            track: Some((615., 975.)),
+            step: 0.05,
+        };
+        let targets = [
+            Target::button(rect(548., 236., 168., 38.)),
+            slider(313., 855.),
+            slider(413., 975.),
+            slider(453., 615.),
+        ];
+        let mut cursor = Cursor { pos: Some(targets[3].point), ..Default::default() };
+        let mut visited = vec![];
+        for _ in 0..3 {
+            cursor.step(&tap(Button::DPadUp), 1. / 60., screen(), &targets);
+            cursor.step(&Frame::default(), 1. / 60., screen(), &targets);
+            visited.push(focused(cursor.pos.unwrap(), &targets).unwrap());
+        }
+        assert_eq!(visited, [2, 1, 0], "each slider in turn, then the tab");
+        // Landing on a slider keeps its value: the cursor rests on the knob.
+        cursor.step(&tap(Button::DPadDown), 1. / 60., screen(), &targets);
+        assert_eq!(cursor.pos, Some(targets[1].point));
+    }
+    #[test]
+    fn arrow_keys_and_enter_work_menus_like_the_dpad_and_a() {
+        use winit::keyboard::KeyCode;
+        let targets: Vec<Target> = (0..4)
+            .map(|i| Target::button(rect(600., 200. + i as f32 * 120., 240., 40.)))
+            .collect();
+        let mut cursor = Cursor::default();
+        let keys = |held: &[KeyCode], pressed: &[KeyCode], shown: bool| {
+            let mut frame = Frame::default();
+            let held = held.to_vec();
+            add_menu_keys(&mut frame, |k| held.contains(&k), pressed, shown);
+            frame
+        };
+        // Enter before any arrow does nothing: no frame, no click.
+        let frame = keys(&[KeyCode::Enter], &[KeyCode::Enter], cursor.pos.is_some());
+        let (events, _) = cursor.step(&frame, 1. / 60., screen(), &targets);
+        assert!(events.is_empty() && cursor.pos.is_none());
+        // The first arrow lands near the centre (row 2, centre 460), the
+        // next moves down a row, as the D-pad does.
+        let frame = keys(&[KeyCode::ArrowDown], &[KeyCode::ArrowDown], false);
+        assert_eq!((&frame.pressed[..], &frame.held[..]), (&[Button::DPadDown][..], &[Button::DPadDown][..]));
+        cursor.step(&frame, 1. / 60., screen(), &targets);
+        assert_eq!(cursor.pos, Some(targets[2].point));
+        // A tap that went down and up between two updates still moves.
+        let frame = keys(&[], &[KeyCode::ArrowUp], true);
+        cursor.step(&frame, 1. / 60., screen(), &targets);
+        assert_eq!(cursor.pos, Some(targets[1].point));
+        // Held, it repeats after the D-pad's delay.
+        let mut rows = vec![];
+        for _ in 0..60 {
+            cursor.step(&keys(&[KeyCode::ArrowDown], &[], true), 0.01, screen(), &targets);
+            rows.push(targets.iter().position(|t| Some(t.point) == cursor.pos).unwrap());
+        }
+        // 10 ms updates: no repeat before 0.4 s, one at 0.4 s, the next 0.12 s on.
+        assert_eq!(rows[37], 1, "{rows:?}");
+        assert_eq!(rows[45], 2, "{rows:?}");
+        assert_eq!(*rows.last().unwrap(), 3, "{rows:?}");
+        // Enter, and a Space tap, press and release the control under it.
+        for key in [KeyCode::Enter, KeyCode::Space] {
+            let (events, _) = cursor.step(&keys(&[], &[key], true), 1. / 60., screen(), &targets);
+            let clicks: Vec<bool> = events
+                .iter()
+                .filter_map(|e| match e {
+                    Event::PointerButton { pressed, pos, .. } => {
+                        assert_eq!(Some(*pos), cursor.pos);
+                        Some(*pressed)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(clicks, [true, false], "{key:?}");
+        }
+        // Left and right step a slider.
+        let slider = [Target {
+            rect: rect(600., 430., 360., 30.),
+            point: Pos2::new(600., 445.),
+            track: Some((600., 960.)),
+            step: 1. / 3.,
+        }];
+        let mut cursor = Cursor { pos: Some(Pos2::new(600., 445.)), ..Default::default() };
+        let (events, _) =
+            cursor.step(&keys(&[], &[KeyCode::ArrowRight], true), 1. / 60., screen(), &slider);
+        assert_eq!(cursor.pos, Some(Pos2::new(720., 445.)));
+        assert_eq!(events.len(), 3, "move, press and release on the next stop");
     }
     #[test]
     fn first_dpad_press_lands_near_the_centre_and_holding_repeats() {
