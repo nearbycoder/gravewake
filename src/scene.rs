@@ -253,6 +253,32 @@ impl Mesh {
             }
         }
     }
+    /// One tongue of fire: a quad that turns about the vertical to face
+    /// `eye`, from `base` up `height`, shaded by the world shader's flame
+    /// material (15) from its corner coordinates and `seed`. `heat` scales
+    /// its brightness.
+    pub fn flame(&mut self, base: Vec3, eye: Vec3, width: f32, height: f32, seed: f32, heat: f32) {
+        let toward = Vec3::new(eye.x - base.x, 0., eye.z - base.z).normalize_or(Vec3::Z);
+        let right = Vec3::Y.cross(toward).normalize_or(Vec3::X) * width * 0.5;
+        let up = Vec3::Y * height;
+        for uv in [
+            [-1., -1.],
+            [1., -1.],
+            [1., 1.],
+            [-1., -1.],
+            [1., 1.],
+            [-1., 1.],
+        ] {
+            self.transparent.push(Vertex {
+                pos: (base + right * uv[0] + up * (uv[1] * 0.5 + 0.5)).to_array(),
+                normal: toward.to_array(),
+                color: [heat, 0., 0.],
+                material: 15.,
+                local: [uv[0], uv[1], seed],
+                wear_uv: [0.; 2],
+            });
+        }
+    }
     pub fn glow(&mut self, pos: Vec3, eye: Vec3, r: f32, color: [f32; 3]) {
         let forward = (eye - pos).normalize_or_zero();
         let right = forward.cross(Vec3::Y).normalize_or_zero();
@@ -1389,37 +1415,46 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
         }
     }
     m.instance_spheres = false;
+    // Living fire: tongues of a noise-shaped flame shader that lean and
+    // flicker together, around a taller central tongue, and sparks that
+    // rise, drift and fade. Their number follows Graphics fidelity.
     let fire = game.prefs.fidelity.profile();
-    for p in FIRES {
-        let p = Vec3::from_array(p);
+    let eye = view_eye(game, arena);
+    for (index, p) in FIRES.iter().enumerate() {
+        let p = Vec3::from_array(*p);
         if optimized && !visibility.contains(p + Vec3::Y * 0.7, 1.6) {
             continue;
         }
-        for j in 0..fire.tongues {
-            let t = game.elapsed * 5. + j as f32 * 1.74;
-            let pos = p + Vec3::new(
-                t.sin() * 0.10,
-                0.06 + (t * 0.7).cos().abs() * 0.2,
-                t.cos() * 0.10,
-            );
-            m.taper(
-                pos,
-                pos + Vec3::new(t.sin() * 0.13, 0.45 + (t * 1.3).sin() * 0.17, 0.),
-                0.13,
-                0.,
-                5,
-                if j % 2 == 0 {
-                    [4., 1.8, 0.15]
-                } else {
-                    [3., 0.45, 0.015]
-                },
-                9.,
+        let t = game.elapsed;
+        let phase = index as f32 * 2.39;
+        // The whole fire breathes and leans in the same draught.
+        let breath = 1. + (t * 2.3 + phase).sin() * 0.06 + (t * 5.7 + phase * 1.7).sin() * 0.04;
+        let lean = Vec3::new((t * 0.9 + phase).sin() * 0.05, 0., (t * 0.7 + phase).cos() * 0.04);
+        m.flame(p - Vec3::Y * 0.12 + lean * 0.3, eye, 0.86, 1.08 * breath, phase, 1.);
+        for j in 1..fire.tongues {
+            let a = j as f32 * 2.399 + t * 0.35 + phase;
+            let r = 0.12 + (j % 3) as f32 * 0.06;
+            let flicker = 0.78 + 0.22 * (t * (3.1 + j as f32 * 0.37) + phase).sin();
+            m.flame(
+                p + Vec3::new(a.cos() * r, -0.1, a.sin() * r) + lean * 0.5,
+                eye,
+                0.44 + (j % 2) as f32 * 0.1,
+                (0.62 + (j % 4) as f32 * 0.09) * flicker * breath,
+                phase + j as f32 * 1.37,
+                0.75,
             );
         }
         for j in 0..fire.sparks {
-            let t = (game.elapsed * 0.7 + j as f32 * 0.31).fract();
-            let pos = p + Vec3::new((game.elapsed + j as f32).sin() * t * 0.5, t * 1.7, 0.);
-            m.cube(pos, Vec3::splat(0.024 * (1. - t)), [4., 1., 0.1], 9.);
+            // Each spark lives 1.4 s, rising with an eddy and dimming.
+            let life = (t * 0.7 + j as f32 * 0.618 + phase * 0.13).fract();
+            let swirl = t * 1.3 + j as f32 * 2.1 + phase;
+            let pos = p + Vec3::new(
+                swirl.sin() * (0.08 + life * 0.35) + lean.x * life * 4.,
+                0.25 + life * 1.75,
+                swirl.cos() * (0.08 + life * 0.35) + lean.z * life * 4.,
+            );
+            let fade = (1. - life) * (1. - life);
+            m.glow(pos, eye, 0.035 + 0.02 * (1. - life), [9. * fade, 2.6 * fade, 0.35 * fade]);
         }
     }
     if arena {
@@ -1686,13 +1721,7 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
         );
     }
     m.transform = Mat4::IDENTITY;
-    let eye = if arena {
-        game.run.pos
-    } else if game.mode == Mode::Bestiary {
-        Vec3::new(3.5, 2., 5.)
-    } else {
-        Vec3::new(4.5 + (game.elapsed * 0.04).sin() * 0.4, 2.5, 7.)
-    };
+    let eye = view_eye(game, arena);
     for p in FIRES {
         if optimized && !visibility.contains(Vec3::from_array(p), 1.2) {
             continue;
@@ -1703,6 +1732,17 @@ pub fn dynamic(game: &Game, physics: &Bones, mut m: &mut Mesh, vp: Mat4, optimiz
             0.84,
             [2.2, 0.56, 0.05],
         );
+    }
+}
+/// Where the camera is, for billboards: the player in the arena, otherwise
+/// the menu cameras of `Renderer::camera`.
+fn view_eye(game: &Game, arena: bool) -> Vec3 {
+    if arena {
+        game.run.pos
+    } else if game.mode == Mode::Bestiary {
+        Vec3::new(3.5, 2., 5.)
+    } else {
+        Vec3::new(4.5 + (game.elapsed * 0.04).sin() * 0.4, 2.5, 7.)
     }
 }
 pub const MAX_BODY_PIECES: usize = 144;

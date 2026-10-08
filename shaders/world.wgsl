@@ -70,11 +70,39 @@ fn soil_noise(p:vec2<f32>)->f32 {
  return mix(mix(hash(vec3(i,7.)),hash(vec3(i+vec2(1.,0.),7.)),u.x),
   mix(hash(vec3(i+vec2(0.,1.),7.)),hash(vec3(i+vec2(1.,1.),7.)),u.x),u.y);
 }
+// Brazier fire (material 15): a tongue on a camera-facing quad, shaped by
+// two octaves of noise scrolling upward. Wide and white-gold at the root,
+// orange in the body, torn into deep red wisps at the tip; it sways more
+// the higher it reaches. local.xy spans the quad (y from root to tip),
+// local.z seeds it, and color.r scales its heat.
+fn flame(in:Out)->vec4<f32> {
+ let t=cam.info.x;let seed=in.local.z;
+ let h=in.local.y*0.5+0.5;
+ let q=vec2(in.local.x*1.6+seed*5.3,h*2.4-t*2.6+seed);
+ let n=soil_noise(q)*0.62+soil_noise(q*2.3+vec2(3.1,-t*1.7))*0.38;
+ let sway=(n-0.5)*0.9*h*h+sin(t*4.1+seed*2.+h*3.)*0.08*h;
+ let x=in.local.x-sway;
+ let width=mix(0.95,0.1,pow(h,0.85));
+ let edge=abs(x)/width;
+ var shape=1.-smoothstep(0.5,1.05,edge+(n-0.5)*0.35);
+ shape*=smoothstep(0.,0.14,h);
+ shape*=1.-smoothstep(0.55,0.98,h+(n-0.5)*0.5);
+ if shape<0.004 {discard;}
+ let heat=clamp((1.-edge)*(1.15-h*1.1)+n*0.25,0.,1.);
+ var color=mix(vec3(0.55,0.05,0.008),vec3(2.6,0.78,0.1),smoothstep(0.08,0.5,heat));
+ color=mix(color,vec3(4.2,3.2,1.6),smoothstep(0.62,0.95,heat));
+ color*=in.color.r;
+ let distance=length(in.world-cam.eye.xyz);
+ let fog=1.-exp(-distance*mix(0.024,0.008,cam.info.z));
+ color=mix(color,vec3(0.014,0.035,0.046),clamp(fog,0.,0.95));
+ return vec4(color,shape*mix(0.55,0.95,heat));
+}
 @fragment fn fs(in:Out)->@location(0) vec4<f32>{
  let status=in.material;
  let material=select(status,2.,status>=20. && status<=22.);
  if material<0. {let alpha=max(0.,1.-dot(in.local.xy,in.local.xy))*0.57;return vec4(0.,0.,0.,alpha);}
  if material>9.5 && material<10.5 {let r=length(in.local.xy);if r>1. {discard;}return vec4(in.color,pow(1.-r,3.)*0.35*in.local.z);}
+ if material>14.5 && material<15.5 {return flame(in);}
  var n=normalize(in.normal);let distance=length(in.world-cam.eye.xyz);let grain=hash(floor(in.local*100.));var base=in.color;
  if material>0.5 && material<8. {
   var tile=vec2(0.,0.);var scale=0.42;

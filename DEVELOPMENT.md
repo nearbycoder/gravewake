@@ -158,6 +158,10 @@ The custom WGSL world and composite shaders now add:
 
 `cargo run --release -- --shader-review` captures baseline/full/half intensity, firelight, muzzle lighting, elemental effects, the live settings control and a resized window. It tests the actual slider through egui input and reports frame intervals excluding setup/capture frames. On the development M4 Max, the 1440×900 release review remained near the 60 Hz presentation cap with both the original and Hollowlight treatments (roughly 16.7 ms/frame); this is an observed scene result, not a GPU-only timing or a guarantee for every machine. The review uses a disposable run and never writes user saves or preferences.
 
+## Brazier fire
+
+Since round 12 the 18 brazier flames are drawn by a flame shader instead of six solid yellow cones and five tumbling ember cubes each. `Mesh::flame` adds a quad that turns about the vertical to face the camera; the world shader's flame material (15, `flame` in `shaders/world.wgsl`) shapes a tongue on it from two octaves of value noise scrolling upward: wide and white-gold at the root, orange in the body, torn into deep red wisps at the tip, swaying more the higher it reaches, and fogged like the scene around it. Each brazier has a taller central tongue and a ring of smaller ones that flicker at their own rates, and the whole fire breathes and leans in one draught (`scene::dynamic`). Sparks are small glows that rise in an eddy, drift with the lean and dim over 1.4 s. The tongues and sparks per brazier follow Graphics fidelity (3 and 2 on Low, 6 and 5 on High, 9 and 10 on Ultra). The bowls, the light they cast and the halo are unchanged.
+
 ## Location-based damage and body physics
 
 `src/anatomy.rs` shares the animated skeletal pose between hit detection and rendering, including Warden scale, floating Cinder Skulls, attack swings, recoil, and the injured stance. Bullets use nearest capsule intersections; projectiles sweep their traveled segment to avoid tunneling. Missing parts have no hit volume. Head hits deal double health damage, limb hits deal 80%, and structural damage accumulates independently. Limb thresholds scale with enemy health and cap at 120 damage. Ordinary enemies die on decapitation; the Warden can continue headless.
@@ -226,7 +230,7 @@ Run `./scripts/benchmark.sh` for a repeatable native benchmark. See [performance
 | Brazier shadows | – | – | – | three nearest braziers |
 | Edge smoothing | off | on | on | on |
 | Material filtering | trilinear | trilinear | trilinear | 16× anisotropic |
-| Flame tongues / sparks per brazier | 3 / 2 | 4 / 3 | 6 / 5 | 9 / 10 |
+| Flame tongues / sparks per brazier (see Brazier fire) | 3 / 2 | 4 / 3 | 6 / 5 | 9 / 10 |
 | Reduced creature meshes beyond | 5 m and 10 m | 6.5 m and 12 m | 8 m and 14 m | 14 m and 24 m |
 
 The composite's radii are given in High's pixels and scaled by each step's scene size (`Profile::radius_scale`), so bloom and occlusion cover the same part of the screen at every step. Ultra's brazier shadows are screen-space: for the three braziers nearest the camera, `light_blocked` in `shaders/composite.wgsl` marches from each surface toward a point just above the flame and checks the depth buffer with a limited thickness (so the first-person weapon and distant silhouettes never cast), and the share of that brazier's light that is blocked (from the world shader's diffuse model) is taken away. Only what is on screen can cast, and the brazier's own bowl is skipped. The interface is drawn at full resolution at every step.
