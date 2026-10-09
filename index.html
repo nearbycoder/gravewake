@@ -67,7 +67,7 @@
 </div>
 <script type="module">
 // Filled in by scripts/build-pages.sh.
-const BUILD = { wasm: "gravewake_bg.wasm.gz?v=3fe4dbd", assets: "gravewake-assets.bin.gz?v=3fe4dbd", bytes: 3393233 + 12461192, version: "3fe4dbd" };
+const BUILD = { wasm: "gravewake_bg.wasm.gz?v=0fd177b", assets: "gravewake-assets.bin.gz?v=0fd177b", bytes: 3403102 + 12461192, version: "0fd177b" };
 const veil = document.getElementById("veil");
 const fill = document.getElementById("fill");
 const statusLine = document.getElementById("status");
@@ -94,9 +94,14 @@ const safeProbe = document.getElementById("safe");
 function measureSafeArea() {
   const style = getComputedStyle(safeProbe);
   window.gravewake.safe = ["Top", "Right", "Bottom", "Left"].map((side) => parseFloat(style["padding" + side]) || 0);
+  // `?safe=top,right,bottom,left` stands in for a notch, for the browser checks.
+  if (params.has("safe")) window.gravewake.safe = params.get("safe").split(",").map(Number);
 }
 measureSafeArea();
 addEventListener("resize", measureSafeArea);
+// `?screen=pause` and so on open that menu as a fixture that saves nothing
+// (src/text_review.rs, menu_fixtures), for the browser checks.
+if (params.has("screen")) window.gravewake.showScreen = params.get("screen");
 addEventListener("orientationchange", () => setTimeout(measureSafeArea, 300));
 // Whether touch is the input in use, as the game itself decides it: a touch
 // shows the controls (and, held upright, asks to turn the phone); a key,
@@ -239,7 +244,7 @@ async function start() {
       WebAssembly.compileStreaming(new Response(body, { headers: { "Content-Type": "application/wasm" } })));
     const assets = download(BUILD.assets).then((body) => new Response(body).arrayBuffer());
     window.gravewakeAssets = new Uint8Array(await assets);
-    const { default: init } = await import("./gravewake.js?v=3fe4dbd");
+    const { default: init } = await import("./gravewake.js?v=0fd177b");
     await init({ module_or_path: await module });
   } catch (e) {
     // winit hands control to the browser by throwing; that isn't a failure.
