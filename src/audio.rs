@@ -70,6 +70,11 @@ impl Audio {
     pub fn volume(&self, v: f32) {
         self.ambience.set_volume(v * AMBIENCE_LEVEL);
     }
+    /// Start sound after the player's first input; browsers refuse it
+    /// before. Does nothing on the desktop.
+    pub fn resume(&self) {
+        self.output.resume();
+    }
     /// The output device, for diagnostics and the audio review.
     pub fn output(&self) -> &crate::output::Output {
         &self.output

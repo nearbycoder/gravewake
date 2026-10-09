@@ -7,6 +7,8 @@ use crate::gamepad::{Button, PadAction, Target};
 use crate::weapons::Effect;
 use egui::{Align2, Color32 as C, FontFamily, FontId, Id, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use glam::Mat4;
+/// The browser build, which leaves out desktop-only controls.
+const WEB: bool = cfg!(target_arch = "wasm32");
 const GOLD: C = C::from_rgb(226, 188, 119);
 const IVORY: C = C::from_rgb(250, 242, 220);
 const MUTED: C = C::from_rgb(207, 199, 180);
@@ -46,30 +48,12 @@ pub fn configure(ctx: &egui::Context) {
             .insert(0, "gravewake".into());
     }
     for (name, bytes) in [
-        (
-            "button_plate",
-            include_bytes!("../assets/button-plaque.png").as_slice(),
-        ),
-        (
-            "pack_art",
-            include_bytes!("../assets/armory-pack.png").as_slice(),
-        ),
-        (
-            "house_art",
-            include_bytes!("../assets/house-backdrop.png").as_slice(),
-        ),
-        (
-            "card_front",
-            include_bytes!("../assets/card-front.png").as_slice(),
-        ),
-        (
-            "card_back",
-            include_bytes!("../assets/card-back.png").as_slice(),
-        ),
-        (
-            "brand_emblem",
-            include_bytes!("../assets/gravewake-emblem.png").as_slice(),
-        ),
+        ("button_plate", image_asset!("", "button-plaque")),
+        ("pack_art", image_asset!("", "armory-pack")),
+        ("house_art", image_asset!("", "house-backdrop")),
+        ("card_front", image_asset!("", "card-front")),
+        ("card_back", image_asset!("", "card-back")),
+        ("brand_emblem", image_asset!("", "gravewake-emblem")),
     ] {
         let image = image::load_from_memory(bytes)
             .expect("embedded art")
@@ -990,7 +974,8 @@ fn title(c: &Canvas, g: &mut Game) {
     ) {
         g.settings = true;
     }
-    if c.button("quit_title", 98., 789., 355., 41., "QUIT GAME", false) {
+    // A browser tab is closed, not quit; the web build has no Quit.
+    if !WEB && c.button("quit_title", 98., 789., 355., 41., "QUIT GAME", false) {
         g.quit_requested = true;
     }
     let r = &g.records;
@@ -2580,11 +2565,15 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
         c.text(
             1370.,
             81.,
-            format!(
-                "{:.0} FPS / {}",
-                g.fps,
-                if g.vsync { "VSYNC" } else { "UNLOCKED" }
-            ),
+            if WEB {
+                format!("{:.0} FPS", g.fps)
+            } else {
+                format!(
+                    "{:.0} FPS / {}",
+                    g.fps,
+                    if g.vsync { "VSYNC" } else { "UNLOCKED" }
+                )
+            },
             16.,
             MUTED,
             false,
@@ -3172,19 +3161,21 @@ fn pause(c: &Canvas, g: &mut Game) {
             g.mode = Mode::Title;
         }
     }
-    if c.button(
-        "quit_pause",
-        521.,
-        y + 345.,
-        398.,
-        43.,
-        if g.practice_backup.is_some() {
-            "QUIT GAME"
-        } else {
-            "SAVE & QUIT GAME"
-        },
-        false,
-    ) {
+    if !WEB
+        && c.button(
+            "quit_pause",
+            521.,
+            y + 345.,
+            398.,
+            43.,
+            if g.practice_backup.is_some() {
+                "QUIT GAME"
+            } else {
+                "SAVE & QUIT GAME"
+            },
+            false,
+        )
+    {
         g.quit_requested = true;
     }
     c.center(
@@ -3801,19 +3792,22 @@ fn journal_display(c: &Canvas, g: &mut Game) {
         12.,
         INK,
     );
-    if c.button(
-        "vsync",
-        392.,
-        DISPLAY_TOGGLES_Y,
-        310.,
-        35.,
-        if g.vsync {
-            "F7 / VSYNC ON"
-        } else {
-            "F7 / UNLOCKED FPS"
-        },
-        false,
-    ) {
+    // Browsers always draw in step with the display.
+    if !WEB
+        && c.button(
+            "vsync",
+            392.,
+            DISPLAY_TOGGLES_Y,
+            310.,
+            35.,
+            if g.vsync {
+                "F7 / VSYNC ON"
+            } else {
+                "F7 / UNLOCKED FPS"
+            },
+            false,
+        )
+    {
         g.vsync = !g.vsync;
         g.save_performance();
     }
@@ -3908,7 +3902,11 @@ fn journal_controls(c: &Canvas, g: &mut Game) {
     }
     for (i, line) in [
         "1 2 3  choose a power    Esc  pause    F11  fullscreen",
-        "F6  Hollowlight    F7  VSync    F8  FPS counter",
+        if WEB {
+            "F6  Hollowlight    F8  FPS counter"
+        } else {
+            "F6  Hollowlight    F7  VSync    F8  FPS counter"
+        },
     ]
     .into_iter()
     .enumerate()

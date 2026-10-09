@@ -4,7 +4,8 @@
 //! follows the previous one, so a late wake-up is made up on the next frame.
 //! A frame that runs longer than a whole period starts a fresh schedule
 //! instead of drawing a burst of frames to catch up.
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Frame limits the journal offers, in frames per second; 0 is Off.
 pub const FRAME_LIMITS: [u32; 8] = [0, 30, 60, 90, 120, 144, 165, 240];

@@ -21,3 +21,6 @@
 
 .venv*/
 __pycache__/
+
+# Headless browser checks for the web build: npm ci --prefix scripts/web-check
+scripts/web-check/node_modules/

@@ -372,6 +372,10 @@ pub struct Renderer {
     enemy_instances: wgpu::Buffer,
     enemy_bind: wgpu::BindGroup,
     enemy_layout: wgpu::BindGroupLayout,
+    /// Where vertex shaders can't read storage buffers (WebGL2), each rig
+    /// is a uniform block this many bytes apart, bound per draw.
+    rig_stride: Option<u64>,
+    rig_upload: Vec<u8>,
     piece_pipeline: wgpu::RenderPipeline,
     pieces: ResidentPieces,
     dynamic_mesh: scene::Mesh,
@@ -386,7 +390,7 @@ pub struct Renderer {
     /// How far the scene is blurred behind a menu, eased toward its target
     /// in real time, and when that was last updated.
     backdrop: f32,
-    backdrop_clock: std::time::Instant,
+    backdrop_clock: web_time::Instant,
     camera_layout: wgpu::BindGroupLayout,
     material_view: wgpu::TextureView,
     material_sampler: wgpu::Sampler,
@@ -402,13 +406,56 @@ pub struct Renderer {
     scene_layout: wgpu::BindGroupLayout,
     pub egui: egui_wgpu::Renderer,
     pub view_projection: Mat4,
+    /// The graphics backend and adapter, for the browser build's page.
+    #[cfg(target_arch = "wasm32")]
+    pub adapter_name: String,
 }
 impl Renderer {
+    fn rig_usage(rig_stride: Option<u64>) -> wgpu::BufferUsages {
+        if rig_stride.is_some() {
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+        } else {
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+        }
+    }
+    /// The rigs' bind group: the whole buffer, or one rig's uniform block
+    /// moved by a dynamic offset.
+    fn rig_bind(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buffer: &wgpu::Buffer,
+        rig_stride: Option<u64>,
+    ) -> wgpu::BindGroup {
+        let size = std::mem::size_of::<crate::enemy_assets::Instance>() as u64;
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Animated enemy rigs"),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: match rig_stride {
+                    Some(_) => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(size),
+                    }),
+                    None => buffer.as_entire_binding(),
+                },
+            }],
+        })
+    }
     pub async fn new(window: Arc<Window>) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::METAL | wgpu::Backends::VULKAN | wgpu::Backends::DX12,
             ..Default::default()
         });
+        // The browser: WebGPU where it's available, otherwise WebGL2.
+        #[cfg(target_arch = "wasm32")]
+        let instance = wgpu::util::new_instance_with_webgpu_detection(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+            ..Default::default()
+        })
+        .await;
         let surface = instance
             .create_surface(window.clone())
             .expect("create GPU surface");
@@ -420,9 +467,28 @@ impl Renderer {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("No compatible GPU");
+            .expect(if cfg!(target_arch = "wasm32") {
+                "This browser offers neither WebGPU nor WebGL2 graphics"
+            } else {
+                "No compatible GPU"
+            });
         crate::watchdog::milestone("GPU adapter selected");
         println!("GPU: {:?}", adapter.get_info());
+        #[cfg(target_arch = "wasm32")]
+        let adapter_name = format!("{:?}: {}", adapter.get_info().backend, adapter.get_info().name);
+        // GLSL (WebGL2) can't `textureLoad` a depth texture; there the
+        // composite reads depth as an unfilterable float texture instead.
+        let gl = adapter.get_info().backend == wgpu::Backend::Gl;
+        // Browsers' WebGPU enforces WGSL's derivative uniformity rule, which
+        // the material branches break (as naga on the desktop allows).
+        let webgpu = adapter.get_info().backend == wgpu::Backend::BrowserWebGpu;
+        let browser_source = |source: String| {
+            if webgpu {
+                format!("diagnostic(off, derivative_uniformity);\n{source}")
+            } else {
+                source
+            }
+        };
         let timestamps = std::env::args().any(|a| a == "--fidelity-review")
             && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         let (device, queue) = adapter
@@ -433,7 +499,12 @@ impl Renderer {
                 } else {
                     wgpu::Features::empty()
                 },
-                required_limits: wgpu::Limits::default(),
+                // A browser's WebGL2 offers less than the desktop defaults.
+                required_limits: if cfg!(target_arch = "wasm32") {
+                    adapter.limits()
+                } else {
+                    wgpu::Limits::default()
+                },
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
             })
@@ -455,14 +526,18 @@ impl Renderer {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
+        // A browser's WebGPU canvas has no sRGB format; draw through an sRGB
+        // view of the plain one, as the desktop draws to an sRGB surface.
+        let draw_format = format.add_srgb_suffix();
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | (caps.usages & wgpu::TextureUsages::COPY_SRC),
             format,
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
+            view_formats: if draw_format != format { vec![draw_format] } else { vec![] },
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
@@ -478,7 +553,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let pixels = image::load_from_memory(include_bytes!("../assets/material-atlas.png"))
+        let pixels = image::load_from_memory(image_asset!("", "material-atlas"))
             .expect("material atlas")
             .to_rgba8();
         let levels = 32 - pixels.width().max(pixels.height()).leading_zeros();
@@ -560,12 +635,12 @@ impl Renderer {
         };
         let weapon_color = weapon_texture(
             "Blender baked arsenal albedo",
-            include_bytes!("../assets/weapons/weathered-color.png"),
+            image_asset!("weapons/", "weathered-color"),
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
         let weapon_surface = weapon_texture(
             "Blender baked roughness height metalness",
-            include_bytes!("../assets/weapons/weathered-surface.png"),
+            image_asset!("weapons/", "weathered-surface"),
             wgpu::TextureFormat::Rgba8Unorm,
         );
         let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -684,15 +759,24 @@ impl Renderer {
             bind_group_layouts: &[&camera_layout],
             push_constant_ranges: &[],
         });
+        let rig_size = std::mem::size_of::<crate::enemy_assets::Instance>() as u64;
+        let rig_stride = (device.limits().max_storage_buffers_per_shader_stage == 0).then(|| {
+            let align = u64::from(device.limits().min_uniform_buffer_offset_alignment);
+            rig_size.div_ceil(align) * align
+        });
         let enemy_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Articulated enemy rigs"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                    ty: if rig_stride.is_some() {
+                        wgpu::BufferBindingType::Uniform
+                    } else {
+                        wgpu::BufferBindingType::Storage { read_only: true }
+                    },
+                    has_dynamic_offset: rig_stride.is_some(),
+                    min_binding_size: rig_stride.map(|_| wgpu::BufferSize::new(rig_size).unwrap()),
                 },
                 count: None,
             }],
@@ -703,7 +787,25 @@ impl Renderer {
                 bind_group_layouts: &[&camera_layout, &enemy_layout],
                 push_constant_ranges: &[],
             });
-        let shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/world.wgsl"));
+        let shader = if rig_stride.is_some() || webgpu {
+            let source = include_str!("../shaders/world.wgsl");
+            let storage =
+                "@group(1) @binding(0) var<storage,read> enemy_instances:array<EnemyInstance>;";
+            assert!(source.contains(storage), "world.wgsl declares the enemy rigs as expected");
+            let source = if rig_stride.is_some() {
+                source
+                    .replace(storage, "@group(1) @binding(0) var<uniform> enemy_instance:EnemyInstance;")
+                    .replace("enemy_instances[index]", "enemy_instance")
+            } else {
+                source.to_string()
+            };
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("world.wgsl for the browser"),
+                source: wgpu::ShaderSource::Wgsl(browser_source(source).into()),
+            })
+        } else {
+            device.create_shader_module(wgpu::include_wgsl!("../shaders/world.wgsl"))
+        };
         let targets = [Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -780,18 +882,11 @@ impl Renderer {
         });
         let enemy_instances = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Animated enemy rigs"),
-            size: (std::mem::size_of::<crate::enemy_assets::Instance>() * 128) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            size: rig_stride.unwrap_or(rig_size) * 128,
+            usage: Self::rig_usage(rig_stride),
             mapped_at_creation: false,
         });
-        let enemy_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Animated enemy rigs"),
-            layout: &enemy_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: enemy_instances.as_entire_binding(),
-            }],
-        });
+        let enemy_bind = Self::rig_bind(&device, &enemy_layout, &enemy_instances, rig_stride);
         let instance_attributes = wgpu::vertex_attr_array![6=>Float32x4,7=>Float32x4,8=>Float32x4,9=>Float32x4,10=>Float32x4,11=>Float32x4,12=>Float32x4];
         let sphere_pipeline = make_pipeline(
             "sphere_vs",
@@ -876,7 +971,11 @@ impl Renderer {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: if gl {
+                            wgpu::TextureSampleType::Float { filterable: false }
+                        } else {
+                            wgpu::TextureSampleType::Depth
+                        },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -896,8 +995,30 @@ impl Renderer {
         });
         let (scene_view, depth, scene_bind) =
             Self::targets(&device, &scene_layout, &config, &camera_buffer, crate::fidelity::Fidelity::High);
-        let post_shader =
-            device.create_shader_module(wgpu::include_wgsl!("../shaders/composite.wgsl"));
+        let post_shader = if webgpu {
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("composite.wgsl for the browser"),
+                source: wgpu::ShaderSource::Wgsl(
+                    browser_source(include_str!("../shaders/composite.wgsl").into()).into(),
+                ),
+            })
+        } else if gl {
+            let source = include_str!("../shaders/composite.wgsl");
+            let (binding, load) = (
+                "var depth:texture_depth_2d;",
+                "return textureLoad(depth,clamp(vec2<i32>(uv*vec2<f32>(size)),vec2(0),size-vec2(1)),0);",
+            );
+            assert!(source.contains(binding) && source.contains(load), "composite.wgsl reads depth as expected");
+            let source = source
+                .replace(binding, "var depth:texture_2d<f32>;")
+                .replace(load, &format!("{}.x;", load.trim_end_matches(';')));
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("composite.wgsl, depth as a float texture"),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            })
+        } else {
+            device.create_shader_module(wgpu::include_wgsl!("../shaders/composite.wgsl"))
+        };
         let post_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&scene_layout],
@@ -915,7 +1036,7 @@ impl Renderer {
             fragment: Some(wgpu::FragmentState {
                 module: &post_shader,
                 entry_point: Some("fs"),
-                targets: &[Some(config.format.into())],
+                targets: &[Some(draw_format.into())],
                 compilation_options: Default::default(),
             }),
             primitive: Default::default(),
@@ -948,7 +1069,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let egui = egui_wgpu::Renderer::new(&device, format, None, 1, false);
+        let egui = egui_wgpu::Renderer::new(&device, draw_format, None, 1, false);
         let gpu_timer = timestamps.then(|| GpuTimer {
             queries: device.create_query_set(&wgpu::QuerySetDescriptor {
                 label: Some("Pass timestamps"),
@@ -992,6 +1113,10 @@ impl Renderer {
             enemy_instances,
             enemy_bind,
             enemy_layout,
+            rig_stride,
+            rig_upload: vec![],
+            #[cfg(target_arch = "wasm32")]
+            adapter_name,
             piece_pipeline,
             pieces: ResidentPieces {
                 slab: PieceSlab::new(piece_limit),
@@ -1009,7 +1134,7 @@ impl Renderer {
             camera_bind_sharp,
             fidelity: crate::fidelity::Fidelity::High,
             backdrop: 0.,
-            backdrop_clock: std::time::Instant::now(),
+            backdrop_clock: web_time::Instant::now(),
             camera_layout,
             material_view,
             material_sampler,
@@ -1318,7 +1443,7 @@ impl Renderer {
         ) || game.settings
             || game.confirm_new_run;
         let dt = self.backdrop_clock.elapsed().as_secs_f32().min(0.1);
-        self.backdrop_clock = std::time::Instant::now();
+        self.backdrop_clock = web_time::Instant::now();
         let target = if menu { 1. } else { 0. };
         self.backdrop += (target - self.backdrop) * (dt * 14.).min(1.);
         if (target - self.backdrop).abs() < 0.002 {
@@ -1398,7 +1523,7 @@ impl Renderer {
         output: egui::FullOutput,
         capture: Option<&str>,
     ) -> Result<(), wgpu::SurfaceError> {
-        let acquire = std::time::Instant::now();
+        let acquire = web_time::Instant::now();
         crate::watchdog::step("acquiring surface texture");
         let frame = if self.offscreen_target.is_none() {
             Some(self.surface.get_current_texture()?)
@@ -1412,8 +1537,11 @@ impl Renderer {
             .map(|frame| &frame.texture)
             .or(self.offscreen_target.as_ref())
             .unwrap();
-        let view = output_texture.create_view(&Default::default());
-        let mesh_start = std::time::Instant::now();
+        let view = output_texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.config.view_formats.first().copied().unwrap_or(self.config.format)),
+            ..Default::default()
+        });
+        let mesh_start = web_time::Instant::now();
         scene::dynamic(
             game,
             bones,
@@ -1432,7 +1560,7 @@ impl Renderer {
         let mesh = &self.dynamic_mesh;
         self.timings[0] = mesh_start.elapsed().as_secs_f64() * 1000.;
         self.vertex_count = mesh.vertices.len() + mesh.transparent.len();
-        let submit = std::time::Instant::now();
+        let submit = web_time::Instant::now();
         let required = (self.vertex_count * std::mem::size_of::<scene::Vertex>()) as u64;
         if required > self.dynamic_buffer.size() {
             self.dynamic_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1465,22 +1593,29 @@ impl Renderer {
             self.queue
                 .write_buffer(&self.sphere_instances, 0, sphere_bytes);
         }
-        let enemy_bytes = bytemuck::cast_slice(&mesh.enemies);
+        let mut enemy_bytes: &[u8] = bytemuck::cast_slice(&mesh.enemies);
+        if let Some(stride) = self.rig_stride {
+            // Uniform blocks start at aligned offsets: pad each rig.
+            self.rig_upload.clear();
+            for rig in &mesh.enemies {
+                self.rig_upload.extend_from_slice(bytemuck::bytes_of(rig));
+                self.rig_upload.resize(self.rig_upload.len().next_multiple_of(stride as usize), 0);
+            }
+            enemy_bytes = &self.rig_upload;
+        }
         if enemy_bytes.len() as u64 > self.enemy_instances.size() {
             self.enemy_instances = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Growing animated enemy rigs"),
                 size: (enemy_bytes.len() as u64).next_power_of_two(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                usage: Self::rig_usage(self.rig_stride),
                 mapped_at_creation: false,
             });
-            self.enemy_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Growing animated enemy rigs"),
-                layout: &self.enemy_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.enemy_instances.as_entire_binding(),
-                }],
-            });
+            self.enemy_bind = Self::rig_bind(
+                &self.device,
+                &self.enemy_layout,
+                &self.enemy_instances,
+                self.rig_stride,
+            );
         }
         if !enemy_bytes.is_empty() {
             self.queue
@@ -1536,12 +1671,19 @@ impl Renderer {
             }
             if !mesh.enemies.is_empty() {
                 pass.set_pipeline(&self.enemy_pipeline);
-                pass.set_bind_group(1, &self.enemy_bind, &[]);
+                if self.rig_stride.is_none() {
+                    pass.set_bind_group(1, &self.enemy_bind, &[]);
+                }
                 pass.set_vertex_buffer(0, self.enemy_geometry.slice(..));
                 pass.set_index_buffer(self.enemy_indices.slice(..), wgpu::IndexFormat::Uint32);
                 for (index, enemy) in mesh.enemies.iter().enumerate() {
                     let range = self.enemy_ranges[enemy.params[0] as usize].clone();
-                    pass.draw_indexed(range, 0, index as u32..index as u32 + 1);
+                    if let Some(stride) = self.rig_stride {
+                        pass.set_bind_group(1, &self.enemy_bind, &[(index as u64 * stride) as u32]);
+                        pass.draw_indexed(range, 0, 0..1);
+                    } else {
+                        pass.draw_indexed(range, 0, index as u32..index as u32 + 1);
+                    }
                 }
                 pass.set_pipeline(&self.world);
             }

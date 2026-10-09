@@ -423,13 +423,17 @@ impl Music {
         let mix = Arc::new(Mix::default());
         let stems = Arc::new(OnceLock::new());
         let render = stems.clone();
-        let _ = std::thread::Builder::new()
-            .name("music".into())
-            .spawn(move || {
-                let start = std::time::Instant::now();
-                let _ = render.set(compose());
-                println!("Music rendered in {} ms", start.elapsed().as_millis());
-            });
+        let render_score = move || {
+            let start = web_time::Instant::now();
+            let _ = render.set(compose());
+            println!("Music rendered in {} ms", start.elapsed().as_millis());
+        };
+        // The browser has no threads; the score is composed while the page
+        // is still loading.
+        #[cfg(target_arch = "wasm32")]
+        render_score();
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = std::thread::Builder::new().name("music".into()).spawn(render_score);
         sink.append(Score::new(stems, mix.clone()));
         Self { mix, _sink: sink }
     }

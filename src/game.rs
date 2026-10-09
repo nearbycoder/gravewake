@@ -9,15 +9,55 @@ use std::path::{Path, PathBuf};
 // A well-mixed seed from the clock and a per-process counter (SplitMix64).
 fn fresh_seed() -> u64 {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let nanos = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos() as u64);
     let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut z =
-        nanos ^ (u64::from(std::process::id()) << 32) ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        nanos ^ (u64::from(process_id()) << 32) ^ count.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn process_id() -> u32 {
+    std::process::id()
+}
+// The browser has no process id; a random draw stands in for it.
+#[cfg(target_arch = "wasm32")]
+fn process_id() -> u32 {
+    (js_sys::Math::random() * f64::from(u32::MAX)) as u32
+}
+
+/// A save file's contents by name: from the save folder (or an older one it
+/// wasn't migrated from) on the desktop, from browser storage on the web.
+fn read_saved(name: &str) -> Option<Vec<u8>> {
+    #[cfg(target_arch = "wasm32")]
+    return crate::web::load(name);
+    #[cfg(not(target_arch = "wasm32"))]
+    std::fs::read(Game::load_path(name)).ok()
+}
+fn saved_exists(name: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return crate::web::load(name).is_some();
+    #[cfg(not(target_arch = "wasm32"))]
+    Game::load_path(name).exists()
+}
+/// Write a save file through a temporary file and a rename, so a failed
+/// write never leaves half a file. On the web, `path`'s file name is the
+/// browser storage key.
+fn write_saved(path: &Path, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_arch = "wasm32")]
+    return crate::web::store(&path.file_name().unwrap().to_string_lossy(), data);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, data)?;
+        std::fs::rename(temporary, path)?;
+        Ok(())
+    }
 }
 
 const SAVE_FILES: [&str; 3] = ["run.json", "graphics.json", "performance.json"];
@@ -569,7 +609,7 @@ impl Default for Preferences {
             reticle_size: 1.,
             reticle_color: ReticleColor::Ivory,
             window_size: None,
-            fidelity: crate::fidelity::Fidelity::High,
+            fidelity: crate::fidelity::Fidelity::DEFAULT,
         }
     }
 }
@@ -849,7 +889,8 @@ pub struct Game {
 }
 impl Game {
     pub fn new(save_enabled: bool) -> Self {
-        if save_enabled {
+        // The browser build has no older save folders to import.
+        if save_enabled && cfg!(not(target_arch = "wasm32")) {
             let (destination, legacy) = Self::dirs();
             if let Err(e) = migrate_legacy_saves(&destination, &legacy) {
                 eprintln!("Could not migrate legacy saves; original files are preserved: {e}");
@@ -894,8 +935,7 @@ impl Game {
             spawned_bodies: vec![],
             physics_impacts: vec![],
             records: if save_enabled {
-                std::fs::read(Self::load_path("records.json"))
-                    .ok()
+                read_saved("records.json")
                     .and_then(|b| serde_json::from_slice(&b).ok())
                     .unwrap_or_default()
             } else {
@@ -903,16 +943,14 @@ impl Game {
             },
             run_records: vec![],
             prefs: if save_enabled {
-                std::fs::read(Self::load_path("settings.json"))
-                    .ok()
+                read_saved("settings.json")
                     .and_then(|b| Preferences::from_json(&b))
                     .unwrap_or_default()
             } else {
                 Preferences::default()
             },
             shader_intensity: if save_enabled {
-                std::fs::read(Self::load_path("graphics.json"))
-                    .ok()
+                read_saved("graphics.json")
                     .and_then(|b| serde_json::from_slice::<f32>(&b).ok())
                     .filter(|x| x.is_finite())
                     .unwrap_or(1.)
@@ -942,7 +980,7 @@ impl Game {
             sprint_latched: false,
             sprint_held: false,
             confirm_new_run: false,
-            has_save: Self::load_path("run.json").exists(),
+            has_save: saved_exists("run.json"),
             bestiary_index: 0,
             collection_kind: 1,
             collection_group: 1,
@@ -968,8 +1006,7 @@ impl Game {
             .unwrap_or_else(|| Self::save_path().with_file_name(name))
     }
     fn performance_settings() -> (bool, bool) {
-        std::fs::read(Self::load_path("performance.json"))
-            .ok()
+        read_saved("performance.json")
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or((false, false))
     }
@@ -979,11 +1016,7 @@ impl Game {
         }
         let path = Self::save_path().with_file_name("performance.json");
         let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-            std::fs::create_dir_all(path.parent().unwrap())?;
-            let temp = path.with_extension("tmp");
-            std::fs::write(&temp, serde_json::to_vec(&(self.vsync, self.show_fps))?)?;
-            std::fs::rename(temp, path)?;
-            Ok(())
+            write_saved(&path, &serde_json::to_vec(&(self.vsync, self.show_fps))?)
         })();
         if let Err(e) = result {
             eprintln!("Could not save performance settings: {e}");
@@ -996,12 +1029,7 @@ impl Game {
         }
         let path = Self::save_path().with_file_name("settings.json");
         let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-            std::fs::create_dir_all(path.parent().unwrap())?;
-            let data = serde_json::to_vec_pretty(&self.prefs.sanitized())?;
-            let temporary = path.with_extension("tmp");
-            std::fs::write(&temporary, data)?;
-            std::fs::rename(temporary, path)?;
-            Ok(())
+            write_saved(&path, &serde_json::to_vec_pretty(&self.prefs.sanitized())?)
         })();
         if let Err(e) = result {
             eprintln!("Could not save preferences: {e}");
@@ -1014,12 +1042,7 @@ impl Game {
         }
         let path = Self::save_path().with_file_name("graphics.json");
         let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-            std::fs::create_dir_all(path.parent().unwrap())?;
-            let data = serde_json::to_vec(&self.shader_intensity.clamp(0., 1.))?;
-            let temporary = path.with_extension("tmp");
-            std::fs::write(&temporary, data)?;
-            std::fs::rename(temporary, path)?;
-            Ok(())
+            write_saved(&path, &serde_json::to_vec(&self.shader_intensity.clamp(0., 1.))?)
         })();
         if let Err(e) = result {
             eprintln!("Could not save graphics preference: {e}");
@@ -1042,16 +1065,12 @@ impl Game {
             return true;
         }
         let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-            std::fs::create_dir_all(path.parent().unwrap())?;
             let data = serde_json::to_vec_pretty(&Save {
                 version: 1,
                 mode,
                 run: self.run.clone(),
             })?;
-            let tmp = path.with_extension("tmp");
-            std::fs::write(&tmp, data)?;
-            std::fs::rename(tmp, path)?;
-            Ok(())
+            write_saved(path, &data)
         })();
         match result {
             Ok(()) => {
@@ -1066,8 +1085,7 @@ impl Game {
     }
     /// The saved run, if it loads.
     fn read_save() -> Option<Save> {
-        std::fs::read(Self::load_path("run.json"))
-            .ok()
+        read_saved("run.json")
             .and_then(|b| serde_json::from_slice::<Save>(&b).ok())
             .filter(|s| {
                 s.version == 1 && s.run.weapon.rarity < 4 && s.run.wave >= 1 && s.run.wave <= 10000
@@ -1172,12 +1190,7 @@ impl Game {
         }
     }
     fn write_records(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        let data = serde_json::to_vec_pretty(&self.records)?;
-        let temporary = path.with_extension("tmp");
-        std::fs::write(&temporary, data)?;
-        std::fs::rename(temporary, path)?;
-        Ok(())
+        write_saved(path, &serde_json::to_vec_pretty(&self.records)?)
     }
     fn new_run_with_seed(&mut self, seed: u64) {
         self.run = Run {

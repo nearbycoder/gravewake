@@ -1,3 +1,18 @@
+// The browser build runs none of the scripted reviews and tools.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+/// Embedded art: the PNG on the desktop, its WebP copy from assets/web/ in
+/// the browser build, where the download size matters
+/// (`scripts/build-web-images.sh`). `$name` is the path under assets/
+/// without the extension.
+macro_rules! image_asset {
+    ($dir:literal, $name:literal) => {{
+        #[cfg(not(target_arch = "wasm32"))]
+        let bytes: &[u8] = include_bytes!(concat!("../assets/", $dir, $name, ".png"));
+        #[cfg(target_arch = "wasm32")]
+        let bytes: &[u8] = include_bytes!(concat!("../assets/web/", $name, ".webp"));
+        bytes
+    }};
+}
 mod anatomy;
 mod anatomy_review;
 mod architecture_assets;
@@ -32,13 +47,16 @@ mod text_review;
 mod tips;
 mod ui;
 mod watchdog;
+#[cfg(target_arch = "wasm32")]
+mod web;
 mod weapon_assets;
 mod weapons;
 mod window_review;
 mod world_layout;
 mod world_review;
 use game::{Game, Mode};
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{collections::HashSet, sync::Arc};
+use web_time::Instant;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -115,6 +133,12 @@ struct App {
     frames: u32,
     stage: usize,
     stage_frames: u32,
+    /// The browser makes the renderer asynchronously; it lands here.
+    #[cfg(target_arch = "wasm32")]
+    pending_renderer: std::rc::Rc<std::cell::RefCell<Option<renderer::Renderer>>>,
+    /// The pointer was locked for mouse look last frame.
+    #[cfg(target_arch = "wasm32")]
+    pointer_locked: bool,
 }
 impl App {
     /// A player's launch opens at the saved windowed size, or 1440×900,
@@ -302,7 +326,8 @@ impl App {
             window_review: std::env::args()
                 .any(|a| a == "--window-review")
                 .then(window_review::Review::new),
-            sized_window: !smoke && !review,
+            // A browser page fills its tab; it has no window size to keep.
+            sized_window: !smoke && !review && cfg!(not(target_arch = "wasm32")),
             fit_frames: 0,
             // Scripted runs keep the default key names, except the review
             // that checks the layout's.
@@ -344,6 +369,10 @@ impl App {
                 0
             },
             stage_frames: 0,
+            #[cfg(target_arch = "wasm32")]
+            pending_renderer: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            pointer_locked: false,
         }
     }
     // Escape, controller B in menus, and Start share one back/pause action.
@@ -910,8 +939,40 @@ impl App {
             self.stage_frames = 0;
         }
     }
+    /// Browser upkeep before a frame: install the renderer once it's made,
+    /// and pause if the browser released the pointer lock (Escape). Returns
+    /// false until there is a renderer to draw with.
+    #[cfg(target_arch = "wasm32")]
+    fn web_frame(&mut self) -> bool {
+        if self.renderer.is_none() {
+            let Some(mut renderer) = self.pending_renderer.borrow_mut().take() else {
+                return false;
+            };
+            let size = self.window.as_ref().unwrap().inner_size();
+            renderer.resize(size.width, size.height);
+            renderer.register_previews(&self.ctx);
+            web::graphics(&renderer.adapter_name);
+            self.renderer = Some(renderer);
+            self.last = Instant::now();
+            web::ready();
+        }
+        let locked = web::pointer_locked();
+        if self.captured && self.pointer_locked && !locked && self.game.mode == Mode::Arena {
+            self.game.back();
+            self.sync_cursor();
+        }
+        self.pointer_locked = locked;
+        if let Some(w) = &self.window {
+            self.game.prefs.fullscreen = w.fullscreen().is_some();
+        }
+        true
+    }
     fn frame(&mut self, event_loop: &ActiveEventLoop) {
         if event_loop.exiting() || (self.occluded && !self.smoke && !self.review) {
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if !self.web_frame() {
             return;
         }
         let started = Instant::now();
@@ -1776,37 +1837,44 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
-        let window = Arc::new(
-            event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title("Gravewake — The Hollow Tithe")
-                        .with_inner_size(
-                            if let Some((w, h)) =
-                                capture::size().filter(|_| self.smoke || self.review)
-                            {
-                                LogicalSize::new(w, h)
-                            } else if self.review
-                                || self.survival_review
-                                || ((self.text_review.is_some() || self.world_review.is_some())
-                                    && std::env::args().any(|a| a == "--review-small"))
-                            {
-                                LogicalSize::new(960., 600.)
-                            } else if self.sized_window {
-                                self.launch_size(event_loop)
-                            } else {
-                                LogicalSize::new(1440., 900.)
-                            },
-                        )
-                        .with_min_inner_size(LogicalSize::new(960., 600.))
-                        .with_fullscreen(
-                            (self.game.save_enabled && self.game.prefs.fullscreen)
-                                .then_some(winit::window::Fullscreen::Borderless(None)),
-                        )
-                        .with_app_identity(),
-                )
-                .expect("create window"),
-        );
+        #[cfg(target_arch = "wasm32")]
+        let attributes = {
+            // The page's canvas, sized by the page; fullscreen waits for
+            // the player to ask, as browsers require.
+            use winit::platform::web::WindowAttributesExtWebSys;
+            Window::default_attributes()
+                .with_title("Gravewake — The Hollow Tithe")
+                .with_canvas(web::canvas())
+                .with_focusable(true)
+                .with_prevent_default(true)
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let attributes = Window::default_attributes()
+            .with_title("Gravewake — The Hollow Tithe")
+            .with_inner_size(
+                if let Some((w, h)) =
+                    capture::size().filter(|_| self.smoke || self.review)
+                {
+                    LogicalSize::new(w, h)
+                } else if self.review
+                    || self.survival_review
+                    || ((self.text_review.is_some() || self.world_review.is_some())
+                        && std::env::args().any(|a| a == "--review-small"))
+                {
+                    LogicalSize::new(960., 600.)
+                } else if self.sized_window {
+                    self.launch_size(event_loop)
+                } else {
+                    LogicalSize::new(1440., 900.)
+                },
+            )
+            .with_min_inner_size(LogicalSize::new(960., 600.))
+            .with_fullscreen(
+                (self.game.save_enabled && self.game.prefs.fullscreen)
+                    .then_some(winit::window::Fullscreen::Borderless(None)),
+            )
+            .with_app_identity();
+        let window = Arc::new(event_loop.create_window(attributes).expect("create window"));
         watchdog::milestone("window created");
         if self.sized_window {
             self.fit_frames = 120;
@@ -1820,9 +1888,25 @@ impl ApplicationHandler for App {
             None,
         ));
         watchdog::milestone("egui state ready");
-        self.renderer = Some(pollster::block_on(renderer::Renderer::new(window.clone())));
-        self.renderer.as_mut().unwrap().register_previews(&self.ctx);
-        watchdog::milestone("renderer ready");
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Browsers hand out the GPU asynchronously; `web_frame`
+            // installs the renderer when it arrives.
+            let slot = self.pending_renderer.clone();
+            let window = window.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                web::status("Preparing the graphics");
+                let renderer = renderer::Renderer::new(window.clone()).await;
+                *slot.borrow_mut() = Some(renderer);
+                window.request_redraw();
+            });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.renderer = Some(pollster::block_on(renderer::Renderer::new(window.clone())));
+            self.renderer.as_mut().unwrap().register_previews(&self.ctx);
+            watchdog::milestone("renderer ready");
+        }
         self.window = Some(window);
         self.last = Instant::now();
     }
@@ -1833,6 +1917,14 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::Occluded(occluded) if !self.smoke && !self.review => {
                 self.occluded = occluded;
+                // A browser tab can close without warning once hidden, so
+                // save as the desktop game does when it quits.
+                #[cfg(target_arch = "wasm32")]
+                if occluded {
+                    self.game.save_preferences();
+                    self.game.save_performance();
+                    self.game.save();
+                }
                 event_loop.set_control_flow(if occluded {
                     winit::event_loop::ControlFlow::Wait
                 } else {
@@ -1891,6 +1983,7 @@ impl ApplicationHandler for App {
                 let trigger = controls::Trigger::Key(code);
                 if pressed {
                     self.game.device = controls::Device::Keyboard;
+                    self.audio.resume();
                 }
                 if self.game.rebinding.is_some() {
                     // The journal is waiting for a new key; nothing else sees it.
@@ -1961,6 +2054,15 @@ impl ApplicationHandler for App {
                 let pressed = state == ElementState::Pressed;
                 if pressed {
                     self.game.device = controls::Device::Keyboard;
+                    self.audio.resume();
+                    // A browser only locks the pointer in answer to a click:
+                    // ask again if an earlier request was refused.
+                    #[cfg(target_arch = "wasm32")]
+                    if self.captured && !web::pointer_locked() {
+                        if let Some(w) = &self.window {
+                            let _ = w.set_cursor_grab(CursorGrabMode::Locked);
+                        }
+                    }
                 }
                 self.fire_input(trigger, pressed);
                 if self.game.rebinding.is_some() {
@@ -2011,7 +2113,13 @@ impl ApplicationHandler for App {
                 event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(deadline))
             }
             None => {
-                event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+                // The browser draws on its animation frames; polling there
+                // would spin the page between them.
+                event_loop.set_control_flow(if cfg!(target_arch = "wasm32") {
+                    winit::event_loop::ControlFlow::Wait
+                } else {
+                    winit::event_loop::ControlFlow::Poll
+                });
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }
@@ -2020,6 +2128,17 @@ impl ApplicationHandler for App {
     }
 }
 /// The character a key produces without modifiers, for layout-aware labels.
+/// Browsers only report the character with modifiers applied, so only
+/// letters are learned there.
+#[cfg(target_arch = "wasm32")]
+fn key_glyph(event: &winit::event::KeyEvent) -> Option<char> {
+    let winit::keyboard::Key::Character(text) = &event.logical_key else {
+        return None;
+    };
+    let mut chars = text.chars().flat_map(char::to_lowercase);
+    chars.next().filter(|c| c.is_alphabetic() && chars.next().is_none())
+}
+#[cfg(not(target_arch = "wasm32"))]
 fn key_glyph(event: &winit::event::KeyEvent) -> Option<char> {
     use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
     let winit::keyboard::Key::Character(text) = event.key_without_modifiers() else {
@@ -2043,6 +2162,19 @@ impl AppIdentity for winit::window::WindowAttributes {
         self
     }
 }
+/// The browser build: no flags or scripted runs, just the game on the page's
+/// canvas, driven by the browser's event loop.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    web::install_panic_hook();
+    web::status("Composing the score");
+    let event_loop = EventLoop::new().expect("event loop");
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+    let app = App::new(false, false);
+    use winit::platform::web::EventLoopExtWebSys;
+    event_loop.spawn_app(app);
+}
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     if std::env::args().any(|a| a == "--audio-review") {
         if let Some(reason) = audio_review::refusal() {

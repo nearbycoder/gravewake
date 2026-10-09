@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gravewake — The Hollow Tithe</title>
+<meta name="description" content="A first-person gothic arena roguelite, playable in your browser.">
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0807; overflow: hidden; }
+  /* winit sizes the drawing buffer to the canvas's laid-out size. */
+  #gravewake { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+  #veil {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 18px; background: radial-gradient(#1c1310, #0b0807 70%);
+    color: #e7d3ad; font: 16px/1.5 Georgia, "Times New Roman", serif; text-align: center;
+    transition: opacity .6s;
+  }
+  #veil.gone { opacity: 0; pointer-events: none; }
+  #veil h1 { margin: 0; font-weight: normal; letter-spacing: .3em; color: #e2bc77; font-size: 30px; }
+  #veil .sub { letter-spacing: .5em; font-size: 12px; color: #cfc7b4; margin-top: -10px; }
+  #bar { width: min(420px, 80vw); height: 6px; background: #2a1d17; border: 1px solid #5a4330; }
+  #fill { height: 100%; width: 0; background: #e2bc77; transition: width .2s; }
+  #status { min-height: 1.5em; color: #cfc7b4; }
+  #error { display: none; max-width: min(640px, 90vw); color: #f1c9b8; background: #2a1210;
+           border: 1px solid #7a3326; padding: 14px 18px; white-space: pre-wrap; text-align: left; }
+  #error button { margin-top: 12px; font: inherit; color: #0b0807; background: #e2bc77; border: 0; padding: 6px 16px; cursor: pointer; }
+  #veil .note { font-size: 13px; color: #8f8576; max-width: min(520px, 90vw); }
+</style>
+</head>
+<body>
+<canvas id="gravewake" tabindex="0"></canvas>
+<div id="veil">
+  <h1>GRAVEWAKE</h1>
+  <div class="sub">THE HOLLOW TITHE</div>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="status">Starting…</div>
+  <div id="error"></div>
+  <div class="note">Mouse and keyboard or a controller. Sound starts with your first click or key; Esc pauses. Progress is saved in this browser.</div>
+</div>
+<script type="module">
+// Filled in by scripts/build-pages.sh.
+const BUILD = { wasm: "__WASM__", bytes: __WASM_BYTES__, version: "__VERSION__" };
+const veil = document.getElementById("veil");
+const fill = document.getElementById("fill");
+const statusLine = document.getElementById("status");
+const errorBox = document.getElementById("error");
+const canvas = document.getElementById("gravewake");
+const started = performance.now();
+// Read by scripts/check-pages.mjs and the browser tests.
+window.gravewake = { state: "loading", error: null, loadMs: null, downloaded: 0, bytes: BUILD.bytes, version: BUILD.version };
+
+function fail(message) {
+  if (window.gravewake.state === "failed") return;
+  window.gravewake.state = "failed";
+  window.gravewake.error = String(message);
+  veil.classList.remove("gone");
+  statusLine.textContent = "Gravewake could not start.";
+  errorBox.style.display = "block";
+  errorBox.textContent = String(message);
+  const again = document.createElement("button");
+  again.textContent = "Reload";
+  again.onclick = () => location.reload();
+  errorBox.append(document.createElement("br"), again);
+}
+// Called from Rust (src/web.rs).
+window.gravewakeStatus = (text) => { if (window.gravewake.state === "loading") statusLine.textContent = text + "…"; };
+window.gravewakeFail = (message) => fail(message);
+window.gravewakeGraphics = (name) => { window.gravewake.graphics = name; };
+window.gravewakeReady = () => {
+  window.gravewake.state = "ready";
+  window.gravewake.loadMs = Math.round(performance.now() - started);
+  veil.classList.add("gone");
+  canvas.focus();
+};
+window.addEventListener("error", (e) => {
+  if (window.gravewake.state === "loading") fail(e.message || "The game stopped while loading.");
+});
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+async function graphicsAvailable() {
+  try {
+    if (navigator.gpu && await navigator.gpu.requestAdapter()) return true;
+  } catch (_) { /* fall through to WebGL2 */ }
+  return !!document.createElement("canvas").getContext("webgl2");
+}
+
+async function start() {
+  if (typeof WebAssembly !== "object") {
+    return fail("This browser can't run WebAssembly, which Gravewake needs.");
+  }
+  if (typeof DecompressionStream !== "function") {
+    return fail("This browser is too old for Gravewake: it lacks DecompressionStream. Try a current Chrome, Edge, Firefox or Safari.");
+  }
+  if (!await graphicsAvailable()) {
+    return fail("This browser offers neither WebGPU nor WebGL2, so Gravewake can't draw.\nTry a current Chrome, Edge or Firefox, and check that hardware acceleration is switched on.");
+  }
+  statusLine.textContent = "Downloading the game…";
+  let response;
+  try {
+    response = await fetch(BUILD.wasm);
+  } catch (e) {
+    return fail("The game couldn't be downloaded: " + e.message);
+  }
+  if (!response.ok || !response.body) {
+    return fail(`The game couldn't be downloaded (HTTP ${response.status} for ${BUILD.wasm}).`);
+  }
+  const mb = (n) => (n / 1048576).toFixed(1);
+  let loaded = 0;
+  const progress = new TransformStream({
+    transform(chunk, controller) {
+      loaded += chunk.byteLength;
+      window.gravewake.downloaded = loaded;
+      fill.style.width = Math.min(100, loaded / BUILD.bytes * 100) + "%";
+      statusLine.textContent = loaded < BUILD.bytes
+        ? `Downloading the game… ${mb(loaded)} of ${mb(BUILD.bytes)} MB`
+        : "Starting the game…";
+      controller.enqueue(chunk);
+    },
+  });
+  // The file is gzipped at build time and unpacked by the browser itself,
+  // since GitHub Pages can't be told to send it with Content-Encoding.
+  const wasm = new Response(
+    response.body.pipeThrough(progress).pipeThrough(new DecompressionStream("gzip")),
+    { headers: { "Content-Type": "application/wasm" } },
+  );
+  try {
+    const { default: init } = await import("./gravewake.js");
+    await init({ module_or_path: wasm });
+  } catch (e) {
+    // winit hands control to the browser by throwing; that isn't a failure.
+    if (String(e).includes("Using exceptions for control flow")) return;
+    return fail("The game failed to start: " + (e && e.message || e));
+  }
+}
+start();
+</script>
+</body>
+</html>

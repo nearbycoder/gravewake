@@ -55,6 +55,13 @@ impl Fidelity {
         Fidelity::High,
         Fidelity::Ultra,
     ];
+    /// A new player's step: High on the desktop, Medium in the browser,
+    /// where the same GPU usually has less to spare.
+    pub const DEFAULT: Fidelity = if cfg!(target_arch = "wasm32") {
+        Fidelity::Medium
+    } else {
+        Fidelity::High
+    };
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|f| *f == self).unwrap()
     }

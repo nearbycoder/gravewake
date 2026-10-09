@@ -21,8 +21,9 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 /// The mixer's format: everything the game plays is stereo at this rate.
 const RATE: u32 = crate::audio::RATE;
@@ -136,8 +137,47 @@ impl Shared {
 pub struct Output {
     mixer: Arc<DynamicMixerController<f32>>,
     shared: Arc<Shared>,
+    /// In the browser: the mixer, and the Web Audio stream `resume` opens.
+    #[cfg(target_arch = "wasm32")]
+    web: std::cell::RefCell<(Arc<Mutex<DynamicMixer<f32>>>, Option<cpal::Stream>, bool)>,
 }
 impl Output {
+    /// In the browser there are no threads, and a page may only start
+    /// sound after the player clicks or presses a key, so the stream opens
+    /// on the first input (`resume`).
+    #[cfg(target_arch = "wasm32")]
+    pub fn start() -> Self {
+        let (mixer, source) = dynamic_mixer::mixer::<f32>(2, RATE);
+        Self {
+            mixer,
+            shared: Arc::<Shared>::default(),
+            web: std::cell::RefCell::new((Arc::new(Mutex::new(source)), None, false)),
+        }
+    }
+    /// Open the Web Audio stream once, after the player's first input.
+    #[cfg(target_arch = "wasm32")]
+    pub fn resume(&self) {
+        let mut web = self.web.borrow_mut();
+        let (source, stream, tried) = &mut *web;
+        if *tried {
+            return;
+        }
+        *tried = true;
+        match open(&cpal::default_host(), source, &self.shared) {
+            Ok((opened, _, description)) => {
+                println!("Audio output: {description}");
+                self.shared.opened.fetch_add(1, Ordering::Relaxed);
+                self.shared.live.store(true, Ordering::Relaxed);
+                *stream = Some(opened);
+            }
+            Err(error) => {
+                web_sys::console::warn_1(&format!("Audio output unavailable: {error}").into());
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn resume(&self) {}
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn start() -> Self {
         let (mixer, source) = dynamic_mixer::mixer::<f32>(2, RATE);
         let shared = Arc::<Shared>::default();
@@ -199,6 +239,7 @@ impl Drop for Output {
 
 /// Sleep for `duration`, or until the output is dropped. Returns false to
 /// stop.
+#[cfg(not(target_arch = "wasm32"))]
 fn pause(shared: &Shared, duration: Duration) -> bool {
     let until = Instant::now() + duration;
     while Instant::now() < until {
@@ -210,6 +251,7 @@ fn pause(shared: &Shared, duration: Duration) -> bool {
     !shared.stop.load(Ordering::Relaxed)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn run(source: Arc<Mutex<DynamicMixer<f32>>>, shared: Arc<Shared>) {
     let host = cpal::default_host();
     let mut failures = 0;

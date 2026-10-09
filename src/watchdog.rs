@@ -10,8 +10,9 @@ use std::{
         Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 /// Milliseconds since `EPOCH` at the last reported progress.
