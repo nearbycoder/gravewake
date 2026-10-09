@@ -1,0 +1,9 @@
+{
+  "name": "gravewake-web-check",
+  "private": true,
+  "description": "Headless browser checks for the GitHub Pages build (scripts/check-pages.mjs, scripts/web-session.mjs).",
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}
