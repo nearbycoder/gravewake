@@ -35,13 +35,13 @@ fn assets() -> &'static [Vec<AssetVertex>; 7] {
     static ASSETS: OnceLock<[Vec<AssetVertex>; 7]> = OnceLock::new();
     ASSETS.get_or_init(|| {
         [
-            decode(include_bytes!("../assets/weapons/iron-pistol.dvm")),
-            decode(include_bytes!("../assets/weapons/double-barrel.dvm")),
-            decode(include_bytes!("../assets/weapons/cleaver.dvm")),
-            decode(include_bytes!("../assets/weapons/grave-revolver.dvm")),
-            decode(include_bytes!("../assets/weapons/slug-pump.dvm")),
-            decode(include_bytes!("../assets/weapons/repeater.dvm")),
-            decode(include_bytes!("../assets/weapons/longrifle.dvm")),
+            decode(asset_bytes!("../assets/weapons/iron-pistol.dvm")),
+            decode(asset_bytes!("../assets/weapons/double-barrel.dvm")),
+            decode(asset_bytes!("../assets/weapons/cleaver.dvm")),
+            decode(asset_bytes!("../assets/weapons/grave-revolver.dvm")),
+            decode(asset_bytes!("../assets/weapons/slug-pump.dvm")),
+            decode(asset_bytes!("../assets/weapons/repeater.dvm")),
+            decode(asset_bytes!("../assets/weapons/longrifle.dvm")),
         ]
     })
 }

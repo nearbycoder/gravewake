@@ -58,51 +58,51 @@ fn assets() -> &'static [Vec<AssetVertex>; 36] {
     static ASSETS: OnceLock<[Vec<AssetVertex>; 36]> = OnceLock::new();
     ASSETS.get_or_init(|| {
         [
-            decode(include_bytes!("../assets/enemies/ossuary-drudge.gvm")),
-            decode(include_bytes!("../assets/enemies/ribblade-skirmisher.gvm")),
-            decode(include_bytes!("../assets/enemies/cinder-skull.gvm")),
-            decode(include_bytes!("../assets/enemies/tithekeeper.gvm")),
-            decode(include_bytes!("../assets/enemies/gloamwing.gvm")),
-            decode(include_bytes!("../assets/enemies/grave-crawler.gvm")),
-            decode(include_bytes!("../assets/enemies/iron-penitent.gvm")),
-            decode(include_bytes!("../assets/enemies/plague-vessel.gvm")),
-            decode(include_bytes!("../assets/enemies/ash-cantor.gvm")),
-            decode(include_bytes!("../assets/enemies/bell-gargoyle.gvm")),
-            decode(include_bytes!("../assets/enemies/bone-shepherd.gvm")),
-            decode(include_bytes!("../assets/enemies/tithe-reaper.gvm")),
-            decode(include_bytes!("../assets/enemies/ossuary-drudge-lod1.gvm")),
-            decode(include_bytes!(
+            decode(asset_bytes!("../assets/enemies/ossuary-drudge.gvm")),
+            decode(asset_bytes!("../assets/enemies/ribblade-skirmisher.gvm")),
+            decode(asset_bytes!("../assets/enemies/cinder-skull.gvm")),
+            decode(asset_bytes!("../assets/enemies/tithekeeper.gvm")),
+            decode(asset_bytes!("../assets/enemies/gloamwing.gvm")),
+            decode(asset_bytes!("../assets/enemies/grave-crawler.gvm")),
+            decode(asset_bytes!("../assets/enemies/iron-penitent.gvm")),
+            decode(asset_bytes!("../assets/enemies/plague-vessel.gvm")),
+            decode(asset_bytes!("../assets/enemies/ash-cantor.gvm")),
+            decode(asset_bytes!("../assets/enemies/bell-gargoyle.gvm")),
+            decode(asset_bytes!("../assets/enemies/bone-shepherd.gvm")),
+            decode(asset_bytes!("../assets/enemies/tithe-reaper.gvm")),
+            decode(asset_bytes!("../assets/enemies/ossuary-drudge-lod1.gvm")),
+            decode(asset_bytes!(
                 "../assets/enemies/ribblade-skirmisher-lod1.gvm"
             )),
-            decode(include_bytes!("../assets/enemies/cinder-skull-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/tithekeeper-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/gloamwing-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/grave-crawler-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/iron-penitent-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/plague-vessel-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/ash-cantor-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/bell-gargoyle-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/bone-shepherd-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/tithe-reaper-lod1.gvm")),
-            decode(include_bytes!("../assets/enemies/ossuary-drudge-lod2.gvm")),
-            decode(include_bytes!(
+            decode(asset_bytes!("../assets/enemies/cinder-skull-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/tithekeeper-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/gloamwing-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/grave-crawler-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/iron-penitent-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/plague-vessel-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/ash-cantor-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/bell-gargoyle-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/bone-shepherd-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/tithe-reaper-lod1.gvm")),
+            decode(asset_bytes!("../assets/enemies/ossuary-drudge-lod2.gvm")),
+            decode(asset_bytes!(
                 "../assets/enemies/ribblade-skirmisher-lod2.gvm"
             )),
-            decode(include_bytes!("../assets/enemies/cinder-skull-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/tithekeeper-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/gloamwing-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/grave-crawler-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/iron-penitent-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/plague-vessel-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/ash-cantor-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/bell-gargoyle-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/bone-shepherd-lod2.gvm")),
-            decode(include_bytes!("../assets/enemies/tithe-reaper-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/cinder-skull-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/tithekeeper-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/gloamwing-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/grave-crawler-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/iron-penitent-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/plague-vessel-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/ash-cantor-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/bell-gargoyle-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/bone-shepherd-lod2.gvm")),
+            decode(asset_bytes!("../assets/enemies/tithe-reaper-lod2.gvm")),
         ]
     })
 }
 pub fn gpu_geometry() -> (Vec<Vertex>, Vec<Range<u32>>) {
-    let mut vertices = Vec::new();
+    let mut vertices = Vec::with_capacity(assets().iter().map(Vec::len).sum());
     let mut ranges = Vec::new();
     for asset in assets() {
         let start = vertices.len() as u32;

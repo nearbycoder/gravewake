@@ -50,20 +50,20 @@ fn assets() -> &'static [Vec<AssetVertex>; 10] {
     static ASSETS: OnceLock<[Vec<AssetVertex>; 10]> = OnceLock::new();
     ASSETS.get_or_init(|| {
         [
-            decode(include_bytes!("../assets/architecture/chapel-facade.gwe")),
-            decode(include_bytes!("../assets/architecture/chapel-wall.gwe")),
-            decode(include_bytes!("../assets/architecture/cloister-bay.gwe")),
-            decode(include_bytes!("../assets/architecture/bell-tower.gwe")),
-            decode(include_bytes!(
+            decode(asset_bytes!("../assets/architecture/chapel-facade.gwe")),
+            decode(asset_bytes!("../assets/architecture/chapel-wall.gwe")),
+            decode(asset_bytes!("../assets/architecture/cloister-bay.gwe")),
+            decode(asset_bytes!("../assets/architecture/bell-tower.gwe")),
+            decode(asset_bytes!(
                 "../assets/architecture/memorial-fountain.gwe"
             )),
-            decode(include_bytes!("../assets/architecture/ruin-wall.gwe")),
-            decode(include_bytes!("../assets/architecture/rubble.gwe")),
-            decode(include_bytes!("../assets/architecture/funerary-urn.gwe")),
-            decode(include_bytes!(
+            decode(asset_bytes!("../assets/architecture/ruin-wall.gwe")),
+            decode(asset_bytes!("../assets/architecture/rubble.gwe")),
+            decode(asset_bytes!("../assets/architecture/funerary-urn.gwe")),
+            decode(asset_bytes!(
                 "../assets/architecture/cemetery-obelisk.gwe"
             )),
-            decode(include_bytes!("../assets/architecture/curtain-wall.gwe")),
+            decode(asset_bytes!("../assets/architecture/curtain-wall.gwe")),
         ]
     })
 }

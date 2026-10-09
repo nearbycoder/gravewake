@@ -131,20 +131,80 @@ impl ResidentPieces {
     }
 }
 
-fn index_enemy_geometry(vertices: &[Vertex]) -> (Vec<Vertex>, Vec<u32>) {
-    let mut unique = Vec::new();
-    let mut indices = Vec::with_capacity(vertices.len());
-    let mut lookup = std::collections::HashMap::<[u32; 15], u32>::new();
-    for vertex in vertices {
-        let key: [u32; 15] = bytemuck::cast(*vertex);
-        let index = *lookup.entry(key).or_insert_with(|| {
-            let index = unique.len() as u32;
-            unique.push(*vertex);
-            index
-        });
-        indices.push(index);
+/// A material texture at half size on a phone or tablet (`crate::lite`),
+/// where it is drawn small and memory is short; as it is elsewhere.
+fn half_size_if_lite(pixels: image::RgbaImage) -> image::RgbaImage {
+    if crate::lite() {
+        image::imageops::resize(
+            &pixels,
+            (pixels.width() / 2).max(1),
+            (pixels.height() / 2).max(1),
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        pixels
     }
+}
+
+fn index_enemy_geometry(vertices: &[Vertex]) -> (Vec<Vertex>, Vec<u32>) {
+    let mut indexer = VertexIndexer::new(vertices.len());
+    let mut unique = Vec::new();
+    let indices = vertices
+        .iter()
+        .map(|v| {
+            let (index, new) = indexer.index(v, &unique);
+            if new {
+                unique.push(*v);
+            }
+            index
+        })
+        .collect();
     (unique, indices)
+}
+
+/// Numbers complete vertices (every bit of every attribute) in order of
+/// first appearance. Its open-addressed table holds indices into the
+/// caller's unique vertices rather than copies of each 60-byte vertex, so
+/// indexing the world's 2.5 million vertices needs about 17 MB beside them,
+/// not the 400 MB a `HashMap<[u32; 15], u32>` took: in the browser that was
+/// the peak that set the page's memory for good.
+struct VertexIndexer {
+    slots: Vec<u32>,
+}
+impl VertexIndexer {
+    const EMPTY: u32 = u32::MAX;
+    /// Room for up to `count` distinct vertices, the table at most 80% full.
+    fn new(count: usize) -> Self {
+        Self {
+            slots: vec![Self::EMPTY; (count + count / 4).next_power_of_two().max(16)],
+        }
+    }
+    /// The vertex's number among `unique`, or the next number
+    /// (`unique.len()`) and true if it's new; the caller then adds it.
+    fn index(&mut self, vertex: &Vertex, unique: &[Vertex]) -> (u32, bool) {
+        let key: [u32; 15] = bytemuck::cast(*vertex);
+        // FxHash's multiply-rotate over the words, then a final mix.
+        let mut hash = 0u64;
+        for word in key {
+            hash = (hash.rotate_left(5) ^ word as u64).wrapping_mul(0x51_7cc1_b727_220a_95);
+        }
+        hash ^= hash >> 29;
+        let mask = self.slots.len() - 1;
+        let mut slot = hash as usize & mask;
+        loop {
+            match self.slots[slot] {
+                Self::EMPTY => {
+                    let index = unique.len() as u32;
+                    self.slots[slot] = index;
+                    return (index, true);
+                }
+                index if bytemuck::cast::<Vertex, [u32; 15]>(unique[index as usize]) == key => {
+                    return (index, false);
+                }
+                _ => slot = (slot + 1) & mask,
+            }
+        }
+    }
 }
 
 struct WorldChunk {
@@ -154,35 +214,115 @@ struct WorldChunk {
 }
 /// Spatially batch static triangles once. Bounds include every vertex (even
 /// terrain triangles spanning cells), plus a margin for wind animated foliage.
-fn index_world_geometry(vertices: &[Vertex]) -> (Vec<Vertex>, Vec<u32>, Vec<WorldChunk>) {
-    let mut cells = std::collections::BTreeMap::<(i32, i32), Vec<Vertex>>::new();
-    for tri in vertices.chunks_exact(3) {
-        let center = tri.iter().map(|v| Vec3::from_array(v.pos)).sum::<Vec3>() / 3.;
-        let key = (
-            (center.x / 16.).floor() as i32,
-            (center.z / 16.).floor() as i32,
-        );
-        cells.entry(key).or_default().extend_from_slice(tri);
+///
+/// The world is 2.5 million vertices (150 MB), so this works inside the one
+/// vector: it moves the triangles into cell order in place, then packs the
+/// unique vertices into its front and trims it, needing about 37 MB beside
+/// it. The browser build's memory never shrinks once grown.
+fn index_world_geometry(mut vertices: Vec<Vertex>) -> (Vec<Vertex>, Vec<u32>, Vec<WorldChunk>) {
+    let triangles = vertices.len() / 3;
+    vertices.truncate(triangles * 3);
+    // Each triangle's cell; sorted, the order the triangles go in (within
+    // a cell, their original order).
+    let mut order: Vec<((i32, i32), u32)> = vertices
+        .chunks_exact(3)
+        .enumerate()
+        .map(|(i, tri)| {
+            let center = tri.iter().map(|v| Vec3::from_array(v.pos)).sum::<Vec3>() / 3.;
+            let key = (
+                (center.x / 16.).floor() as i32,
+                (center.z / 16.).floor() as i32,
+            );
+            (key, i as u32)
+        })
+        .collect();
+    order.sort_unstable();
+    let cells: Vec<usize> = order.chunk_by(|a, b| a.0 == b.0).map(<[_]>::len).collect();
+    // Slot j takes triangle `from[j]`: follow each cycle of the permutation.
+    let mut from: Vec<u32> = order.into_iter().map(|(_, tri)| tri).collect();
+    const MOVED: u32 = u32::MAX;
+    let triangle = |v: &[Vertex], i: usize| -> [Vertex; 3] { [v[i * 3], v[i * 3 + 1], v[i * 3 + 2]] };
+    for start in 0..triangles {
+        if from[start] == MOVED {
+            continue;
+        }
+        let first = triangle(&vertices, start);
+        let mut slot = start;
+        loop {
+            let source = from[slot] as usize;
+            from[slot] = MOVED;
+            let moved = if source == start { first } else { triangle(&vertices, source) };
+            vertices[slot * 3..slot * 3 + 3].copy_from_slice(&moved);
+            if source == start {
+                break;
+            }
+            slot = source;
+        }
     }
-    let mut reordered = Vec::with_capacity(vertices.len());
+    drop(from);
+    // Pack the unique vertices into the front: the next one is never
+    // behind the one being read.
+    let mut indexer = VertexIndexer::new(vertices.len());
+    let mut indices = Vec::with_capacity(vertices.len());
     let mut chunks = Vec::with_capacity(cells.len());
-    for cell in cells.values() {
-        let low = cell
-            .iter()
-            .fold(Vec3::splat(f32::MAX), |a, v| a.min(Vec3::from_array(v.pos)));
-        let high = cell
-            .iter()
-            .fold(Vec3::splat(f32::MIN), |a, v| a.max(Vec3::from_array(v.pos)));
-        let start = reordered.len() as u32;
-        reordered.extend_from_slice(cell);
+    let mut unique = 0;
+    let mut read = 0;
+    for cell in cells {
+        let start = indices.len() as u32;
+        let mut low = Vec3::splat(f32::MAX);
+        let mut high = Vec3::splat(f32::MIN);
+        for _ in 0..cell * 3 {
+            let vertex = vertices[read];
+            read += 1;
+            let p = Vec3::from_array(vertex.pos);
+            low = low.min(p);
+            high = high.max(p);
+            let (index, new) = indexer.index(&vertex, &vertices[..unique]);
+            if new {
+                vertices[unique] = vertex;
+                unique += 1;
+            }
+            indices.push(index);
+        }
         chunks.push(WorldChunk {
-            indices: start..reordered.len() as u32,
+            indices: start..indices.len() as u32,
             center: (low + high) * 0.5,
             radius: (high - low).length() * 0.5 + 1.,
         });
     }
-    let (unique, indices) = index_enemy_geometry(&reordered);
-    (unique, indices, chunks)
+    vertices.truncate(unique);
+    vertices.shrink_to_fit();
+    (vertices, indices, chunks)
+}
+
+/// Fill a new GPU buffer in 8 MB pieces. In the browser each piece's staging
+/// copy is let go before the next (the page's memory never shrinks, and the
+/// world alone would need a 130 MB one); elsewhere it's the same as filling
+/// it at creation.
+async fn upload_in_pieces(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &str,
+    usage: wgpu::BufferUsages,
+    bytes: &[u8],
+) -> wgpu::Buffer {
+    const PIECE: usize = 8 << 20;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: bytes.len() as u64,
+        usage: usage | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    for (i, piece) in bytes.chunks(PIECE).enumerate() {
+        queue.write_buffer(&buffer, (i * PIECE) as u64, piece);
+        #[cfg(target_arch = "wasm32")]
+        {
+            queue.submit([]);
+            crate::web::next_task().await;
+            let _ = device.poll(wgpu::PollType::Poll);
+        }
+    }
+    buffer
 }
 
 #[cfg(test)]
@@ -269,7 +409,7 @@ mod model_tests {
         ] {
             mesh.cube(p, Vec3::new(30., 5., 2.), [0.2, 0.3, 0.4], 1.);
         }
-        let (unique, indices, chunks) = index_world_geometry(&mesh.vertices);
+        let (unique, indices, chunks) = index_world_geometry(mesh.vertices.clone());
         assert_eq!(indices.len(), mesh.vertices.len());
         let mut actual = Vec::new();
         for chunk in chunks {
@@ -284,6 +424,67 @@ mod model_tests {
         expected.sort_unstable();
         actual.sort_unstable();
         assert_eq!(actual, expected);
+    }
+
+    /// The indexing as it was before `VertexIndexer`: cells copied into a
+    /// map, then a map keyed by every vertex.
+    fn reference_index(vertices: &[Vertex]) -> (Vec<[u32; 15]>, Vec<u32>, Vec<std::ops::Range<u32>>) {
+        let mut cells = std::collections::BTreeMap::<(i32, i32), Vec<Vertex>>::new();
+        for tri in vertices.chunks_exact(3) {
+            let center = tri.iter().map(|v| Vec3::from_array(v.pos)).sum::<Vec3>() / 3.;
+            let key = ((center.x / 16.).floor() as i32, (center.z / 16.).floor() as i32);
+            cells.entry(key).or_default().extend_from_slice(tri);
+        }
+        let mut unique = Vec::new();
+        let mut indices = Vec::new();
+        let mut ranges = Vec::new();
+        let mut lookup = std::collections::HashMap::<[u32; 15], u32>::new();
+        for cell in cells.values() {
+            let start = indices.len() as u32;
+            for vertex in cell {
+                let key: [u32; 15] = bytemuck::cast(*vertex);
+                indices.push(*lookup.entry(key).or_insert_with(|| {
+                    unique.push(key);
+                    unique.len() as u32 - 1
+                }));
+            }
+            ranges.push(start..indices.len() as u32);
+        }
+        (unique, indices, ranges)
+    }
+
+    #[test]
+    fn world_indexing_matches_the_previous_indexing_exactly() {
+        let mesh = scene::world();
+        assert!(
+            mesh.vertices.len() <= scene::WORLD_VERTICES
+                && mesh.vertices.len() > scene::WORLD_VERTICES * 95 / 100,
+            "scene::WORLD_VERTICES should be a little above the world's {} vertices",
+            mesh.vertices.len()
+        );
+        let (expected_unique, expected_indices, expected_ranges) = reference_index(&mesh.vertices);
+        let (unique, indices, chunks) = index_world_geometry(mesh.vertices);
+        let unique: Vec<[u32; 15]> = unique.into_iter().map(bytemuck::cast).collect();
+        assert!(unique == expected_unique, "unique vertices differ");
+        assert!(indices == expected_indices, "indices differ");
+        let ranges: Vec<_> = chunks.iter().map(|c| c.indices.clone()).collect();
+        assert_eq!(ranges, expected_ranges);
+        let (enemy, _) = crate::enemy_assets::gpu_geometry();
+        let (unique, indices) = index_enemy_geometry(&enemy);
+        let unique: Vec<[u32; 15]> = unique.into_iter().map(bytemuck::cast).collect();
+        let mut lookup = std::collections::HashMap::<[u32; 15], u32>::new();
+        let mut expected_unique = Vec::new();
+        let expected_indices: Vec<u32> = enemy
+            .iter()
+            .map(|v| {
+                let key: [u32; 15] = bytemuck::cast(*v);
+                *lookup.entry(key).or_insert_with(|| {
+                    expected_unique.push(key);
+                    expected_unique.len() as u32 - 1
+                })
+            })
+            .collect();
+        assert!(unique == expected_unique && indices == expected_indices, "enemy indexing differs");
     }
 
     #[test]
@@ -449,13 +650,21 @@ impl Renderer {
             backends: wgpu::Backends::METAL | wgpu::Backends::VULKAN | wgpu::Backends::DX12,
             ..Default::default()
         });
-        // The browser: WebGPU where it's available, otherwise WebGL2.
+        // The browser: WebGPU where it's available, otherwise WebGL2, which
+        // the page can also ask for outright (`web::webgl_only`).
         #[cfg(target_arch = "wasm32")]
-        let instance = wgpu::util::new_instance_with_webgpu_detection(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
-            ..Default::default()
-        })
-        .await;
+        let instance = if crate::web::webgl_only() {
+            wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::GL,
+                ..Default::default()
+            })
+        } else {
+            wgpu::util::new_instance_with_webgpu_detection(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+                ..Default::default()
+            })
+            .await
+        };
         let surface = instance
             .create_surface(window.clone())
             .expect("create GPU surface");
@@ -542,6 +751,7 @@ impl Renderer {
         };
         surface.configure(&device, &config);
         crate::watchdog::milestone("surface configured");
+
         let offscreen_target = ((std::env::args()
             .any(|arg| arg == "--model-offscreen" || arg == "--world-offscreen")
             && std::env::args().any(|arg| arg == "--model-review" || arg == "--world-review"))
@@ -553,9 +763,11 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let pixels = image::load_from_memory(image_asset!("", "material-atlas"))
-            .expect("material atlas")
-            .to_rgba8();
+        let pixels = half_size_if_lite(
+            image::load_from_memory(image_asset!("", "material-atlas"))
+                .expect("material atlas")
+                .to_rgba8(),
+        );
         let levels = 32 - pixels.width().max(pixels.height()).leading_zeros();
         let mut mip_data = pixels.as_raw().clone();
         let mut mip = pixels.clone();
@@ -588,6 +800,7 @@ impl Renderer {
             &mip_data,
         );
         let material_view = texture.create_view(&Default::default());
+
         let material_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -596,9 +809,11 @@ impl Renderer {
             ..Default::default()
         });
         let weapon_texture = |label, bytes: &[u8], format| {
-            let pixels = image::load_from_memory(bytes)
-                .expect("embedded Blender material")
-                .to_rgba8();
+            let pixels = half_size_if_lite(
+                image::load_from_memory(bytes)
+                    .expect("embedded Blender material")
+                    .to_rgba8(),
+            );
             let levels = 32 - pixels.width().max(pixels.height()).leading_zeros();
             let mut mip = pixels.clone();
             let mut data = mip.as_raw().clone();
@@ -643,6 +858,7 @@ impl Renderer {
             image_asset!("weapons/", "weathered-surface"),
             wgpu::TextureFormat::Rgba8Unorm,
         );
+
         let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -860,15 +1076,19 @@ impl Renderer {
         let enemy_pipeline =
             make_pipeline("enemy_vs", "fs", &buffers, true, &enemy_pipeline_layout);
         let (enemy_vertices, enemy_ranges) = crate::enemy_assets::gpu_geometry();
+
         // The authoring format is an expanded triangle list. Deduplicate the
         // complete vertex (including rig group, normals and UV seams) once so
         // the GPU vertex cache can reuse expensive articulated transforms.
         let (enemy_unique, enemy_indices) = index_enemy_geometry(&enemy_vertices);
+        let expanded_enemies = enemy_vertices.len();
+        drop(enemy_vertices);
+
         println!(
             "Resident enemy geometry: {} triangles, {} unique vertices ({} expanded)",
             enemy_indices.len() / 3,
             enemy_unique.len(),
-            enemy_vertices.len()
+            expanded_enemies
         );
         let enemy_geometry = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Resident Blender enemy topology"),
@@ -1045,24 +1265,32 @@ impl Renderer {
             multiview: None,
             cache: None,
         });
-        let mesh = scene::world();
-        let (static_vertices, indices, static_chunks) = index_world_geometry(&mesh.vertices);
+        let (static_vertices, indices, static_chunks) = index_world_geometry(scene::world().vertices);
+
         println!(
             "World geometry: {} triangles, {} unique vertices in {} visibility chunks",
             indices.len() / 3,
             static_vertices.len(),
             static_chunks.len()
         );
-        let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Indexed expanded Mournhollow"),
-            contents: bytemuck::cast_slice(&static_vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let static_indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Expanded world triangle indices"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let static_buffer = upload_in_pieces(
+            &device,
+            &queue,
+            "Indexed expanded Mournhollow",
+            wgpu::BufferUsages::VERTEX,
+            bytemuck::cast_slice(&static_vertices),
+        )
+        .await;
+        drop(static_vertices);
+        let static_indices = upload_in_pieces(
+            &device,
+            &queue,
+            "Expanded world triangle indices",
+            wgpu::BufferUsages::INDEX,
+            bytemuck::cast_slice(&indices),
+        )
+        .await;
+        drop(indices);
         let dynamic_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Animated geometry"),
             size: 16 * 1024 * 1024,
@@ -1070,6 +1298,7 @@ impl Renderer {
             mapped_at_creation: false,
         });
         let egui = egui_wgpu::Renderer::new(&device, draw_format, None, 1, false);
+
         let gpu_timer = timestamps.then(|| GpuTimer {
             queries: device.create_query_set(&wgpu::QuerySetDescriptor {
                 label: Some("Pass timestamps"),
@@ -1159,6 +1388,9 @@ impl Renderer {
         }
     }
     pub fn register_previews(&mut self, ctx: &egui::Context) {
+        // One vertex buffer, refilled for each card and grown when needed:
+        // 136 buffers of their own came to 250 MB of GPU memory at once.
+        let mut vb: Option<wgpu::Buffer> = None;
         for kind in 0..=crate::weapons::WeaponKind::ALL.len() {
             for rarity in 0..4 {
                 let mut mesh = scene::Mesh::new();
@@ -1167,13 +1399,17 @@ impl Renderer {
                 } else {
                     scene::weapon(&mut mesh, crate::weapons::WeaponKind::ALL[kind], rarity);
                 }
-                let vb = self
-                    .device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                let bytes: &[u8] = bytemuck::cast_slice(&mesh.vertices);
+                if vb.as_ref().is_none_or(|b| b.size() < bytes.len() as u64) {
+                    vb = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("Weapon thumbnail"),
-                        contents: bytemuck::cast_slice(&mesh.vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+                        size: bytes.len() as u64,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    }));
+                }
+                let vb = vb.as_ref().unwrap();
+                self.queue.write_buffer(vb, 0, bytes);
                 let min = mesh
                     .vertices
                     .iter()
@@ -1244,9 +1480,12 @@ impl Renderer {
                         },
                     ],
                 });
+                // 136 of these at 512×384 in half floats are 200 MB of GPU
+                // memory; a phone or tablet draws the cards small anyway.
+                let (width, height) = if crate::lite() { (256, 192) } else { (512, 384) };
                 let size = wgpu::Extent3d {
-                    width: 512,
-                    height: 384,
+                    width,
+                    height,
                     depth_or_array_layers: 1,
                 };
                 let tex = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -1299,7 +1538,7 @@ impl Renderer {
                     });
                     pass.set_pipeline(&self.world);
                     pass.set_bind_group(0, &bind, &[]);
-                    pass.set_vertex_buffer(0, vb.slice(..));
+                    pass.set_vertex_buffer(0, vb.slice(..bytes.len() as u64));
                     pass.draw(0..mesh.vertices.len() as u32, 0..1);
                 }
                 self.queue.submit([encoder.finish()]);

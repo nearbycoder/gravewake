@@ -162,11 +162,11 @@ fn decay(t: f32, onset: f32, speed: f32) -> f32 {
 /// See assets/audio/SOURCES.md for source licenses and reproducible edits.
 pub fn synthesize(event: &str, variant: u32) -> Vec<f32> {
     let bytes: Option<&[u8]> = match event {
-        "shotgun" if variant % 2 == 0 => Some(include_bytes!("../assets/audio/shotgun-a.wav")),
-        "shotgun" => Some(include_bytes!("../assets/audio/shotgun-b.wav")),
-        "shot" => Some(include_bytes!("../assets/audio/pistol.wav")),
-        "shell_insert" => Some(include_bytes!("../assets/audio/shell-in.wav")),
-        "breech_close" | "rack_close" => Some(include_bytes!("../assets/audio/rack.wav")),
+        "shotgun" if variant % 2 == 0 => Some(asset_bytes!("../assets/audio/shotgun-a.wav")),
+        "shotgun" => Some(asset_bytes!("../assets/audio/shotgun-b.wav")),
+        "shot" => Some(asset_bytes!("../assets/audio/pistol.wav")),
+        "shell_insert" => Some(asset_bytes!("../assets/audio/shell-in.wav")),
+        "breech_close" | "rack_close" => Some(asset_bytes!("../assets/audio/rack.wav")),
         _ => None,
     };
     let Some(bytes) = bytes else {

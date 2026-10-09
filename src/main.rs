@@ -9,9 +9,38 @@ macro_rules! image_asset {
         #[cfg(not(target_arch = "wasm32"))]
         let bytes: &[u8] = include_bytes!(concat!("../assets/", $dir, $name, ".png"));
         #[cfg(target_arch = "wasm32")]
-        let bytes: &[u8] = include_bytes!(concat!("../assets/web/", $name, ".webp"));
+        let bytes: &[u8] = crate::web::asset(concat!("../assets/web/", $name, ".webp"));
         bytes
     }};
+}
+/// An embedded file, by its path from `src/`: in the executable on the
+/// desktop, and in the browser from the asset pack the page downloads beside
+/// the game (`web::asset`, `scripts/build-pages.sh`). Kept out of the
+/// WebAssembly module, these 56 MB don't pass through the browser's
+/// compiler, which held about 280 MB more for them in Safari's engine.
+macro_rules! asset_bytes {
+    ($path:literal) => {{
+        #[cfg(not(target_arch = "wasm32"))]
+        let bytes: &'static [u8] = include_bytes!($path);
+        #[cfg(target_arch = "wasm32")]
+        let bytes: &'static [u8] = crate::web::asset($path);
+        bytes
+    }};
+}
+/// Whether the browser has Pointer Lock; the desktop always can lock.
+fn web_pointer_lock() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return web::pointer_lock_supported();
+    #[cfg(not(target_arch = "wasm32"))]
+    true
+}
+/// The browser build on a phone or tablet (`web::lite`), which gets smaller
+/// art and starts at Low fidelity. Always false on the desktop.
+fn lite() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return web::lite();
+    #[cfg(not(target_arch = "wasm32"))]
+    false
 }
 mod anatomy;
 mod anatomy_review;
@@ -45,6 +74,7 @@ mod scene;
 mod survival;
 mod text_review;
 mod tips;
+mod touch;
 mod ui;
 mod watchdog;
 #[cfg(target_arch = "wasm32")]
@@ -133,6 +163,11 @@ struct App {
     frames: u32,
     stage: usize,
     stage_frames: u32,
+    /// On-screen controls; fed only by the browser build's touch events.
+    touch: touch::Touch,
+    /// The last touch event. Browsers also report a touch's movement as
+    /// mouse motion, which must neither turn the view nor count as a mouse.
+    touch_seen: Option<Instant>,
     /// The browser makes the renderer asynchronously; it lands here.
     #[cfg(target_arch = "wasm32")]
     pending_renderer: std::rc::Rc<std::cell::RefCell<Option<renderer::Renderer>>>,
@@ -264,12 +299,20 @@ impl App {
     fn new(smoke: bool, review: bool) -> Self {
         let ctx = egui::Context::default();
         ui::configure(&ctx);
+        #[allow(unused_mut)]
+        let mut game = Game::new(!smoke && !review);
+        // A phone or tablet with only a touchscreen starts with the on-screen
+        // controls; any key, click or controller press puts them away.
+        #[cfg(target_arch = "wasm32")]
+        if web::touch_first() {
+            game.device = controls::Device::Touch;
+        }
         Self {
             window: None,
             renderer: None,
             egui_state: None,
             ctx,
-            game: Game::new(!smoke && !review),
+            game,
             bones: scene::Bones::new(),
             audio: audio::Audio::new(),
             held: HashSet::new(),
@@ -369,6 +412,8 @@ impl App {
                 0
             },
             stage_frames: 0,
+            touch: Default::default(),
+            touch_seen: None,
             #[cfg(target_arch = "wasm32")]
             pending_renderer: Default::default(),
             #[cfg(target_arch = "wasm32")]
@@ -417,18 +462,29 @@ impl App {
             _ => {}
         }
     }
+    /// A finger is down, or was lifted a moment ago.
+    fn touching(&self) -> bool {
+        self.touch.active() || self.touch_seen.is_some_and(|t| t.elapsed().as_secs_f32() < 0.5)
+    }
     fn sync_cursor(&mut self) {
         let Some(w) = &self.window else { return };
         let captured = self.game.mode == Mode::Arena && !self.smoke && !self.review;
         if captured != self.captured {
             self.captured = captured;
             w.set_cursor_visible(!captured);
+            // Touch has no pointer to lock, and a phone's browser may have no
+            // Pointer Lock at all (calling it there throws).
+            let lockable = cfg!(not(target_arch = "wasm32")) || web_pointer_lock();
             if captured {
-                let _ = w
-                    .set_cursor_grab(CursorGrabMode::Locked)
-                    .or_else(|_| w.set_cursor_grab(CursorGrabMode::Confined));
+                if lockable && self.game.device != controls::Device::Touch {
+                    let _ = w
+                        .set_cursor_grab(CursorGrabMode::Locked)
+                        .or_else(|_| w.set_cursor_grab(CursorGrabMode::Confined));
+                }
             } else {
-                let _ = w.set_cursor_grab(CursorGrabMode::None);
+                if lockable {
+                    let _ = w.set_cursor_grab(CursorGrabMode::None);
+                }
                 self.held.clear();
                 self.game.input = Default::default();
             }
@@ -942,19 +998,94 @@ impl App {
     /// Browser upkeep before a frame: install the renderer once it's made,
     /// and pause if the browser released the pointer lock (Escape). Returns
     /// false until there is a renderer to draw with.
+    /// A touch on the browser's canvas: the on-screen controls take it in
+    /// the arena, and egui (which sees it too) treats it as a tap elsewhere.
+    #[cfg(target_arch = "wasm32")]
+    fn touch_event(&mut self, t: winit::event::Touch) {
+        use winit::event::TouchPhase;
+        self.touch_seen = Some(Instant::now());
+        if self.game.device != controls::Device::Touch {
+            self.game.device = controls::Device::Touch;
+            self.fire_held = false;
+            self.held.clear();
+        }
+        // Browsers start sound on a touch's release, not its start.
+        if t.phase == TouchPhase::Ended {
+            self.audio.resume();
+        }
+        let ppp = self.ctx.pixels_per_point();
+        let p = egui::pos2(t.location.x as f32 / ppp, t.location.y as f32 / ppp);
+        let phase = match t.phase {
+            TouchPhase::Started => touch::Phase::Started,
+            TouchPhase::Moved => touch::Phase::Moved,
+            TouchPhase::Ended | TouchPhase::Cancelled => touch::Phase::Ended,
+        };
+        let controls = self.game.mode == Mode::Arena && !self.game.settings;
+        self.touch.event(t.id, phase, p, controls);
+    }
+    /// Place the touch controls on the current screen, clear of the notch
+    /// and the home indicator.
+    #[cfg(target_arch = "wasm32")]
+    fn web_layout(&mut self) {
+        let Some(window) = &self.window else { return };
+        let css = window.inner_size().to_logical::<f32>(window.scale_factor());
+        let zoom = self.ctx.zoom_factor();
+        let screen = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(css.width, css.height) / zoom,
+        );
+        self.touch.layout = Some(touch::Layout::new(screen, web::safe_area().map(|v| v / zoom)));
+    }
     #[cfg(target_arch = "wasm32")]
     fn web_frame(&mut self) -> bool {
         if self.renderer.is_none() {
+            // The canvas has no size until the page lays it out, and the
+            // interface can't be drawn at 0×0 (its text scale breaks).
+            let size = self.window.as_ref().unwrap().inner_size();
+            if size.width == 0 || size.height == 0 {
+                self.window.as_ref().unwrap().request_redraw();
+                return false;
+            }
             let Some(mut renderer) = self.pending_renderer.borrow_mut().take() else {
                 return false;
             };
-            let size = self.window.as_ref().unwrap().inner_size();
             renderer.resize(size.width, size.height);
             renderer.register_previews(&self.ctx);
             web::graphics(&renderer.adapter_name);
             self.renderer = Some(renderer);
             self.last = Instant::now();
             web::ready();
+        }
+        self.web_layout();
+        // What the browser checks read back (`window.gravewake.game`).
+        if self.frames % 10 == 0 {
+            let run = &self.game.run;
+            // Where each touch button is, in CSS pixels.
+            let zoom = self.ctx.zoom_factor();
+            let buttons = self.touch.layout.map_or(String::new(), |layout| {
+                touch::Button::ALL
+                    .iter()
+                    .map(|&b| {
+                        let (p, r) = layout.button(b);
+                        format!(r#""{:?}":[{},{},{}]"#, b, p.x * zoom, p.y * zoom, r * zoom)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            });
+            web::report(&format!(
+                r#"{{"mode":"{:?}","device":"{:?}","controls":{},"yaw":{},"pitch":{},"x":{},"z":{},"ammo":{},"forward":{},"right":{},"reload":{},"zoom":{zoom},"buttons":{{{buttons}}}}}"#,
+                self.game.mode,
+                self.game.device,
+                self.game.device == controls::Device::Touch && self.game.mode == Mode::Arena,
+                run.yaw,
+                run.pitch,
+                run.pos.x,
+                run.pos.z,
+                run.ammo,
+                self.game.input.forward,
+                self.game.input.right,
+                self.game.reload,
+            ));
         }
         let locked = web::pointer_locked();
         if self.captured && self.pointer_locked && !locked && self.game.mode == Mode::Arena {
@@ -1227,15 +1358,24 @@ impl App {
         }
         if !self.smoke && !self.review {
             let pad = gamepad::arena(&pad_frame, &self.game.prefs.pad_bindings);
+            let arena_controls = self.game.mode == Mode::Arena
+                && !self.game.settings
+                && self.game.device == controls::Device::Touch;
+            let touch = if arena_controls {
+                self.touch.frame()
+            } else {
+                self.touch.release();
+                touch::Frame::default()
+            };
             let bindings = self.game.prefs.bindings;
             let down = |action| self.held.contains(&bindings.get(action).trigger);
             let axis = |positive, negative, stick: f32| {
                 (down(positive) as u8 as f32 - down(negative) as u8 as f32 + stick).clamp(-1., 1.)
             };
             use controls::Action;
-            self.game.input.forward = axis(Action::Forward, Action::Back, pad.forward);
-            self.game.input.right = axis(Action::Right, Action::Left, pad.right);
-            let sprint = down(Action::Sprint) || pad.sprint || self.sprint_pressed;
+            self.game.input.forward = axis(Action::Forward, Action::Back, pad.forward + touch.forward);
+            self.game.input.right = axis(Action::Right, Action::Left, pad.right + touch.right);
+            let sprint = down(Action::Sprint) || pad.sprint || self.sprint_pressed || touch.sprint;
             self.game.sprint_input(sprint);
             let menus =
                 self.game.mode != Mode::Arena || self.game.settings || self.game.confirm_new_run;
@@ -1249,7 +1389,8 @@ impl App {
                 }
             } else if menus {
                 let size = self.window.as_ref().unwrap().inner_size();
-                let scale = self.window.as_ref().unwrap().scale_factor() as f32;
+                // egui's points: the window's scale, times any zoom (`web_zoom`).
+                let scale = self.ctx.pixels_per_point();
                 let screen = egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
                     egui::vec2(size.width as f32, size.height as f32) / scale,
@@ -1281,30 +1422,36 @@ impl App {
                 }
             } else {
                 self.pad.cursor.hide();
-                self.game.input.fire = self.fire_held || pad.fire || self.fire_pressed;
+                self.game.input.fire = self.fire_held || pad.fire || self.fire_pressed || touch.fire;
                 let prefs = self.game.prefs;
-                let assist = if pad.look == glam::Vec2::ZERO {
+                let assist = if pad.look == glam::Vec2::ZERO && touch.look == egui::Vec2::ZERO {
                     1.
                 } else {
                     self.game.aim_assist()
                 };
+                // A drag turns as the mouse does, scaled by its sensitivity.
+                let drag = touch.look * assist * (prefs.sensitivity / game::Preferences::DEFAULT_SENSITIVITY);
+                self.game.run.yaw += drag.x;
+                self.game.run.pitch = (self.game.run.pitch
+                    + drag.y * if prefs.invert_y { -1. } else { 1. })
+                .clamp(-1.3, 1.3);
                 let (yaw, pitch) =
                     gamepad::look_turn(pad.look * assist, prefs.stick_speed, prefs.invert_y, dt);
                 self.game.run.yaw += yaw;
                 self.game.run.pitch = (self.game.run.pitch + pitch).clamp(-1.3, 1.3);
-                if pad.dodge {
+                if pad.dodge || touch.dodge {
                     self.game.dodge();
                 }
-                if pad.reload {
+                if pad.reload || touch.reload {
                     self.game.reload_weapon();
                 }
-                if pad.melee {
+                if pad.melee || touch.melee {
                     self.game.melee();
                 }
-                if pad.spell {
+                if pad.spell || touch.bolt {
                     self.game.fire(true);
                 }
-                if pad.pause {
+                if pad.pause || touch.pause {
                     self.escape();
                 }
             }
@@ -1713,6 +1860,12 @@ impl App {
             if let Some(pos) = self.pad.cursor.pos {
                 ui::pad_cursor(ctx, pos);
             }
+            if self.game.device == controls::Device::Touch
+                && self.game.mode == Mode::Arena
+                && !self.game.settings
+            {
+                ui::touch_controls(ctx, &self.touch);
+            }
         });
         state.handle_platform_output(window, out.platform_output.clone());
         // Menu buttons' ticks and clacks follow the sound volume.
@@ -1956,6 +2109,7 @@ impl ApplicationHandler for App {
                     println!("SMOKE: ignoring desktop pointer motion over the window");
                 }
             }
+            WindowEvent::CursorMoved { .. } if self.touching() => {}
             WindowEvent::CursorMoved { position, .. } => {
                 self.pad.cursor.hide();
                 let previous = self.last_pointer.replace(position);
@@ -1971,10 +2125,13 @@ impl ApplicationHandler for App {
                     self.sync_cursor();
                 }
                 self.held.clear();
+                self.touch.release();
                 self.sprint_pressed = false;
                 self.fire_pressed = false;
                 self.game.input = Default::default();
             }
+            #[cfg(target_arch = "wasm32")]
+            WindowEvent::Touch(t) => self.touch_event(t),
             WindowEvent::KeyboardInput { event, .. } if !self.smoke && !self.review => {
                 let PhysicalKey::Code(code) = event.physical_key else {
                     return;
@@ -2058,7 +2215,7 @@ impl ApplicationHandler for App {
                     // A browser only locks the pointer in answer to a click:
                     // ask again if an earlier request was refused.
                     #[cfg(target_arch = "wasm32")]
-                    if self.captured && !web::pointer_locked() {
+                    if self.captured && web::pointer_lock_supported() && !web::pointer_locked() {
                         if let Some(w) = &self.window {
                             let _ = w.set_cursor_grab(CursorGrabMode::Locked);
                         }
@@ -2085,7 +2242,7 @@ impl ApplicationHandler for App {
     }
     fn device_event(&mut self, _: &ActiveEventLoop, _: winit::event::DeviceId, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
-            if self.captured {
+            if self.captured && !self.touching() {
                 if delta.0.hypot(delta.1) > 1. {
                     self.game.device = controls::Device::Keyboard;
                 }

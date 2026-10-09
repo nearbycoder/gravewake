@@ -2,12 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Gravewake — The Hollow Tithe</title>
 <meta name="description" content="A first-person gothic arena roguelite, playable in your browser.">
 <link rel="icon" type="image/png" href="icon.png">
 <style>
-  html, body { margin: 0; height: 100%; background: #0b0807; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #0b0807; overflow: hidden; overscroll-behavior: none; }
+  /* A game, not a document: no selection, magnifier or long-press menus. */
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #safe { position: fixed; visibility: hidden; pointer-events: none;
+          padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   /* winit sizes the drawing buffer to the canvas's laid-out size. */
   #gravewake { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
   #veil {
@@ -26,35 +30,109 @@
            border: 1px solid #7a3326; padding: 14px 18px; white-space: pre-wrap; text-align: left; }
   #error button { margin-top: 12px; font: inherit; color: #0b0807; background: #e2bc77; border: 0; padding: 6px 16px; cursor: pointer; }
   #veil .note { font-size: 13px; color: #8f8576; max-width: min(520px, 90vw); }
+  /* Touch controls are laid out for a phone held sideways. */
+  #rotate { display: none; position: fixed; inset: 0; z-index: 2; flex-direction: column; align-items: center;
+            justify-content: center; gap: 14px; background: rgba(11, 8, 7, .92); color: #e7d3ad;
+            font: 18px/1.5 Georgia, "Times New Roman", serif; text-align: center; padding: 24px; }
+  #rotate .phone { width: 34px; height: 58px; border: 2px solid #e2bc77; border-radius: 7px;
+                   animation: turn 2.4s ease-in-out infinite; }
+  @keyframes turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) { body.touch.playing #rotate { display: flex; } }
+  /* Shown instead of loading after a load that never finished. */
+  #gate { display: none; max-width: min(520px, 88vw); flex-direction: column; align-items: center; gap: 12px; }
+  #gate p { margin: 0; }
+  #gate .lead { color: #e7d3ad; font-size: 18px; }
+  #gate .detail { color: #cfc7b4; font-size: 14px; }
+  #gate button { font: inherit; color: #e2bc77; background: none; border: 1px solid #7a5a3a; padding: 8px 20px; cursor: pointer; margin-top: 6px; }
+  #veil.gated #gate { display: flex; }
+  #veil.gated #bar, #veil.gated #status, #veil.gated .note { display: none; }
 </style>
 </head>
 <body>
 <canvas id="gravewake" tabindex="0"></canvas>
+<div id="safe"></div>
+<div id="rotate"><div class="phone"></div>Turn your phone sideways to play.</div>
 <div id="veil">
   <h1>GRAVEWAKE</h1>
   <div class="sub">THE HOLLOW TITHE</div>
   <div id="bar"><div id="fill"></div></div>
   <div id="status">Starting…</div>
   <div id="error"></div>
-  <div class="note">Mouse and keyboard or a controller. Sound starts with your first click or key; Esc pauses. Progress is saved in this browser.</div>
+  <div id="gate">
+    <p class="lead" id="gate-lead"></p>
+    <p class="detail" id="gate-detail"></p>
+    <button id="load-anyway" type="button">Try again</button>
+  </div>
+  <div class="note" id="note">Mouse and keyboard or a controller. Sound starts with your first click or key; Esc pauses. Progress is saved in this browser.</div>
 </div>
 <script type="module">
 // Filled in by scripts/build-pages.sh.
-const BUILD = { wasm: "__WASM__", bytes: __WASM_BYTES__, version: "__VERSION__" };
+const BUILD = { wasm: "__WASM__", assets: "__ASSETS__", bytes: __WASM_BYTES__ + __ASSET_BYTES__, version: "__VERSION__" };
 const veil = document.getElementById("veil");
 const fill = document.getElementById("fill");
 const statusLine = document.getElementById("status");
 const errorBox = document.getElementById("error");
 const canvas = document.getElementById("gravewake");
-const started = performance.now();
-// Read by scripts/check-pages.mjs and the browser tests.
-window.gravewake = { state: "loading", error: null, loadMs: null, downloaded: 0, bytes: BUILD.bytes, version: BUILD.version };
+let started = performance.now();
+const params = new URLSearchParams(location.search);
+const ua = navigator.userAgent;
+// Every iOS browser is WebKit; iPadOS also presents itself as a Mac.
+const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+const finePointer = matchMedia("(any-pointer: fine)");
+const touchOnly = () => matchMedia("(pointer: coarse)").matches && !finePointer.matches;
+// A phone or tablet gets the lighter start (Low fidelity, smaller art), and
+// on iOS WebGL2 rather than WebGPU; `?lite` and `?full` override the guess.
+const lite = params.has("full") ? false : params.has("lite") || ios || touchOnly() || /Android|Mobi/i.test(ua);
+// Read by the game (src/web.rs), scripts/check-pages.mjs and the browser tests.
+// `touch`: start with the on-screen controls; `safe`: the safe-area insets.
+window.gravewake = {
+  state: "loading", error: null, loadMs: null, downloaded: 0, bytes: BUILD.bytes, version: BUILD.version,
+  lite, webgl: params.has("webgl") || (lite && ios), touch: touchOnly(), safe: [0, 0, 0, 0],
+};
+// The safe-area insets (notch, home indicator), for the touch controls.
+const safeProbe = document.getElementById("safe");
+function measureSafeArea() {
+  const style = getComputedStyle(safeProbe);
+  window.gravewake.safe = ["Top", "Right", "Bottom", "Left"].map((side) => parseFloat(style["padding" + side]) || 0);
+}
+measureSafeArea();
+addEventListener("resize", measureSafeArea);
+addEventListener("orientationchange", () => setTimeout(measureSafeArea, 300));
+// Whether touch is the input in use, as the game itself decides it: a touch
+// shows the controls (and, held upright, asks to turn the phone); a key,
+// mouse or controller hides them.
+const touchMode = (on) => document.body.classList.toggle("touch", on);
+touchMode(window.gravewake.touch);
+addEventListener("pointerdown", (e) => touchMode(e.pointerType === "touch"), true);
+addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" && (e.movementX || e.movementY)) touchMode(false); }, true);
+addEventListener("keydown", () => touchMode(false), true);
+addEventListener("gamepadconnected", () => touchMode(false));
+// Safari's pinch and double-tap zoom ignore the viewport tag.
+for (const name of ["gesturestart", "gesturechange", "dblclick"]) {
+  document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
+}
+if (window.gravewake.touch) {
+  document.getElementById("note").textContent = "Touch controls: the left thumb moves (push to the rim to sprint), drag on the right to look, and the buttons fire, reload, dodge, strike, cast and pause. A controller or keyboard and mouse work too. Progress is saved in this browser.";
+}
+// Set while the game loads and cleared when it draws: still set on the next
+// visit means that load never finished, which on a phone is usually the
+// browser closing the tab for memory.
+const LOADING_KEY = "gravewake-page/loading";
+const remember = (key, value) => {
+  try { value == null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch (_) { /* private mode */ }
+};
+const recall = (key) => { try { return localStorage.getItem(key); } catch (_) { return null; } };
 
 function fail(message) {
   if (window.gravewake.state === "failed") return;
+  remember(LOADING_KEY, null);
+  if (lite) {
+    message += "\n\nGravewake is a large game for a computer; this phone or tablet may not have the memory or graphics it needs.";
+  }
   window.gravewake.state = "failed";
   window.gravewake.error = String(message);
-  veil.classList.remove("gone");
+  veil.classList.remove("gone", "gated");
+  document.body.classList.remove("playing");
   statusLine.textContent = "Gravewake could not start.";
   errorBox.style.display = "block";
   errorBox.textContent = String(message);
@@ -67,7 +145,10 @@ function fail(message) {
 window.gravewakeStatus = (text) => { if (window.gravewake.state === "loading") statusLine.textContent = text + "…"; };
 window.gravewakeFail = (message) => fail(message);
 window.gravewakeGraphics = (name) => { window.gravewake.graphics = name; };
+window.gravewakeReport = (json) => { window.gravewake.game = JSON.parse(json); };
 window.gravewakeReady = () => {
+  remember(LOADING_KEY, null);
+  document.body.classList.add("playing");
   window.gravewake.state = "ready";
   window.gravewake.loadMs = Math.round(performance.now() - started);
   veil.classList.add("gone");
@@ -76,16 +157,44 @@ window.gravewakeReady = () => {
 window.addEventListener("error", (e) => {
   if (window.gravewake.state === "loading") fail(e.message || "The game stopped while loading.");
 });
+window.addEventListener("unhandledrejection", (e) => {
+  if (window.gravewake.state === "loading") fail((e.reason && e.reason.message) || String(e.reason));
+});
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+// The browser can take WebGL away (often for memory); the game can't draw again.
+canvas.addEventListener("webglcontextlost", () => {
+  fail("The browser took the graphics away from the game (the WebGL context was lost), usually because it needed the memory. Reload to try again.");
+});
 
 async function graphicsAvailable() {
   try {
-    if (navigator.gpu && await navigator.gpu.requestAdapter()) return true;
+    if (!window.gravewake.webgl && navigator.gpu && await navigator.gpu.requestAdapter()) return true;
   } catch (_) { /* fall through to WebGL2 */ }
   return !!document.createElement("canvas").getContext("webgl2");
 }
 
+// Before downloading anything: a load that never finished last time
+// probably ran out of memory (a phone closes such a tab without a word), so
+// say so and offer to try again rather than crash the tab once more.
+function gate() {
+  if (!recall(LOADING_KEY) || params.has("play")) return start();
+  window.gravewake.state = "gated";
+  veil.classList.add("gated");
+  document.getElementById("gate-lead").textContent = "Gravewake didn't finish loading last time.";
+  document.getElementById("gate-detail").textContent =
+    "If the tab closed or showed an error, this device probably ran out of memory for it. "
+    + `It's a ${(BUILD.bytes / 1048576).toFixed(0)} MB download and needs a lot of memory`
+    + (lite ? "; on this device it loads at Low fidelity with smaller textures." : ".");
+  document.getElementById("load-anyway").addEventListener("click", () => {
+    veil.classList.remove("gated");
+    started = performance.now();
+    start();
+  }, { once: true });
+}
+
 async function start() {
+  window.gravewake.state = "loading";
+  remember(LOADING_KEY, String(Date.now()));
   if (typeof WebAssembly !== "object") {
     return fail("This browser can't run WebAssembly, which Gravewake needs.");
   }
@@ -96,44 +205,49 @@ async function start() {
     return fail("This browser offers neither WebGPU nor WebGL2, so Gravewake can't draw.\nTry a current Chrome, Edge or Firefox, and check that hardware acceleration is switched on.");
   }
   statusLine.textContent = "Downloading the game…";
-  let response;
-  try {
-    response = await fetch(BUILD.wasm);
-  } catch (e) {
-    return fail("The game couldn't be downloaded: " + e.message);
-  }
-  if (!response.ok || !response.body) {
-    return fail(`The game couldn't be downloaded (HTTP ${response.status} for ${BUILD.wasm}).`);
-  }
   const mb = (n) => (n / 1048576).toFixed(1);
   let loaded = 0;
-  const progress = new TransformStream({
-    transform(chunk, controller) {
-      loaded += chunk.byteLength;
-      window.gravewake.downloaded = loaded;
-      fill.style.width = Math.min(100, loaded / BUILD.bytes * 100) + "%";
-      statusLine.textContent = loaded < BUILD.bytes
-        ? `Downloading the game… ${mb(loaded)} of ${mb(BUILD.bytes)} MB`
-        : "Starting the game…";
-      controller.enqueue(chunk);
-    },
-  });
-  // The file is gzipped at build time and unpacked by the browser itself,
-  // since GitHub Pages can't be told to send it with Content-Encoding.
-  const wasm = new Response(
-    response.body.pipeThrough(progress).pipeThrough(new DecompressionStream("gzip")),
-    { headers: { "Content-Type": "application/wasm" } },
-  );
+  // Both files are gzipped at build time and unpacked by the browser itself,
+  // since GitHub Pages can't be told to send them with Content-Encoding.
+  const download = async (url) => {
+    let response;
+    try {
+      response = await fetch(url);
+    } catch (e) {
+      throw new Error("The game couldn't be downloaded: " + e.message);
+    }
+    if (!response.ok || !response.body) {
+      throw new Error(`The game couldn't be downloaded (HTTP ${response.status} for ${url}).`);
+    }
+    const progress = new TransformStream({
+      transform(chunk, controller) {
+        loaded += chunk.byteLength;
+        window.gravewake.downloaded = loaded;
+        fill.style.width = Math.min(100, loaded / BUILD.bytes * 100) + "%";
+        statusLine.textContent = loaded < BUILD.bytes
+          ? `Downloading the game… ${mb(loaded)} of ${mb(BUILD.bytes)} MB`
+          : "Starting the game…";
+        controller.enqueue(chunk);
+      },
+    });
+    return response.body.pipeThrough(progress).pipeThrough(new DecompressionStream("gzip"));
+  };
   try {
+    // The module compiles as it arrives while the asset pack downloads; the
+    // game reads the pack from `window.gravewakeAssets` (src/web.rs).
+    const module = download(BUILD.wasm).then((body) =>
+      WebAssembly.compileStreaming(new Response(body, { headers: { "Content-Type": "application/wasm" } })));
+    const assets = download(BUILD.assets).then((body) => new Response(body).arrayBuffer());
+    window.gravewakeAssets = new Uint8Array(await assets);
     const { default: init } = await import("./gravewake.js");
-    await init({ module_or_path: wasm });
+    await init({ module_or_path: await module });
   } catch (e) {
     // winit hands control to the browser by throwing; that isn't a failure.
     if (String(e).includes("Using exceptions for control flow")) return;
-    return fail("The game failed to start: " + (e && e.message || e));
+    return fail(/couldn't be downloaded/.test(e && e.message) ? e.message : "The game failed to start: " + (e && e.message || e));
   }
 }
-start();
+gate();
 </script>
 </body>
 </html>

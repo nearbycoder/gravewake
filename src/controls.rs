@@ -73,6 +73,9 @@ pub enum Device {
     #[default]
     Keyboard,
     Controller,
+    /// The browser build's on-screen controls (`touch.rs`).
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    Touch,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

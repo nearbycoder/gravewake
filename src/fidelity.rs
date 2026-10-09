@@ -62,6 +62,15 @@ impl Fidelity {
     } else {
         Fidelity::High
     };
+    /// The step a new player starts at: `DEFAULT`, or Low in the browser on
+    /// a phone or tablet (`crate::lite`).
+    pub fn for_new_player() -> Fidelity {
+        if crate::lite() {
+            Fidelity::Low
+        } else {
+            Self::DEFAULT
+        }
+    }
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|f| *f == self).unwrap()
     }

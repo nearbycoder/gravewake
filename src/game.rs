@@ -590,7 +590,7 @@ where
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            sensitivity: 0.0025,
+            sensitivity: Self::DEFAULT_SENSITIVITY,
             volume: 0.4,
             music_volume: 0.5,
             fov: 70.,
@@ -609,11 +609,12 @@ impl Default for Preferences {
             reticle_size: 1.,
             reticle_color: ReticleColor::Ivory,
             window_size: None,
-            fidelity: crate::fidelity::Fidelity::DEFAULT,
+            fidelity: crate::fidelity::Fidelity::for_new_player(),
         }
     }
 }
 impl Preferences {
+    pub const DEFAULT_SENSITIVITY: f32 = 0.0025;
     pub const FOV_RANGE: (f32, f32) = (60., 90.);
     pub const SENSITIVITY_RANGE: (f32, f32) = (0.0007, 0.007);
     pub const STICK_SPEED_RANGE: (f32, f32) = (0.5, 2.);
@@ -1344,12 +1345,23 @@ impl Game {
             (Device::Keyboard, _) => self.prefs.bindings.label(action),
             (Device::Controller, Some(pad)) => self.prefs.pad_bindings.label(pad).into(),
             (Device::Controller, None) => "LEFT STICK".into(),
+            (Device::Touch, _) => match action {
+                Action::Fire => "FIRE",
+                Action::Reload => "RELOAD",
+                Action::Dodge => "DODGE",
+                Action::Melee => "MELEE",
+                Action::Bolt => "BOLT",
+                Action::Sprint => "STICK RIM",
+                Action::Forward | Action::Back | Action::Left | Action::Right => "LEFT THUMB",
+            }
+            .into(),
         }
     }
     pub fn movement_prompt(&self) -> String {
         match self.device {
             Device::Keyboard => self.prefs.bindings.movement_label(),
             Device::Controller => "LEFT STICK".into(),
+            Device::Touch => "LEFT THUMB".into(),
         }
     }
     /// Escape, or Start on a controller, pauses and goes back.
@@ -1357,6 +1369,7 @@ impl Game {
         match self.device {
             Device::Keyboard => "Escape",
             Device::Controller => "Start",
+            Device::Touch => "II",
         }
     }
     /// The fire binding, short: "LMB" for the left mouse button, as before

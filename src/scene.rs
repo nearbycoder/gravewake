@@ -339,10 +339,16 @@ fn bank_height(x: f32, z: f32) -> f32 {
         + smooth(20., 1.7)
 }
 
+/// About how many vertices `world` makes (2,459,343 today), reserved up
+/// front: letting a Vec this size double its way up briefly holds the old
+/// and new storage, about 380 MB, and the browser build's memory never
+/// shrinks once it has grown. A test keeps the estimate close.
+pub const WORLD_VERTICES: usize = 2_500_000;
 pub fn world() -> Mesh {
     use crate::architecture_assets::{self as architecture, Asset as Landmark};
     use crate::environment_assets::{self as environment, Asset};
     let mut m = Mesh::new();
+    m.vertices.reserve_exact(WORLD_VERTICES);
     m.cube(
         Vec3::new(0., -0.25, 0.),
         Vec3::new(156., 0.4, 156.),

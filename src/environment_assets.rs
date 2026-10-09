@@ -44,14 +44,14 @@ fn assets() -> &'static [Vec<AssetVertex>; 8] {
     static ASSETS: OnceLock<[Vec<AssetVertex>; 8]> = OnceLock::new();
     ASSETS.get_or_init(|| {
         [
-            decode(include_bytes!("../assets/environment/spruce-0.gwe")),
-            decode(include_bytes!("../assets/environment/spruce-1.gwe")),
-            decode(include_bytes!("../assets/environment/spruce-2.gwe")),
-            decode(include_bytes!("../assets/environment/spruce-near.gwe")),
-            decode(include_bytes!("../assets/environment/grave-0.gwe")),
-            decode(include_bytes!("../assets/environment/grave-1.gwe")),
-            decode(include_bytes!("../assets/environment/grave-2.gwe")),
-            decode(include_bytes!("../assets/environment/brazier.gwe")),
+            decode(asset_bytes!("../assets/environment/spruce-0.gwe")),
+            decode(asset_bytes!("../assets/environment/spruce-1.gwe")),
+            decode(asset_bytes!("../assets/environment/spruce-2.gwe")),
+            decode(asset_bytes!("../assets/environment/spruce-near.gwe")),
+            decode(asset_bytes!("../assets/environment/grave-0.gwe")),
+            decode(asset_bytes!("../assets/environment/grave-1.gwe")),
+            decode(asset_bytes!("../assets/environment/grave-2.gwe")),
+            decode(asset_bytes!("../assets/environment/brazier.gwe")),
         ]
     })
 }

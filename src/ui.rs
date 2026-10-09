@@ -30,7 +30,7 @@ pub fn configure(ctx: &egui::Context) {
     let fallback = fonts.families[&FontFamily::Proportional].clone();
     fonts.font_data.insert(
         "gravewake".into(),
-        egui::FontData::from_static(include_bytes!(
+        egui::FontData::from_static(asset_bytes!(
             "../assets/fonts/GravewakeGothic-Regular.ttf"
         ))
         .into(),
@@ -55,10 +55,17 @@ pub fn configure(ctx: &egui::Context) {
         ("card_back", image_asset!("", "card-back")),
         ("brand_emblem", image_asset!("", "gravewake-emblem")),
     ] {
-        let image = image::load_from_memory(bytes)
-            .expect("embedded art")
-            .thumbnail(2048, 2048)
-            .to_rgba8();
+        let image = image::load_from_memory(bytes).expect("embedded art");
+        // On a phone or tablet the art is drawn small: at most 1024 pixels,
+        // and never enlarged (`thumbnail` would scale a smaller image up).
+        let image = if !crate::lite() {
+            image.thumbnail(2048, 2048)
+        } else if image.width().max(image.height()) > 1024 {
+            image.thumbnail(1024, 1024)
+        } else {
+            image
+        }
+        .to_rgba8();
         let size = [image.width() as usize, image.height() as usize];
         let texture = ctx.load_texture(
             name,
@@ -2794,6 +2801,7 @@ fn hud(base: &Canvas, g: &mut Game, vp: Mat4) {
             Device::Keyboard if g.fire_prompt() == "LMB" => ("Mouse".into(), "Esc"),
             Device::Keyboard => (g.fire_prompt(), "Esc"),
             Device::Controller => (g.fire_prompt(), "Start"),
+            Device::Touch => (g.fire_prompt(), "II"),
         };
         c.hud_panel(338., y + 20., 764., 35.);
         c.center(
@@ -3246,6 +3254,7 @@ fn level_up(c: &Canvas, g: &mut Game) {
         match g.device {
             Device::Keyboard => "PRESS 1, 2 OR 3 TO BIND A POWER",
             Device::Controller => "PRESS D-PAD LEFT, UP OR RIGHT TO BIND A POWER",
+            Device::Touch => "TAP BIND THIS POWER TO CHOOSE",
         },
         11.,
         MUTED,
@@ -3415,6 +3424,48 @@ pub fn pad_cursor(ctx: &egui::Context, pos: Pos2) {
     p.circle_stroke(pos, 11., Stroke::new(4.5, C::from_black_alpha(170)));
     p.circle_stroke(pos, 11., Stroke::new(2., GOLD));
     p.circle_filled(pos, 2.5, IVORY);
+}
+/// The on-screen touch controls (`touch.rs`) over the arena: dark discs
+/// with brass rims and house-font labels, lit while pressed, and the stick
+/// where the thumb rests (a faint ring shows where it can go).
+pub fn touch_controls(ctx: &egui::Context, touch: &crate::touch::Touch) {
+    use crate::touch::{Button, STICK_RADIUS};
+    let Some(layout) = touch.layout else { return };
+    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::new("touch_controls")));
+    let font = |size: f32| egui::FontId::new(size, FontFamily::Name("gravewake".into()));
+    for button in Button::ALL {
+        let (centre, radius) = layout.button(button);
+        let held = touch.held(button);
+        p.circle_filled(
+            centre,
+            radius,
+            if held { RED.gamma_multiply(0.85) } else { C::from_black_alpha(105) },
+        );
+        p.circle_stroke(centre, radius, Stroke::new(1.5, GOLD.gamma_multiply(if held { 1. } else { 0.7 })));
+        let size = match button {
+            Button::Fire => 16.,
+            Button::Pause => 14.,
+            _ => 10.5,
+        };
+        p.text(centre, Align2::CENTER_CENTER, button.label(), font(size), IVORY.gamma_multiply(0.9));
+    }
+    match touch.stick() {
+        Some((origin, knob)) => {
+            p.circle_filled(origin, STICK_RADIUS, C::from_black_alpha(70));
+            p.circle_stroke(origin, STICK_RADIUS, Stroke::new(1.5, GOLD.gamma_multiply(0.6)));
+            p.circle_filled(knob, 26., C::from_black_alpha(140));
+            p.circle_stroke(knob, 26., Stroke::new(2., GOLD));
+        }
+        None => {
+            let [_, _, bottom, left] = layout.insets;
+            let hint = egui::pos2(
+                layout.screen.min.x + left + 24. + STICK_RADIUS,
+                layout.screen.max.y - bottom - 24. - STICK_RADIUS,
+            );
+            p.circle_stroke(hint, STICK_RADIUS, Stroke::new(1.5, GOLD.gamma_multiply(0.3)));
+            p.text(hint, Align2::CENTER_CENTER, "MOVE", font(10.5), IVORY.gamma_multiply(0.45));
+        }
+    }
 }
 /// A screen, as far as transitions go: the mode, and whether the journal or
 /// the new-run dialog is open over it.
