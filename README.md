@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/media/hero.jpg" alt="Gravewake — The Hollow Tithe, the bell above a haunted cemetery" width="100%"></p>
+<p align="center"><img src="docs/media/hero.jpg" alt="Gravewake — The Hollow Tithe title screen: the bell emblem over a moonlit cemetery at Ultra fidelity" width="100%"></p>
 
 # Gravewake — The Hollow Tithe
 
@@ -6,30 +6,35 @@
 
 A first-person gothic arena roguelite built in Rust. Fight through a ruined cemetery, tear open weapon packs at the Collector’s table, and turn the souls of the dead into a build that can survive the next descent.
 
-**33 weapons · 12 enemy archetypes · 10 soul powers · 12 descents, then endless survival**
+**33 weapons · 12 creature types · 10 soul powers · 12 descents, then endless survival**
 
 ## Gameplay trailer
 
-https://github.com/user-attachments/assets/62d76819-113a-4027-846c-11784dbf16fa
+<p align="center"><a href="docs/media/gravewake-trailer.mp4"><img src="docs/media/trailer-poster.jpg" alt="Gravewake title screen with a Watch the gameplay trailer button" width="100%"></a></p>
 
-[Watch / download the full 42-second trailer](https://github.com/nearbycoder/gravewake/raw/refs/heads/main/docs/media/gravewake-trailer.mp4) · [Screenshot gallery](#inside-mournhollow) · [Build and play](#build-and-play)
+[Watch the 45-second trailer](docs/media/gravewake-trailer.mp4) ([download](https://github.com/nearbycoder/gravewake/raw/refs/heads/main/docs/media/gravewake-trailer.mp4), 1080p, 25 MB) · [Screenshots](#inside-mournhollow) · [Build and play](#build-and-play)
 
-The 42-second trailer above was captured from the native game with in-game sound. The trailer edits together staged gameplay encounters, actual pack interactions, reloads, physics, and armory views. No reference-game footage or prerendered combat is used.
+Every frame of the trailer is the game itself, recorded at the **Ultra** fidelity step on Linux: combat against mixed creatures, brazier fire and shadows, a break-open reload, location damage and fracturing remains, a pack torn open through the real menus, the Collector's preview of the next descent, a level-up, a first-sighting note, the pause ledger, the Display page, the death recap and the title's chronicle. The sound is the game's own effects, menu sounds, ambience and adaptive score, with no narration. Encounters are staged, scripted review runs rather than one continuous playthrough; the captions and the opening and closing cards are added in the edit. [How it's made](docs/TRAILER.md).
 
 ## Answer the bell
 
-- **Survive Mournhollow.** Move, sprint and dodge through a 96 × 96 metre arena connecting a ruined chapel, cloister, bell sanctuary, grave orchard and open court. Ground hunters, flying creatures, summoners and bosses pressure different parts of your build.
+- **Survive Mournhollow.** Move, sprint and dodge through a 96 × 96 metre arena joining the Mourning Court, the Ruined Chapel, the Sunken Cloister, the Bell Sanctuary and the Ash Orchard. Ground hunters, flying creatures, summoners and the Tithekeeper press different parts of your build.
 - **Make every shot count.** Head and limb hits have different consequences. Severed arms weaken attacks, injured legs cause limping or crawling, and articulated ragdolls and fractured remains react to later impacts.
 - **Find your weapon.** Six families span revolvers, scatterguns, automatic weapons, grenade launchers, occult implements and melee. Burn, frost, venom, piercing, chain lightning and life drain change how you fight. [Browse all 33 weapons.](ARMORY.md)
-- **Visit the Collector.** Spend earned gold on equipment and supplies. Tear a pack, reveal three cards, then choose one to equip; each card names its trait (burn, venom and so on) and how far one attack reaches (a splash's radius, how many creatures a shot pierces or a chain jumps to, a swing's arc), and estimates its damage per second against one creature, compared with the weapon you're holding. Four rarities and individual upgrade paths give each weapon room to grow. Under the button to leave, the table tells you what waits below: how many creatures, whether the Tithekeeper is there, and which kinds of creature you'll meet for the first time.
-- **Harvest souls.** Every kill drops experience. Level up to choose powers such as orbiting blades, lightning, frost pulses and stronger pickups. Clear twelve descents, face the Tithekeeper, then continue into endless survival. Every run draws its own seed and shuffles each descent's creatures, and the title keeps your deepest descent, most souls and fastest victory, with a chronicle of your last five runs: how each ended, how deep it went, its time, souls, soul level and weapon. When a run ends, the ending screen names the blow that killed you and the creature that hurt you most, and sums up the run: souls, headshots, damage dealt and taken, soul level and power ranks.
+- **Visit the Collector.** Spend gold on equipment and supplies. Tear a pack, reveal three cards and keep one. Each card names its trait (burn, venom and so on), how far one attack reaches (a splash's radius, how many creatures a shot pierces or a chain jumps to, a swing's arc), and its estimated damage per second against one creature compared with the weapon you hold. Four rarities and upgrade paths give each weapon room to grow. Beside the way out, the table tells you what waits below: how many creatures, whether the Tithekeeper is there, and which creatures you'll meet for the first time.
+- **Harvest souls.** Every kill drops experience. Level up to choose powers such as orbiting blades, lightning, frost pulses and stronger pickups; combat waits while you choose. Clear twelve descents, face the Tithekeeper, then carry on into endless survival.
+- **Every run is new, and remembered.** Each run draws its own seed and shuffles each descent's creatures. The ending screen names the blow that killed you and the creature that hurt you most and sums up the run. The title keeps your deepest descent, most souls and fastest victory, and a chronicle of your last five runs.
 
 ## Inside Mournhollow
 
 <table>
 <tr>
-<td width="50%"><img src="docs/media/combat.jpg" alt="First-person combat against a mixed group of undead"><br><b>Hold the line.</b> Flying and ground enemies close in while powers and gunfire cut through the crowd.</td>
-<td width="50%"><img src="docs/media/packs.jpg" alt="Three revealed weapon cards on the Collector's table"><br><b>Three cards. One choice.</b> Open packs and equip the weapon that fits your next descent.</td>
+<td width="50%"><img src="docs/media/combat.jpg" alt="First-person combat against the Tithekeeper and a mixed crowd of undead, with a headshot marker"><br><b>Hold the line.</b> Flying and ground creatures close in while powers and gunfire cut through the crowd.</td>
+<td width="50%"><img src="docs/media/packs.jpg" alt="Three revealed weapon cards on the Collector's table, each with its reach and damage estimate"><br><b>Three cards. One choice.</b> Each card shows its reach and how it compares with the weapon you hold.</td>
+</tr>
+<tr>
+<td><img src="docs/media/collector.jpg" alt="The Collector's table offering a weapon draw, a legendary weapon and the Hollow Chalice, with the next descent previewed"><br><b>Know what waits below.</b> The Collector previews the next descent: its size, its returning boss and its new creatures.</td>
+<td><img src="docs/media/powers.jpg" alt="Three soul powers offered during a level-up over the blurred arena"><br><b>Build a pact.</b> Combat pauses behind a blurred veil while you choose the next soul power.</td>
 </tr>
 <tr>
 <td><img src="docs/media/shotgun.jpg" alt="Double shotgun in the armory with its damage and reload statistics"><br><b>Worn iron and black powder.</b> Inspect weapons and try them in the practice grounds.</td>
@@ -37,24 +42,100 @@ The 42-second trailer above was captured from the native game with in-game sound
 </tr>
 <tr>
 <td><img src="docs/media/occult.jpg" alt="Ember Staff occult weapon card"><br><b>Bind something stranger.</b> Fire, frost, lightning, poison and stolen life.</td>
-<td><img src="docs/media/bestiary.jpg" alt="Gloamwing flying enemy in the bestiary"><br><b>Know what hunts you.</b> Twelve creature types, each with its own silhouette and behavior.</td>
+<td><img src="docs/media/bestiary.jpg" alt="Gloamwing flying creature in the bestiary"><br><b>Know what hunts you.</b> Twelve creature types, each with its own silhouette and behaviour.</td>
 </tr>
 <tr>
-<td><img src="docs/media/powers.jpg" alt="Three soul powers offered during a level up"><br><b>Build a pact.</b> Combat pauses while you choose the next soul power.</td>
-<td><img src="docs/media/binding.jpg" alt="The Binding upgrade paths for a weapon card"><br><b>Strengthen your favorite.</b> Invest in damage, speed and mana, then unlock Soul Siphon.</td>
+<td><img src="docs/media/binding.jpg" alt="The Binding upgrade paths for a weapon card"><br><b>Strengthen your favourite.</b> Invest in damage, speed and mana, then unlock Soul Siphon.</td>
+<td><img src="docs/media/pause-ledger.jpg" alt="Pause menu with the run so far on the left and every bound power on the right"><br><b>Take stock.</b> The pause ledger shows the run so far and what every power you hold does at its rank.</td>
+</tr>
+<tr>
+<td><img src="docs/media/display.jpg" alt="The journal's Display page with Graphics fidelity set to Ultra"><br><b>Set the look.</b> Four fidelity steps, Hollowlight strength, frame limit, VSync and HUD size on the Display page.</td>
+<td><img src="docs/media/death-recap.jpg" alt="The ending screen naming the killing blow and summing up the run"><br><b>Learn from the fall.</b> Every ending names the blow that killed you and sums up the run.</td>
 </tr>
 </table>
 
+All screenshots are native 1920 × 1080 frames at the Ultra step, from the same scripted captures as the trailer.
+
+## Graphics, settings and accessibility
+
+Open **Settings & Controls** from the title or the pause menu. Changes apply at once and are saved between launches.
+
+**Graphics fidelity** (Display page) has four steps. High is the default and draws exactly what the game drew before the setting existed.
+
+| Step | What it does | GPU time per frame* |
+| --- | --- | --- |
+| Low | 3D scene at 60% of the window's resolution, four brazier lights, no ambient occlusion, lighter mist, one bloom pass, no edge smoothing, simpler fire, reduced creature meshes from 5 m | 0.82 ms |
+| Medium | 80% resolution, lighter occlusion and mist, simpler fire, reduced meshes from 6.5 m | 1.18 ms |
+| **High** (default) | Full resolution (up to 1440 pixels wide), six lights, the standard Hollowlight composite | 1.43 ms |
+| Ultra | Twice the resolution, supersampled (up to 3840 wide); shadows from the three nearest braziers; eight lights; finer occlusion, mist and bloom; sharper textures at glancing angles (16× anisotropic); denser fire; full creature detail out to 14 m | 7.31 ms |
+
+\*The game's own world and composite passes at 1440 × 900 in a staged brazier scene, on the one GPU it was measured on (an AMD Radeon 8060S iGPU). Ultra costs about five times High, almost all of it from drawing four times the pixels. Details: [Graphics fidelity](DEVELOPMENT.md#graphics-fidelity).
+
+**Display page:** graphics fidelity, Hollowlight shader strength (F6 toggles it), a frame limit (Off, or 30 to 240 frames per second; in the background the game draws at most 30), VSync (F7), the FPS counter (F8), fullscreen (F11; remembered between launches) and HUD size (80–130%; above 110% a compact layout keeps the larger panels apart). The first launch opens a 1440 × 900 window; a window you resize reopens at that size, and either is shrunk, keeping its shape, to fit 90% of a smaller screen (never below 960 × 600).
+
+**Preferences page:** aim sensitivity (28–280% of the default), sound and music volume, field of view (60–90° vertical), invert look, flash reduction (a softer hurt vignette and muzzle light), first-run field tips, hold or toggle sprint, and the reticle's size (100, 150 or 200%) and colour (ivory, green, yellow, cyan or magenta, always with a dark outline so it shows on pale stone and bone).
+
+**Readable combat.** Reticle marks confirm hits (gold for headshots, red for kills), red arcs around the reticle point to whatever just hurt you, and amber chevrons point to special attacks winding up out of view (dives, casts, blinks, and slams or bursts you're standing near), growing as the attack nears. Wind-ups, blasts and swings are positioned in stereo, and each special attack has its own warning sound.
+
+**Help when you need it.** On your first run, short field notes below the reticle explain movement and dodging, reloading and melee, souls, damage arcs, the Collector and Ember Bolt as each first comes up, and the first time each kind of creature (other than the plain Ossuary Drudge) comes into clear view, a note names it and says how to fight it. Each note shows once; switch **Field tips** off, or back on to see them all again.
+
+**Menus and sound.** Menu buttons tick when the pointer or focus frame reaches them and clack when pressed; screens fade in, and behind the pause menu, a level-up, an ending, the journal or the new-run dialog the cemetery is softly blurred and dimmed. A synthesized score plays organ and choir at the title and the Collector's table, adds a heartbeat drum and strings as the crowd grows or your vitality runs low, and brings in war drums while the Tithekeeper lives. If the sound device fails or disappears, the game keeps running silently and picks it up again within about ten seconds of it returning.
+
+**Pausing and saving.** Losing focus pauses combat and releases the pointer, and so does the controller you're fighting with disconnecting. Quitting, pausing, purchases and finished descents save the run; **Continue Your Descent** restores it.
+
+## Controls
+
+Play with keyboard and mouse or a controller; on-screen prompts follow whichever you touched last. There is no touch input. Rebind keys on the **Keyboard** page and buttons on the **Controller** page; a key or button that's already in use swaps with the one you're changing.
+
+**Keyboard and mouse** (defaults):
+
+| Input | Action |
+| --- | --- |
+| W A S D / mouse | Move / look |
+| Left mouse | Fire, or swing the equipped melee weapon |
+| R | Reload |
+| Shift | Sprint (hold, or press to toggle) |
+| Space | Dodge |
+| E | Melee attack |
+| Q | Ember Bolt, once a Hollow Chalice is bound |
+| 1 / 2 / 3 | Choose a soul power when levelling up |
+| Escape | Pause / back |
+| Arrow keys, Enter or Space | In menus: move the brass focus frame, step sliders, press the framed control |
+| F6 / F7 / F8 / F11 | Hollowlight / VSync / FPS counter / fullscreen |
+
+Movement, sprint, fire, dodge, reload, melee and Ember Bolt can move to any key or mouse button (to give an action the left button, click its button a second time while it waits). Escape, F6, F7, F8 and F11 keep their jobs. Key names follow your keyboard layout, so AZERTY shows Z Q S D: under Wayland on Linux from the first launch, elsewhere once you've pressed the key.
+
+**Controller** (standard layout, Xbox names; through [gilrs](https://gitlab.com/gilrs-project/gilrs)):
+
+| Input | Action |
+| --- | --- |
+| Left stick / right stick | Move / look |
+| Right trigger | Fire, or swing the equipped melee weapon |
+| Left trigger or left-stick click | Sprint |
+| A | Dodge |
+| X | Reload |
+| B or RB | Melee attack |
+| Y or LB | Ember Bolt |
+| D-pad left / up / right | Choose soul power 1 / 2 / 3 |
+| Start | Pause |
+| Menus | D-pad jumps between controls and steps sliders, with a brass frame on the current one; the left stick moves a free cursor; A selects, B or Start goes back |
+
+The Controller page sets the right stick's look speed (50–200%, separate from the mouse), aim assist (on by default: the stick turns at half speed while the reticle is on or just beside a visible creature within 40 m; it never moves your aim, and the mouse is never affected), and a main and a second button for fire, sprint, dodge, reload, melee and Ember Bolt. Start, the D-pad and the sticks keep their jobs.
+
+Choose **Quit Game** on the title or **Save & Quit Game** from the pause menu; **Cmd+Q** on macOS and closing the window also save and exit. Practice mode leaves your run untouched.
+
 ## Build and play
 
-**Supported: native macOS and Linux.** macOS is tested on Apple Silicon with Metal. Linux is tested on one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland; X11, NVIDIA and other distributions have not been tested. Recent changes (Linux support, controllers, settings, combat feedback, positional audio, card comparison, records, key rebinding, first-run tips and music) were played and reviewed on that Linux machine. On macOS, CI builds them and runs the unit tests, but the game has not been run on a Mac since. This is a playable development build, not a finished commercial release. Windows and browser builds have not been validated. Play with keyboard and mouse or a controller; controller support has so far been verified only with simulated input, not a physical controller.
+There are **no prebuilt downloads, releases or browser build** yet: build from source, or package an app locally. **Supported:** native Linux and macOS.
 
-### Requirements
+### System requirements
 
-- macOS with a Metal-capable GPU (the app bundle declares macOS 13 or later), or Linux with a Vulkan driver and Wayland or X11.
-- [Rust and Cargo via rustup](https://rust-lang.org/install.html), using the current stable toolchain. The project uses Rust 2024; the published snapshot was tested with Rust 1.99 on macOS and 1.96.1 on Linux.
-- macOS: Apple’s Command Line Tools (`xcode-select --install`) for the linker and macOS SDK.
-- Linux: a C toolchain, `pkg-config` and the ALSA development headers (Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev`; Arch: `sudo pacman -S base-devel alsa-lib`).
+- **Linux:** a Vulkan driver, under Wayland or X11. Tested only on CachyOS with an AMD Radeon 8060S (Mesa RADV) under KDE Plasma on Wayland.
+- **macOS:** a Metal-capable GPU; the app bundle declares macOS 13 or later. Apple Silicon was the original platform, but the game hasn't been run on a Mac since the Linux work began (CI still builds it and runs the tests there).
+- **GPU:** Low and Medium are meant for weaker GPUs; Ultra roughly quintuples High's GPU work. No GPU other than the Radeon 8060S has been measured.
+- **To build:** [Rust and Cargo via rustup](https://rust-lang.org/install.html), current stable (the project uses Rust 2024 and was last built with 1.96.1 on Linux), plus:
+  - Linux: a C toolchain, `pkg-config` and the ALSA and udev headers (Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev`; Arch: `sudo pacman -S base-devel alsa-lib`).
+  - macOS: Apple’s Command Line Tools (`xcode-select --install`).
 
 ### Run from source
 
@@ -64,18 +145,9 @@ cd gravewake
 cargo run --release --locked
 ```
 
-The first build downloads dependencies and compiles the engine. Subsequent launches are faster. Release mode is recommended for gameplay. Models, textures, fonts, shaders and sounds are embedded at compile time; no asset downloads or Blender installation are needed to play.
+The first build downloads dependencies and compiles the engine; later launches are quick. Use release mode to play. Models, textures, fonts, shaders and sounds are embedded at compile time, so nothing else needs downloading.
 
-### Build a macOS app
-
-```sh
-./scripts/package-macos.sh
-open dist/Gravewake.app
-```
-
-After packaging, open `dist/Gravewake.app` or double-click `Play Gravewake.command`. The bundle is locally ad-hoc signed, not Developer ID notarized. Re-run the packaging script after changing source or assets; the launcher reuses an existing bundle.
-
-### Build a Linux package
+### Package for Linux
 
 ```sh
 ./scripts/package-linux.sh
@@ -83,94 +155,62 @@ tar -xzf dist/gravewake-linux-x86_64.tar.gz -C ~/Games
 ~/Games/gravewake-linux-x86_64/install.sh   # optional: adds Gravewake to your application menu
 ```
 
-The tarball contains the self-contained executable, a desktop entry, an icon and the font and audio notices. `install.sh` installs for the current user under `~/.local`; `install.sh --uninstall` removes it and keeps saves. The executable requires the glibc version it was built against (or newer); the bundled `README.txt` records it. No prebuilt downloads are published yet.
+The tarball holds the self-contained executable, a desktop entry, an icon and the font and audio notices. `install.sh` installs for the current user under `~/.local`; `install.sh --uninstall` removes it and keeps saves. The executable needs the glibc version it was built against, or newer; the bundled `README.txt` records it.
 
-## Status and known issues
+### Package for macOS
 
-This is a playable development build. What has and hasn't been checked:
+```sh
+./scripts/package-macos.sh
+open dist/Gravewake.app
+```
 
-**Tested**
-- **Linux:** one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland. Every change since Linux support was added in October 2026 was run there: unit tests, smoke runs with keyboard and with simulated controller input, the review galleries and the benchmark.
-- **macOS:** Apple Silicon with Metal was the original platform. Since the Linux work began, CI builds and runs the unit tests on macOS for every push, but the game itself hasn't been run on a Mac.
+After packaging, open `dist/Gravewake.app` or double-click `Play Gravewake.command`. The bundle is ad-hoc signed, not notarized, so Gatekeeper warns. Re-run the script after changing source or assets.
 
-**Never verified**
-- Windows (never built or run), X11, NVIDIA or Intel GPUs, and other Linux distributions.
-- Graphics fidelity on any GPU but the Radeon 8060S: its steps were captured and timed there (Low about 55% of High's GPU time, Ultra about 5×), not on a weak GPU, and Ultra's brazier shadows are screen-space, so only what is on screen casts them.
-- A physical controller. Controller play, prompts, menus (including D-pad navigation and the focus frame), button remapping, stick look speed, aim assist, toggle sprint and the pause when a controller disconnects are tested only with simulated input or unit tests, so real sticks, triggers, hot-plugging and live remapping are unverified.
-- Listening. The music, positional audio and warning cues were checked with spectrograms and level measurements, not by ear. Recovering from a failed sound device was checked on Linux against a private PipeWire that a script stops and restarts, not with real headphones or a real sound server restarting; following a new default device (as on macOS when headphones connect) is untested.
-- A physical keyboard and mouse in a real Plasma session. Since October 2026 a scripted review sends real Wayland key and mouse events through a private virtual KWin (Escape, hold and toggle sprint, rebinding a key on the Keyboard page and using it, mouse fire and look, F11 both ways), but KWin injects them, so a physical device's own quirks aren't covered. Real button presses on the Controller page, and field or creature notes triggering in a hand-played run, are still unverified; tests and review fixtures drive the same code paths. Switching fullscreen while the game runs, and the window's launch size fitting the screen and following a resize, were checked only in that private KWin, not in a real Plasma session, on macOS or X11, or with fractional scaling.
+### Saves
 
-**Known issues and limitations**
-- No prebuilt downloads yet: build from source, or package locally. The macOS app is ad-hoc signed, not notarized, so Gatekeeper warns.
-- On non-QWERTY layouts under X11 or on macOS, a key shows its own character only after you've pressed it once. Under Wayland on Linux, key names follow the layout from the start.
-- The damage-per-second line on cards counts burn and venom but only one target. The card says how far a splash, chain, pierce or swing reaches, but not how much that adds against a real crowd.
-- Balance hasn't been tuned through long playtests.
-- An intermittent stall (about 5 of 60 scripted controller launches during early Linux testing) has recurred once since, in one of about 400 scripted launches (October 2026). Its cause is unknown; scripted runs now abort with a core dump if it happens. In October 2026 one way the watchdog itself could be kept from aborting (its report blocked on an output pipe that had stopped draining) was found and fixed.
-- There is no browser build.
-
-## Controls
-
-Default keys and buttons are listed below. Rebind them on the **Keyboard** and **Controller** pages of **Settings & Controls**.
-
-| Input | Action |
-| --- | --- |
-| W A S D / mouse | Move / look |
-| Left mouse | Fire or use the equipped melee weapon (rebindable) |
-| R | Reload |
-| Shift / Space | Sprint (hold, or press to toggle if you choose) / dodge |
-| E | Melee attack |
-| Q | Ember Bolt after binding a Hollow Chalice |
-| 1 / 2 / 3 | Choose a soul power when leveling |
-| Escape | Pause / back |
-| Arrow keys / Enter or Space | In menus: move the brass focus frame between controls and step sliders / press the control under it |
-| F11 | Fullscreen (remembered between launches) |
-| F6 | Toggle Hollowlight shader treatment |
-| F7 / F8 | Toggle VSync / FPS counter |
-
-**Controller** (standard layout, shown with Xbox names; supported through [gilrs](https://gitlab.com/gilrs-project/gilrs)). Default buttons:
-
-| Input | Action |
-| --- | --- |
-| Left stick / right stick | Move / look |
-| Right trigger | Fire or use the equipped melee weapon |
-| Left trigger or left-stick click | Sprint |
-| A | Dodge |
-| X | Reload |
-| B or RB | Melee attack |
-| Y or LB | Ember Bolt |
-| D-pad left / up / right | Choose soul power 1 / 2 / 3 |
-| Start | Pause |
-| Menus | D-pad jumps between buttons and steps sliders, and a brass frame marks the control the cursor rests on; the left stick moves a free cursor; A selects, B or Start goes back |
-
-Menu buttons tick softly when the pointer or the focus frame reaches them and clack when pressed, screens fade in rather than cutting, and while the pause menu, a level-up, an ending, the journal or the new-run dialog is open the cemetery behind it is softly blurred and dimmed. On-screen prompts follow the last thing you touched: after you use the controller, the HUD, the opening reminder, the field notes and the level-up screen name controller buttons; after a key press or mouse movement, they name your keys again.
-
-**Graphics fidelity** on the journal's **Display** page has four steps, Low, Medium, High (the default) and Ultra, and applies at once: Low and Medium draw the 3D scene at 60% and 80% of the window's resolution with lighter occlusion, mist and bloom (Low also lights each surface from four braziers instead of six) for a weaker GPU; Ultra draws it at twice the resolution (supersampled, up to 3840 pixels wide), adds shadows from the three nearest braziers, eight lights, finer occlusion and bloom, sharper textures at a glancing angle, denser fire and creature detail farther out. Change mouse sensitivity (shown as a share of the default, 28–280%), invert look, field of view (60–90° vertical), the reticle's size (100, 150 or 200%) and colour (ivory, green, yellow, cyan or magenta; it always has a dark outline, so it shows on pale stone and bone), sound and music volume, flash reduction, HUD size (80–130%; above 110% a compact layout keeps the larger panels apart), lighting intensity, fullscreen, whether sprint is held or toggled, a frame limit (Off, or 30 to 240 frames per second; while the window is in the background the game draws at most 30), and presentation settings in **Settings & Controls** (the **Display** page holds fidelity, Hollowlight, the frame limit, VSync, the FPS counter, fullscreen and HUD size); they are saved between launches, and the game reopens fullscreen if you left it that way. A window you resize reopens at that size; the first launch opens at 1440 × 900, and either is shrunk, keeping its shape, to fit 90% of a smaller screen (never below 960 × 600). Its **Keyboard** page rebinds movement, sprint, fire, dodge, reload, melee and Ember Bolt to any key or mouse button (to give an action the left button, click its button a second time while it waits; the left button still clicks menus). Its **Controller** page sets the right stick's look speed (50–200%, separate from the mouse's sensitivity), turns aim assist on or off (on by default: the right stick turns at half speed while the reticle is on or just beside a creature you can see within 40 m; it never moves your aim for you, and the mouse is never affected), and gives fire, sprint, dodge, reload, melee and Ember Bolt a main and a second button each, from A, B, X, Y, the bumpers, the triggers and the stick clicks; Start, the D-pad and the sticks keep their jobs, and in menus A still selects and B still goes back. A key or button that's already in use swaps with the one you're changing. Escape, F6, F7, F8 and F11 keep their jobs. Key names follow your keyboard layout, so an AZERTY keyboard shows Z Q S D: under Wayland on Linux from the first launch (the first layout, if you have several), elsewhere once you've pressed the key. On your first run, short field notes below the reticle explain movement and dodging, reloading and melee, souls, the damage arcs, the Collector and Ember Bolt as each first comes up, and the first time each kind of creature (other than the plain Ossuary Drudge) comes into clear view, not hidden behind a wall, a note names it and says how to fight it. Each note shows once. Turn **Field tips** off in Settings & Controls, or switch them back on to see them all again. Reticle marks confirm your hits (gold for headshots, red for kills), and red arcs around the reticle point toward whatever just hurt you. Farther out, amber chevrons point toward special attacks winding up out of view (dives, casts, blinks, and slams or bursts you're standing near), growing as the attack nears. Enemy wind-ups, blasts and swings are positioned in stereo, and each special attack has a distinct warning sound. A synthesized score plays calm organ and choir at the title and the Collector's table, adds a heartbeat drum and bowed strings as the crowd grows or your vitality runs low, and brings in war drums while the Tithekeeper lives. If the sound device fails or disappears (a sound server restarting, headphones unplugged), the game says so once in the terminal, keeps running silently and picks the device up again within about ten seconds of it coming back, with the music and ambience continuing; it also moves to a new default device when the system switches. Losing focus pauses combat and releases the pointer, and so does the controller you're fighting with disconnecting. The pause menu shows the run so far (descent, time, vitality, souls, damage, gold, soul level and your weapon with its estimate and Binding ranks) and every power you've bound with what it does at its rank.
-
-Choose **Quit Game** from the title, or **Save & Quit Game** from the pause menu. **Cmd+Q** (macOS) and closing the window also save and exit. **Continue Your Descent** restores the active run. Practice mode preserves your existing run.
-
-## Saves
-
-Progress lives in `run.json`; lifetime records (`records.json`) and preferences (`settings.json`, `graphics.json`, `performance.json`) live alongside it:
+The run is kept in `run.json`; lifetime records (`records.json`) and preferences (`settings.json`, `graphics.json`, `performance.json`) sit beside it:
 
 | Platform | Folder |
 | --- | --- |
-| macOS | `~/Library/Application Support/Gravewake/` |
 | Linux | `$XDG_DATA_HOME/gravewake/` (normally `~/.local/share/gravewake/`) |
+| macOS | `~/Library/Application Support/Gravewake/` |
 
-Linux builds before this change stored files under `~/Library/Application Support/Gravewake/`; they are copied to the new folder on first launch, never overwriting newer files. Quitting, pausing, purchases and completed descents save progress. A new run replaces the active run after confirmation. Diagnostic capture modes use disposable state and do not overwrite player saves.
+Linux builds from before October 2026 kept files under `~/Library/Application Support/Gravewake/`; they're copied to the new folder on first launch, never overwriting newer files. A new run replaces the active one after confirmation. Test and capture modes use disposable state and never touch player saves.
 
-## Under the hood
+## Develop and test
 
-A custom Rust game layer and renderer using **wgpu**, **winit**, **egui**, **Rapier 3D**, and **rodio**. Features include GPU-instanced creature geometry, GPU-resident corpse sections, visibility batches, fixed-step body physics, custom WGSL lighting and post-processing, authored Blender assets, and the embedded **Gravewake Gothic** font.
+A custom Rust game layer and renderer using **wgpu**, **winit**, **egui**, **Rapier 3D** and **rodio**, with custom **WGSL** lighting and post-processing, GPU-instanced creature geometry, GPU-resident corpse sections, fixed-step body physics, authored Blender assets and the embedded **Gravewake Gothic** font.
 
 ```sh
-cargo test --locked
-cargo run --release --locked -- --smoke
+cargo test --locked                            # combat, progression, saves, settings, layout, physics
+cargo run --release --locked -- --smoke        # plays a wave and a shop visit through the real UI
+cargo run --release --locked -- --smoke --gamepad
 ```
 
-The tests cover combat, progression, saves, geometry and physics. The native smoke run opens a window, fights a wave, buys and opens a pack through actual UI input, equips a weapon, buys an upgrade and enters the next round. It requires a graphical session and writes screenshots under `captures/`.
+The smoke runs open a window, fight a wave, buy and open a pack through actual UI input (the controller run uses the virtual cursor and D-pad), equip a weapon, buy an upgrade and enter the next descent, writing screenshots under `captures/`. On Linux, `scripts/nested-kwin.sh -- <command>` runs any of them inside a private virtual KWin so no window reaches your desktop; the review modes (`--text-review`, `--fidelity-review`, `scripts/input-review.sh` and others) are described in [DEVELOPMENT.md](DEVELOPMENT.md). The trailer and these screenshots are rebuilt with `scripts/capture-trailer.sh` and `scripts/build-trailer.py` ([trailer production](docs/TRAILER.md)).
 
-See [development notes](DEVELOPMENT.md), [world design](WORLD-REVIEW.md), [physics](RAGDOLL-REVIEW.md), [performance](PERFORMANCE.md), [typography](FONT-REVIEW.md), and [trailer production](docs/TRAILER.md) for implementation and reproduction details. Raw diagnostic captures and build outputs are excluded from Git; the curated gallery and trailer are included.
+More: [development notes](DEVELOPMENT.md), [improvement rounds since launch](docs/IMPROVEMENTS.md), [world design](WORLD-REVIEW.md), [physics](RAGDOLL-REVIEW.md), [performance](PERFORMANCE.md) and [typography](FONT-REVIEW.md).
+
+## Status and known issues
+
+A playable development build, not a finished commercial release. Twelve rounds of improvements since the October 4, 2026 launch added Linux support, controllers, settings, accessibility, records, audio, the fidelity steps and menu polish; [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md) records what each round changed and how it was checked.
+
+**Tested**
+- **Linux:** one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland: unit tests, smoke runs with keyboard and simulated controller input, the review galleries and the benchmark, mostly inside a private virtual KWin.
+- **macOS:** CI builds the game and runs the unit tests on every push, but the game itself hasn't been run on a Mac since the Linux work began.
+
+**Never verified**
+- Windows (never built), X11, NVIDIA or Intel GPUs, other Linux distributions, and any weaker GPU (Low and Medium were timed only on the Radeon 8060S). Ultra's brazier shadows are screen-space, so only what's on screen casts them.
+- A physical controller. Controller play, prompts, menu navigation and the focus frame, remapping, stick speed, aim assist, toggle sprint and the disconnect pause are tested only with simulated input or unit tests.
+- Listening. The music, positional audio, warning cues and menu sounds were checked with spectrograms and level measurements, not by ear. Recovering from a failed sound device was checked against a private PipeWire, not real headphones; following a new default device (as on macOS when headphones connect) is untested.
+- A physical keyboard and mouse in a real desktop session. A scripted review sends real Wayland key and mouse events (arrow-key menus, rebinding, sprint, fire, F11) through a private KWin, so a physical device's quirks aren't covered. Fullscreen switching and window sizing were checked only there, not in a real Plasma session, on macOS or X11, or with fractional scaling.
+
+**Known issues and limitations**
+- No prebuilt downloads, releases or browser build; the macOS app is ad-hoc signed, not notarized.
+- On non-QWERTY layouts under X11 or on macOS, a key shows its own character only after you've pressed it once.
+- The damage-per-second line on cards counts burn and venom but only one target; it says how far a splash, chain, pierce or swing reaches, not how much that adds against a crowd.
+- Balance hasn't been tuned through long playtests.
+- An intermittent start-up stall (about 5 of 60 scripted controller launches early in the Linux work) has recurred once since, in about 400 scripted launches. Its cause is unknown; scripted runs abort with a core dump if it happens.
 
 ## Credits and provenance
 

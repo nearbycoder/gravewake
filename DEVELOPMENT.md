@@ -127,7 +127,7 @@ To reproduce the 19-second motion review (the normal renderer and UI handlers, w
 ./scripts/capture-motion.sh
 ```
 
-The script writes `captures/motion-review.mp4`, including synchronized audio from the same sound bank used by the game. It exercises pack tear, reveals, equip, double-barrel shots/reload, pistol reload and repeater reload, and never modifies the player's save. `cargo test` also checks reload event ordering at 30 and 144 updates/second, ammo timing, and audio bounds/tails. This remains procedural character animation, not the reference's original rigs or motion data.
+The script writes `captures/motion-review.mp4`, including synchronized audio from the same sound bank used by the game. It exercises pack tear, reveals, equip, double-barrel shots/reload, pistol reload and repeater reload, and never modifies the player's save. Its staged targets walk up and strike once the wave starts, so the review keeps the player's vitality topped up until the last reload is checked. For the trailer, `scripts/capture-trailer.sh` runs this, the survival, anatomy and text reviews on Linux in the private KWin at 1920×1080 and a chosen fidelity step, with the capture-only flags `--capture-size`, `--capture-fidelity` and `--capture-full-mix` (score, ambience and menu cues in the recorded audio; `src/capture.rs`); see [trailer production](docs/TRAILER.md). `cargo test` also checks reload event ordering at 30 and 144 updates/second, ammo timing, and audio bounds/tails. This remains procedural character animation, not the reference's original rigs or motion data.
 
 ## Menu polish and expanded armory
 
