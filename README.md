@@ -8,6 +8,8 @@ A first-person gothic arena roguelite built in Rust. Fight through a ruined ceme
 
 **33 weapons · 12 creature types · 10 soul powers · 12 descents, then endless survival**
 
+**[Play in your browser](https://nearbycoder.github.io/gravewake/)** in a current Chrome, Edge or Firefox: a 16 MB download, saves kept in the browser. [What differs from the desktop game](#in-your-browser).
+
 ## Gameplay trailer
 
 <p align="center"><a href="docs/media/gravewake-trailer.mp4"><img src="docs/media/trailer-poster.jpg" alt="Gravewake title screen with a Watch the gameplay trailer button" width="100%"></a></p>
@@ -126,7 +128,24 @@ Choose **Quit Game** on the title or **Save & Quit Game** from the pause menu; *
 
 ## Build and play
 
-There are **no prebuilt downloads, releases or browser build** yet: build from source, or package an app locally. **Supported:** native Linux and macOS.
+There are **no prebuilt downloads or releases** yet: [play in your browser](#in-your-browser), build from source, or package an app locally. **Supported:** native Linux and macOS, and the browser version in Chrome, Edge and Firefox.
+
+### In your browser
+
+**[nearbycoder.github.io/gravewake](https://nearbycoder.github.io/gravewake/)** runs the same game, compiled to WebAssembly. It draws with WebGPU where the browser offers it and WebGL2 otherwise. The first visit downloads about 16 MB (66 MB unpacked); after that the browser's cache usually serves it. Mouse and keyboard work as on the desktop, and a controller should work through the browser's Gamepad API, though that hasn't been tested. There are no touch controls.
+
+What's different in the browser:
+
+- **Saves and settings** are kept in the browser's storage for the site, not in a folder. A reload keeps them; clearing the site's data or a private window loses them. The run is also saved whenever the tab is hidden or closed.
+- **Sound** starts with your first click or key, as browsers require.
+- **Mouse look** locks the pointer to the page. Esc releases it and pauses; click to pick the run up again.
+- **Fullscreen** comes from the Display page's switch or F11, once you've clicked or pressed a key. Some browsers keep F11 for their own fullscreen.
+- **No Quit button and no VSync switch.** Close the tab to stop; the browser always draws in step with the display.
+- **Graphics fidelity starts at Medium** rather than High, and all four steps are available on the Display page. The large menu and card art is stored as high-quality WebP rather than PNG to halve the download.
+- **Key names** in the journal learn only letters from your layout (pressing a key teaches it), and there's no clipboard.
+- **Speed** depends on the browser's graphics path. In Firefox on the Radeon 8060S it ran at 50–60 fps; without it (software WebGL) the game is far too slow to play. Everything runs on one thread, so a busy page can stutter where the desktop game wouldn't.
+
+Tested headless in Chromium 151 (WebGPU and WebGL2, both on software rendering) and Firefox 157 (WebGL2 on the AMD Radeon 8060S) on Linux, served locally the way GitHub Pages serves it. Safari, Windows, macOS, phones and tablets, and a person playing it with their own hands haven't been tested. To build the site and check it, see [Develop and test](#develop-and-test).
 
 ### System requirements
 
@@ -174,6 +193,7 @@ The run is kept in `run.json`; lifetime records (`records.json`) and preferences
 | --- | --- |
 | Linux | `$XDG_DATA_HOME/gravewake/` (normally `~/.local/share/gravewake/`) |
 | macOS | `~/Library/Application Support/Gravewake/` |
+| Browser | The site's local storage, as `gravewake/run.json` and so on |
 
 Linux builds from before October 2026 kept files under `~/Library/Application Support/Gravewake/`; they're copied to the new folder on first launch, never overwriting newer files. A new run replaces the active one after confirmation. Test and capture modes use disposable state and never touch player saves.
 
@@ -189,6 +209,17 @@ cargo run --release --locked -- --smoke --gamepad
 
 The smoke runs open a window, fight a wave, buy and open a pack through actual UI input (the controller run uses the virtual cursor and D-pad), equip a weapon, buy an upgrade and enter the next descent, writing screenshots under `captures/`. On Linux, `scripts/nested-kwin.sh -- <command>` runs any of them inside a private virtual KWin so no window reaches your desktop; the review modes (`--text-review`, `--fidelity-review`, `scripts/input-review.sh` and others) are described in [DEVELOPMENT.md](DEVELOPMENT.md). The trailer and these screenshots are rebuilt with `scripts/capture-trailer.sh` and `scripts/build-trailer.py` ([trailer production](docs/TRAILER.md)).
 
+The browser version:
+
+```sh
+scripts/build-pages.sh                         # the site, into dist/pages/
+npm ci --prefix scripts/web-check              # headless browser checks (puppeteer-core)
+node scripts/web-check/check-pages.mjs <url> [--browser chromium|firefox]
+node scripts/web-check/session.mjs <url> [--browser chromium|firefox]
+```
+
+`check-pages.mjs` exits 0 only when the game reaches its title screen without console errors, failed requests or graphics validation failures; `session.mjs` plays a short session and checks that sound waits for input and that saves and settings survive a reload. See [the browser build](DEVELOPMENT.md#browser-build).
+
 More: [development notes](DEVELOPMENT.md), [improvement rounds since launch](docs/IMPROVEMENTS.md), [world design](WORLD-REVIEW.md), [physics](RAGDOLL-REVIEW.md), [performance](PERFORMANCE.md) and [typography](FONT-REVIEW.md).
 
 ## Status and known issues
@@ -198,6 +229,7 @@ A playable development build, not a finished commercial release. Twelve rounds o
 **Tested**
 - **Linux:** one CachyOS machine with an AMD Radeon 8060S (Mesa RADV, Vulkan) under KDE Plasma on Wayland: unit tests, smoke runs with keyboard and simulated controller input, the review galleries and the benchmark, mostly inside a private virtual KWin.
 - **macOS:** CI builds the game and runs the unit tests on every push, but the game itself hasn't been run on a Mac since the Linux work began.
+- **Browser:** headless Chromium 151 (WebGPU and WebGL2 on software rendering) and Firefox 157 (WebGL2 on the Radeon 8060S) on Linux, served locally under `/gravewake/`: loading, a short scripted run, saving and continuing after a reload, a settings change, fullscreen and sound starting after input.
 
 **Never verified**
 - Windows (never built), X11, NVIDIA or Intel GPUs, other Linux distributions, and any weaker GPU (Low and Medium were timed only on the Radeon 8060S). Ultra's brazier shadows are screen-space, so only what's on screen casts them.
@@ -206,7 +238,8 @@ A playable development build, not a finished commercial release. Twelve rounds o
 - A physical keyboard and mouse in a real desktop session. A scripted review sends real Wayland key and mouse events (arrow-key menus, rebinding, sprint, fire, F11) through a private KWin, so a physical device's quirks aren't covered. Fullscreen switching and window sizing were checked only there, not in a real Plasma session, on macOS or X11, or with fractional scaling.
 
 **Known issues and limitations**
-- No prebuilt downloads, releases or browser build; the macOS app is ad-hoc signed, not notarized.
+- No prebuilt downloads or releases; the macOS app is ad-hoc signed, not notarized.
+- The browser version hasn't been tried in Safari, on Windows or macOS, or on a phone, and pointer lock and controllers there are untested.
 - On non-QWERTY layouts under X11 or on macOS, a key shows its own character only after you've pressed it once.
 - The damage-per-second line on cards counts burn and venom but only one target; it says how far a splash, chain, pierce or swing reaches, not how much that adds against a crowd.
 - Balance hasn't been tuned through long playtests.
