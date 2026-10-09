@@ -1969,3 +1969,76 @@ Deferred, with reasons:
   default and strength, the frame limit's and the reticle's defaults. New:
   whether High stays the default fidelity, and whether Ultra's 2×
   supersampling (about 5× High's GPU time) should be 1.5× instead.
+
+## Phones: the browser build's memory, and touch controls
+
+The owner opened the live site in Chrome on an iPhone and the tab died with
+"Can't open this page": iOS killed WebKit's content process. Every iOS
+browser is WebKit.
+
+### What it was
+
+Measured headless on Linux (`scripts/web-check/mobile.mjs`, Playwright's
+iPhone profiles), the build from `main` (0de6e94):
+
+- WebAssembly memory peaked at **1,499 MB**, and a WebAssembly page's memory
+  never shrinks. The world's 2.5 million vertices were copied into cells,
+  then indexed with a `HashMap<[u32; 15], u32>`: building and indexing them
+  took memory from 371 MB to 1,499 MB (traced step by step in the page).
+- WebGL objects peaked at about **780 MB**: the 122 MB world buffer and its
+  staging copy, 136 weapon-card previews at 512×384 in half floats
+  (204 MB), 136 preview vertex buffers alive at once (about 250 MB) and
+  their depth textures.
+- Compiling the 66 MB module: in WebKit, 334 MB of it was compiling (57 MB
+  for the same module without its 56 MB of embedded data).
+- WebKit's web process peaked at **2,744 MB** (Chromium's renderer at
+  1,647 MB plus 1,060 MB in its GPU process).
+- And in WebKit the game panicked on its first frame: with no WebGPU there,
+  nothing delayed the first frame until the canvas had a size, and the
+  interface drawn at 0×0 overflowed egui's font atlas. Asking for Pointer
+  Lock, which iPhones don't have, also threw when a run started.
+
+### What changed
+
+- The world is indexed in place and uploaded in 8 MB pieces; the
+  creature geometry is sized up front; the previews share one vertex buffer
+  and one depth buffer. A test checks the world's indexing is identical to
+  the old one.
+- The embedded files went into an asset pack beside the module
+  (`asset_bytes!`, `web::asset`); the desktop still embeds them.
+- Phones and tablets (the page's judgement, `lite`) start at Low fidelity,
+  decode the menu art at up to 1024 pixels, halve the material textures,
+  render the previews at 256×192, and on iOS draw with WebGL2.
+- The first frame waits for the canvas's size; Pointer Lock is only used
+  where it exists.
+- Touch controls (`touch.rs`), shown only while touch is the input in use:
+  a floating stick, drag to look, Fire, Reload, Dodge, Melee, Bolt and
+  pause, inside the safe area; menus by tap; the page blocks scroll, zoom
+  and callouts and asks for landscape.
+- A load that never finished is reported on the next visit, with a Try
+  again button; a lost WebGL context and errors while loading are shown.
+
+### Measured after (same script and profiles)
+
+| Headless, iPhone 15 (Pro) profile | Before | After |
+| --- | --- | --- |
+| WebAssembly memory, peak | 1,499 MB | 447 MB |
+| WebGL objects, peak (estimated) | 711–774 MB | 267–292 MB |
+| WebKit web process, peak RSS | 2,744 MB | 1,410–1,520 MB |
+| Chromium renderer / GPU process, peak RSS | 1,647 / 1,060 MB | 704 / 818 MB |
+
+Desktop Chromium (the full build) also went from 1,499 MB to 530 MB of
+WebAssembly memory. The WebKit figure includes about 300 MB that this Linux
+WebKit uses for an empty page, and its software GL keeps the GPU's objects
+in the same process. On an iPhone the web process starts smaller and the
+GPU objects live in the GPU process (but are charged to the page), so the
+page should use about 450 MB of WebAssembly memory plus about 270 MB of
+graphics, plus the compiled code: under 1 GB, not yet confirmed on a
+device. The WebGPU path asks for every one of the adapter's maximum limits
+(27 of them, such as a 4 GB maximum buffer size); iOS now uses WebGL2
+instead, so those requests no longer reach iOS's WebGPU.
+
+Not verified: a real iPhone, iPad or Android phone (memory limits, the
+notch insets, touch feel, frame rate, sound), real Safari, and WebKit
+drags with real touches (its driver can only tap, so its drags are
+dispatched pointer events; Chromium's are real touch events).

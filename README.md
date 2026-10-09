@@ -8,7 +8,7 @@ A first-person gothic arena roguelite built in Rust. Fight through a ruined ceme
 
 **33 weapons · 12 creature types · 10 soul powers · 12 descents, then endless survival**
 
-**[Play in your browser](https://nearbycoder.github.io/gravewake/)** in a current Chrome, Edge or Firefox: a 16 MB download, saves kept in the browser. [What differs from the desktop game](#in-your-browser).
+**[Play in your browser](https://nearbycoder.github.io/gravewake/)** in a current Chrome, Edge or Firefox, or on a phone or tablet with touch controls: a 16 MB download, saves kept in the browser. [What differs from the desktop game](#in-your-browser).
 
 ## Gameplay trailer
 
@@ -87,7 +87,7 @@ Open **Settings & Controls** from the title or the pause menu. Changes apply at 
 
 ## Controls
 
-Play with keyboard and mouse or a controller; on-screen prompts follow whichever you touched last. There is no touch input. Rebind keys on the **Keyboard** page and buttons on the **Controller** page; a key or button that's already in use swaps with the one you're changing.
+Play with keyboard and mouse or a controller; on-screen prompts follow whichever you touched last. In the browser on a phone or tablet there are [touch controls](#in-your-browser) too. Rebind keys on the **Keyboard** page and buttons on the **Controller** page; a key or button that's already in use swaps with the one you're changing.
 
 **Keyboard and mouse** (defaults):
 
@@ -132,7 +132,9 @@ There are **no prebuilt downloads or releases** yet: [play in your browser](#in-
 
 ### In your browser
 
-**[nearbycoder.github.io/gravewake](https://nearbycoder.github.io/gravewake/)** runs the same game, compiled to WebAssembly. It draws with WebGPU where the browser offers it and WebGL2 otherwise. The first visit downloads about 16 MB (66 MB unpacked); after that the browser's cache usually serves it. Mouse and keyboard work as on the desktop, and a controller should work through the browser's Gamepad API, though that hasn't been tested. There are no touch controls.
+**[nearbycoder.github.io/gravewake](https://nearbycoder.github.io/gravewake/)** runs the same game, compiled to WebAssembly. It draws with WebGPU where the browser offers it and WebGL2 otherwise. The first visit downloads about 16 MB (a 3 MB game and a 12 MB asset pack, 61 MB unpacked); after that the browser's cache usually serves it. Mouse and keyboard work as on the desktop, and a controller should work through the browser's Gamepad API, though that hasn't been tested.
+
+**On a phone or tablet** (a touchscreen without a mouse or trackpad) the arena has touch controls: put your left thumb down anywhere on the left of the screen and push to move (to the rim to sprint), drag anywhere else to look, and use the buttons for **Fire** (hold; drag it to aim while firing), **Reload**, **Dodge**, **Melee**, **Bolt** and pause (**II**, top right). Menus, cards and soul powers are tapped. The controls appear while touch is what you last used and disappear when you press a key, move a mouse or use a controller. Hold the phone sideways; held upright, the page asks you to turn it. Phones and tablets also start at Low fidelity with smaller textures, and on iOS the game draws with WebGL2, to fit in the memory such a browser gives one tab. If a load ever stops partway (a phone may close the tab when memory runs out), the next visit says so and offers to try again.
 
 What's different in the browser:
 
@@ -145,7 +147,7 @@ What's different in the browser:
 - **Key names** in the journal learn only letters from your layout (pressing a key teaches it), and there's no clipboard.
 - **Speed** depends on the browser's graphics path. In Firefox on the Radeon 8060S it ran at 50–60 fps; without it (software WebGL) the game is far too slow to play. Everything runs on one thread, so a busy page can stutter where the desktop game wouldn't.
 
-Tested headless in Chromium 151 (WebGPU and WebGL2, both on software rendering) and Firefox 157 (WebGL2 on the AMD Radeon 8060S) on Linux, served locally the way GitHub Pages serves it. Safari, Windows, macOS, phones and tablets, and a person playing it with their own hands haven't been tested. To build the site and check it, see [Develop and test](#develop-and-test).
+Tested headless in Chromium 151 (WebGPU and WebGL2, both on software rendering) and Firefox 157 (WebGL2 on the AMD Radeon 8060S) on Linux, served locally the way GitHub Pages serves it, and with the touch controls in WebKit 26.6 with an iPhone's screen and Chromium with an Android phone's, both on Linux. Real Safari, a real phone or tablet, Windows, macOS, and a person playing it with their own hands haven't been tested. To build the site and check it, see [Develop and test](#develop-and-test).
 
 ### System requirements
 
@@ -216,9 +218,10 @@ scripts/build-pages.sh                         # the site, into dist/pages/
 npm ci --prefix scripts/web-check              # headless browser checks (puppeteer-core)
 node scripts/web-check/check-pages.mjs <url> [--browser chromium|firefox]
 node scripts/web-check/session.mjs <url> [--browser chromium|firefox]
+node scripts/web-check/mobile.mjs <url> [--browser chromium|webkit] [--device "iPhone 15 landscape"] [--play]
 ```
 
-`check-pages.mjs` exits 0 only when the game reaches its title screen without console errors, failed requests or graphics validation failures; `session.mjs` plays a short session and checks that sound waits for input and that saves and settings survive a reload. See [the browser build](DEVELOPMENT.md#browser-build).
+`check-pages.mjs` exits 0 only when the game reaches its title screen without console errors, failed requests or graphics validation failures; `session.mjs` plays a short session and checks that sound waits for input and that saves and settings survive a reload; `mobile.mjs` loads it as a phone, measures its memory and plays it by touch. See [the browser build](DEVELOPMENT.md#browser-build).
 
 More: [development notes](DEVELOPMENT.md), [improvement rounds since launch](docs/IMPROVEMENTS.md), [world design](WORLD-REVIEW.md), [physics](RAGDOLL-REVIEW.md), [performance](PERFORMANCE.md) and [typography](FONT-REVIEW.md).
 
