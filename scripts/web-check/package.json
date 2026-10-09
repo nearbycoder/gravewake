@@ -1,9 +1,10 @@
 {
   "name": "gravewake-web-check",
   "private": true,
-  "description": "Headless browser checks for the GitHub Pages build (scripts/check-pages.mjs, scripts/web-session.mjs).",
+  "description": "Headless browser checks for the GitHub Pages build (check-pages.mjs, session.mjs with puppeteer-core; mobile.mjs with playwright-core, pinned to the version whose WebKit is cached).",
   "type": "module",
   "dependencies": {
+    "playwright-core": "1.63.0",
     "puppeteer-core": "^24.0.0"
   }
 }

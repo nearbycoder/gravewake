@@ -112,6 +112,9 @@ try {
   const states = await contexts();
   log(`audio contexts after the click: ${JSON.stringify(states)}`);
   check(states.length === 1 && states[0] === "running", "sound starts after the first click");
+  const inRun = await page.evaluate(() => window.gravewake.game);
+  check(inRun?.mode === "Arena" && !inRun.controls && inRun.device !== "Touch",
+    `no touch controls in a desktop run (${inRun?.mode}, ${inRun?.device})`);
   await snap("run-start");
 
   // 3. Play a little: back away from the pack, look around, fire, reload.

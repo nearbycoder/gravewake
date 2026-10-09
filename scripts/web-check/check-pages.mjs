@@ -46,6 +46,16 @@ try {
     await new Promise((r) => setTimeout(r, 5000));
     const graphics = await page.evaluate(() => window.gravewake.graphics ?? "unknown");
     log(`graphics: ${graphics}`);
+    // A desktop browser gets the full build and no touch controls.
+    const desktop = await page.evaluate(() => ({
+      lite: window.gravewake.lite,
+      device: window.gravewake.game?.device,
+      touchPage: document.body.classList.contains("touch"),
+    }));
+    log(`desktop: lite ${desktop.lite}, input ${desktop.device}, page touch mode ${desktop.touchPage}`);
+    if (desktop.lite || desktop.device === "Touch" || desktop.touchPage) {
+      problems.push("a desktop browser was treated as a phone or given touch controls");
+    }
     if (screenshot) {
       await page.screenshot({ path: screenshot });
       log(`screenshot: ${screenshot}`);

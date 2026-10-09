@@ -15,7 +15,7 @@ function which(name) {
 }
 
 // Newest Playwright-cached Chromium, then a system Chrome or Chromium.
-function chromiumPath() {
+export function chromiumPath() {
   if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
   const cache = path.join(os.homedir(), ".cache/ms-playwright");
   const cached = fs.existsSync(cache)
