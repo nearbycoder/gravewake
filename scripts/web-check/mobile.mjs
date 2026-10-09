@@ -15,6 +15,11 @@
 // works by tap. `--input desktop` emulates only the screen (or a desktop
 // window) and checks that no touch controls appear, even in a run.
 // `--load-anyway` answers the page's "didn't finish loading last time".
+// `--menus [names]` opens each menu fixture (`?screen=`; all by default) and
+// checks every control is at least 44×44 CSS px, inside the safe area (pass
+// `?safe=top,right,bottom,left` in the URL to stand in for a notch) and
+// clear of the others; `--play` checks the menus it passes through too. Run
+// `--menus` and `--play` separately: the fixtures replace the game in play.
 //
 // Writes <out>.log, <out>.json (the samples and a summary) and screenshots.
 // Memory comes from three places: the page (WebAssembly memory, and the
@@ -37,7 +42,7 @@ const option = (name, fallback) => {
   return i >= 0 ? args[i + 1] : fallback;
 };
 const flag = (name) => args.includes(`--${name}`);
-const url = args.find((a, i) => !a.startsWith("--") && !(args[i - 1]?.startsWith("--") && !["--load-anyway", "--play"].includes(args[i - 1])));
+const url = args.find((a) => /^https?:/.test(a));
 if (!url) {
   console.error("usage: mobile.mjs <url> [--browser chromium|webkit] [--device name] [--input touch|desktop] [--load-anyway] [--timeout s] [--out prefix]");
   process.exit(2);
@@ -47,6 +52,13 @@ const deviceName = option("device", "iPhone 15 Pro");
 const input = option("input", "touch");
 const loadAnyway = flag("load-anyway");
 const play = flag("play");
+// `--menus` shows every menu fixture (or the comma-separated ones given)
+// and checks its touch targets.
+const MENUS = ["title", "title-continue", "confirmation", "collector", "collector-bound", "pack", "binding",
+  "binding-ascension", "armory", "armory-first", "bestiary", "powers", "pause", "pause-practice", "settings",
+  "display", "keyboard", "controller", "death", "victory"];
+const menus = flag("menus") ? (args[args.indexOf("--menus") + 1]?.startsWith("--") || !args[args.indexOf("--menus") + 1] || args[args.indexOf("--menus") + 1] === url
+  ? MENUS : args[args.indexOf("--menus") + 1].split(",")) : null;
 const timeout = Number(option("timeout", "300")) * 1000;
 const out = option("out", `captures/mobile/${browserName}`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -139,6 +151,63 @@ async function designPoint(page, x, y) {
   }, [x, y]);
 }
 
+// The menu on screen (`web::report`): every control as [name, x, y, w, h]
+// in CSS pixels. Each must be a thumb-sized target (44×44, Apple's 44 pt),
+// inside the safe area, and clear of the others.
+const THUMB = 44;
+async function checkMenu(page, what) {
+  const { game, safe } = await page.evaluate(() => ({ game: window.gravewake.game, safe: window.gravewake.safe }));
+  const [top, right, bottom, left] = safe;
+  const [vw, vh] = await page.evaluate(() => [innerWidth, innerHeight]);
+  const menu = game?.menu ?? [];
+  const problems = [];
+  menu.forEach(([name, x, y, w, h], i) => {
+    if (w < THUMB - 0.01 || h < THUMB - 0.01) problems.push(`${name} is ${w.toFixed(0)}×${h.toFixed(0)}`);
+    if (x < left - 0.5 || y < top - 0.5 || x + w > vw - right + 0.5 || y + h > vh - bottom + 0.5) {
+      problems.push(`${name} leaves the safe area`);
+    }
+    for (const [other, ox, oy, ow, oh] of menu.slice(i + 1)) {
+      if (x + 0.5 < ox + ow && ox + 0.5 < x + w && y + 0.5 < oy + oh && oy + 0.5 < y + h) {
+        problems.push(`${name} overlaps ${other}`);
+      }
+    }
+  });
+  const smallest = menu.reduce((m, [, , , w, h]) => Math.min(m, w, h), Infinity);
+  check(menu.length > 0 && problems.length === 0,
+    `${what}: ${menu.length} controls, every one at least ${THUMB}×${THUMB} inside the safe area ` +
+    `(smallest side ${smallest.toFixed(0)} px)${problems.length ? ": " + problems.slice(0, 6).join("; ") : ""}`);
+  return menu;
+}
+// Tap the menu control whose name starts with `name` (any case).
+async function tapControl(page, name) {
+  const menu = (await gameState(page))?.menu ?? [];
+  const hit = menu.find(([n]) => n.toUpperCase().startsWith(name.toUpperCase()));
+  if (!hit) {
+    log(`no control named ${name} (have ${menu.map(([n]) => n).join(", ")})`);
+    return false;
+  }
+  const [, x, y, w, h] = hit;
+  log(`tap ${hit[0]} at ${(x + w / 2).toFixed(0)},${(y + h / 2).toFixed(0)}`);
+  await page.touchscreen.tap(x + w / 2, y + h / 2);
+  return true;
+}
+// Show each named menu (`?screen=`'s fixtures), screenshot it and check it.
+async function tourMenus(page, names) {
+  for (const name of names) {
+    await page.evaluate((name) => { window.gravewake.showScreen = name; }, name);
+    const g = await until(page, (s) => s.screen === name, 8000);
+    if (g?.screen !== name) {
+      check(false, `the ${name} menu opens`);
+      continue;
+    }
+    // Let a fade and the controls' own easing settle, and the report catch up.
+    await sleep(900);
+    await until(page, (s) => s.screen === name && s.menu.length > 0, 4000);
+    await page.screenshot({ path: `${out}-menu-${name}.png` });
+    await checkMenu(page, `${name}`);
+  }
+}
+
 // Real touches: Playwright's tap in both browsers; in Chromium, drags and
 // several fingers at once through the DevTools protocol. WebKit's driver
 // can only tap, so its drags are pointer events dispatched on the canvas
@@ -198,7 +267,8 @@ async function playByTouch(page, cdp) {
   log(`title frame rate: ${fps.toFixed(1)} fps`);
   // The pack reaches a hunter who stands still in about 20 seconds of play,
   // so the checks in the arena are kept short.
-  await tapAt(await designPoint(page, 275, 575), "ANSWER THE BELL");
+  await checkMenu(page, "the title, as loaded");
+  await tapControl(page, "ANSWER THE BELL");
   let g = await until(page, (s) => s.mode === "Arena");
   check(g?.mode === "Arena", `a tap on the title starts a run (${g?.mode})`);
   g = await until(page, (s) => s.controls);
@@ -282,16 +352,35 @@ async function playByTouch(page, cdp) {
   check(g.mode === "Paused" && !g.controls, `the pause button pauses (${g.mode})`);
   await sleep(1000);
   await page.screenshot({ path: `${out}-5-paused.png` });
-  await tapAt(await designPoint(page, 720, 520), "SAVE & RETURN TO TITLE");
+  await checkMenu(page, "the pause menu");
+  await tapControl(page, "SAVE & RETURN TO TITLE");
   g = await until(page, (s) => s.mode === "Title", 4000);
   check(g.mode === "Title", `the pause menu works by tap (${g.mode})`);
   await sleep(800);
   await page.screenshot({ path: `${out}-6-title.png` });
+  // With a run saved, ANSWER THE BELL asks first; keep the run.
+  await checkMenu(page, "the title with a saved run");
+  await tapControl(page, "ANSWER THE BELL");
+  g = await until(page, (s) => s.settings, 3000);
+  check(g.settings, "with a run saved, a new run asks first");
+  await sleep(600);
+  await page.screenshot({ path: `${out}-7-confirm.png` });
+  await checkMenu(page, "the new-run question");
+  await tapControl(page, "Keep my pact");
+  g = await until(page, (s) => !s.settings, 3000);
+  check(!g.settings && g.mode === "Title", "keeping the run closes the question");
+  // The journal, by tap.
+  await tapControl(page, "SETTINGS");
+  g = await until(page, (s) => s.settings, 3000);
+  await sleep(600);
+  await page.screenshot({ path: `${out}-8-journal.png` });
+  await checkMenu(page, "the journal");
 }
 
 // On a desktop: start a run with the mouse; no touch controls appear.
 async function playByMouse(page) {
-  const [x, y] = await designPoint(page, 275, 575);
+  const [, x0, y0, w0, h0] = (await gameState(page)).menu.find(([n]) => n.startsWith("ANSWER THE BELL"));
+  const [x, y] = [x0 + w0 / 2, y0 + h0 / 2];
   await page.mouse.move(x, y);
   await page.mouse.down();
   await sleep(100);
@@ -426,6 +515,7 @@ try {
       const rotate = await page.evaluate(() => getComputedStyle(document.getElementById("rotate")).display);
       check(rotate === "flex", `held upright, the page asks to turn the phone sideways (${rotate})`);
     }
+    if (menus && input === "touch" && !portrait) await tourMenus(page, menus);
     if (play && input === "touch" && !portrait) await playByTouch(page, cdp);
     if (play && input === "desktop") await playByMouse(page);
   }
