@@ -165,6 +165,9 @@ struct App {
     stage_frames: u32,
     /// On-screen controls; fed only by the browser build's touch events.
     touch: touch::Touch,
+    /// The menu fixture the page last asked for (`web::take_requested_screen`).
+    #[cfg(target_arch = "wasm32")]
+    shown_screen: String,
     /// The last touch event. Browsers also report a touch's movement as
     /// mouse motion, which must neither turn the view nor count as a mouse.
     touch_seen: Option<Instant>,
@@ -413,6 +416,8 @@ impl App {
             },
             stage_frames: 0,
             touch: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            shown_screen: String::new(),
             touch_seen: None,
             #[cfg(target_arch = "wasm32")]
             pending_renderer: Default::default(),
@@ -1034,7 +1039,9 @@ impl App {
             egui::Pos2::ZERO,
             egui::vec2(css.width, css.height) / zoom,
         );
-        self.touch.layout = Some(touch::Layout::new(screen, web::safe_area().map(|v| v / zoom)));
+        let insets = web::safe_area().map(|v| v / zoom);
+        self.touch.layout = Some(touch::Layout::new(screen, insets));
+        ui::set_safe_area(&self.ctx, insets);
     }
     #[cfg(target_arch = "wasm32")]
     fn web_frame(&mut self) -> bool {
@@ -1057,6 +1064,17 @@ impl App {
             web::ready();
         }
         self.web_layout();
+        if let Some(name) = web::take_requested_screen() {
+            if let Some((_, screen)) =
+                text_review::menu_fixtures().into_iter().find(|(n, _)| *n == name)
+            {
+                let device = self.game.device;
+                text_review::Review::setup(&mut self.game, screen);
+                self.game.device = device;
+                self.shown_screen = name;
+                self.sync_cursor();
+            }
+        }
         // What the browser checks read back (`window.gravewake.game`).
         if self.frames % 10 == 0 {
             let run = &self.game.run;
@@ -1072,8 +1090,29 @@ impl App {
                     .collect::<Vec<_>>()
                     .join(",")
             });
+            // The menu's controls, as name, x, y, width, height.
+            let menu = if self.game.mode == Mode::Arena && !self.game.settings {
+                String::new()
+            } else {
+                ui::controls(&self.ctx)
+                    .iter()
+                    .map(|(name, r)| {
+                        format!(
+                            "[{:?},{},{},{},{}]",
+                            name,
+                            r.min.x * zoom,
+                            r.min.y * zoom,
+                            r.width() * zoom,
+                            r.height() * zoom
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
             web::report(&format!(
-                r#"{{"mode":"{:?}","device":"{:?}","controls":{},"yaw":{},"pitch":{},"x":{},"z":{},"ammo":{},"forward":{},"right":{},"reload":{},"zoom":{zoom},"buttons":{{{buttons}}}}}"#,
+                r#"{{"screen":{:?},"settings":{},"menu":[{menu}],"mode":"{:?}","device":"{:?}","controls":{},"yaw":{},"pitch":{},"x":{},"z":{},"ammo":{},"forward":{},"right":{},"reload":{},"zoom":{zoom},"buttons":{{{buttons}}}}}"#,
+                self.shown_screen,
+                self.game.settings || self.game.confirm_new_run,
                 self.game.mode,
                 self.game.device,
                 self.game.device == controls::Device::Touch && self.game.mode == Mode::Arena,

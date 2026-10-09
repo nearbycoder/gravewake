@@ -94,9 +94,14 @@ const safeProbe = document.getElementById("safe");
 function measureSafeArea() {
   const style = getComputedStyle(safeProbe);
   window.gravewake.safe = ["Top", "Right", "Bottom", "Left"].map((side) => parseFloat(style["padding" + side]) || 0);
+  // `?safe=top,right,bottom,left` stands in for a notch, for the browser checks.
+  if (params.has("safe")) window.gravewake.safe = params.get("safe").split(",").map(Number);
 }
 measureSafeArea();
 addEventListener("resize", measureSafeArea);
+// `?screen=pause` and so on open that menu as a fixture that saves nothing
+// (src/text_review.rs, menu_fixtures), for the browser checks.
+if (params.has("screen")) window.gravewake.showScreen = params.get("screen");
 addEventListener("orientationchange", () => setTimeout(measureSafeArea, 300));
 // Whether touch is the input in use, as the game itself decides it: a touch
 // shows the controls (and, held upright, asks to turn the phone); a key,

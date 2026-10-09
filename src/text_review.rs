@@ -10,7 +10,7 @@ use crate::{
 use glam::Vec3;
 
 #[derive(Clone, Copy)]
-enum Screen {
+pub(crate) enum Screen {
     Title(bool),
     TitleRecords,
     /// The title with records and a chronicle of five runs.
@@ -49,6 +49,41 @@ enum Screen {
     Ending(bool),
     /// A first-descent death: small numbers and a common killer.
     EndingEarly,
+}
+
+/// One fixture of every menu, by name: for the touch-size test, and the
+/// browser build's `?screen=` (`scripts/web-check/mobile.mjs --menus`).
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn menu_fixtures() -> Vec<(&'static str, Screen)> {
+    vec![
+        ("title", Screen::Title(false)),
+        ("title-continue", Screen::Title(true)),
+        ("title-chronicle", Screen::TitleChronicle),
+        ("confirmation", Screen::Confirmation),
+        ("collector", Screen::Shop(false, false)),
+        ("collector-bound", Screen::Shop(true, false)),
+        ("collector-tip", Screen::Shop(false, true)),
+        ("collector-offer", Screen::ShopOffer),
+        ("pack", Screen::Pack),
+        ("binding", Screen::Binding(0)),
+        ("binding-ascension", Screen::Binding(3)),
+        ("binding-complete", Screen::Binding(4)),
+        ("armory", Screen::Armory(18, 2)),
+        ("armory-first", Screen::Armory(0, 0)),
+        ("bestiary", Screen::Bestiary(3)),
+        ("powers", Screen::Powers(0)),
+        ("pause", Screen::Pause),
+        ("pause-ledger", Screen::PauseLedger(1)),
+        ("pause-practice", Screen::PauseLedger(2)),
+        ("settings", Screen::Settings),
+        ("display", Screen::Display(0)),
+        ("keyboard", Screen::Controls(0)),
+        ("keyboard-waiting", Screen::Controls(1)),
+        ("controller", Screen::Controls(3)),
+        ("death", Screen::Ending(false)),
+        ("victory", Screen::Ending(true)),
+        ("death-first-descent", Screen::EndingEarly),
+    ]
 }
 
 pub struct Review {
@@ -346,7 +381,7 @@ impl Review {
             game.prefs.pad_bindings.assign(action, slot, button).unwrap();
         }
     }
-    fn setup(game: &mut Game, screen: Screen) {
+    pub(crate) fn setup(game: &mut Game, screen: Screen) {
         *game = Game::new(false);
         game.has_save = false;
         game.run.gold = 98765;

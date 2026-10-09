@@ -176,6 +176,18 @@ pub fn ready() {
     call_page("gravewakeReady", "");
 }
 
+/// A menu the page asks to show (`window.gravewake.showScreen`, from
+/// `?screen=` or the browser checks), taken once: one of
+/// `text_review::menu_fixtures`, in a game that saves nothing.
+pub fn take_requested_screen() -> Option<String> {
+    let window = web_sys::window()?;
+    let game = js_sys::Reflect::get(&window, &JsValue::from_str("gravewake")).ok()?;
+    let key = JsValue::from_str("showScreen");
+    let name = js_sys::Reflect::get(&game, &key).ok()?.as_string()?;
+    let _ = js_sys::Reflect::delete_property(game.unchecked_ref::<js_sys::Object>(), &key);
+    Some(name)
+}
+
 /// Report the game's state to the page as JSON, for the browser checks.
 pub fn report(json: &str) {
     call_page("gravewakeReport", json);

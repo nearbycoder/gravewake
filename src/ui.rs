@@ -136,6 +136,8 @@ const HUD_LAYOUT: &str = "hud_layout";
 /// frame starts empty, and a dialog or the journal empties it again, so
 /// controls it hides can't be reached.
 const PAD_TARGETS: &str = "pad_targets";
+/// The same controls with their names, for the touch-size checks.
+const CONTROLS: &str = "controls";
 /// Sounds the interface asks for, played by `main.rs` after each frame.
 const CUES: &str = "interface_cues";
 fn cue(ctx: &egui::Context, name: &'static str) {
@@ -149,7 +151,29 @@ pub fn take_cues(ctx: &egui::Context) -> Vec<&'static str> {
     ctx.data_mut(|d| std::mem::take(d.get_temp_mut_or_default::<Vec<&'static str>>(Id::new(CUES))))
 }
 fn clear_pad_targets(ctx: &egui::Context) {
-    ctx.data_mut(|d| d.insert_temp(Id::new(PAD_TARGETS), Vec::<Target>::new()));
+    ctx.data_mut(|d| {
+        d.insert_temp(Id::new(PAD_TARGETS), Vec::<Target>::new());
+        d.insert_temp(Id::new(CONTROLS), Vec::<(String, Rect)>::new());
+    });
+}
+const SAFE_AREA: &str = "safe_area";
+/// Whether touch is the input in use (`controls::Device::Touch`), for this
+/// frame's menus.
+const TOUCH_MODE: &str = "touch_mode";
+/// The smallest control on a touchscreen, in points (CSS pixels): Apple's
+/// 44 pt, and a hair more so rounding never takes one under it.
+const THUMB: f32 = 44.;
+/// The screen's safe-area insets (top, right, bottom, left) in egui points:
+/// the notch and the home indicator, which touch menus keep clear of.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn set_safe_area(ctx: &egui::Context, insets: [f32; 4]) {
+    ctx.data_mut(|d| d.insert_temp(Id::new(SAFE_AREA), insets));
+}
+/// Every control the last frame drew, by name, in egui points.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn controls(ctx: &egui::Context) -> Vec<(String, Rect)> {
+    ctx.data(|d| d.get_temp(Id::new(CONTROLS)))
+        .unwrap_or_default()
 }
 /// The controls the last frame drew, for the controller cursor.
 pub fn pad_targets(ctx: &egui::Context) -> Vec<Target> {
@@ -165,6 +189,9 @@ struct Canvas<'a> {
     time: f32,
     /// Smallest text size in logical points.
     floor: f32,
+    /// Touch is the input in use: every control is at least `THUMB` points
+    /// each way, and menus lay themselves out for it.
+    touch: bool,
 }
 impl<'a> Canvas<'a> {
     fn new(ui: &'a egui::Ui, time: f32) -> Self {
@@ -180,7 +207,37 @@ impl<'a> Canvas<'a> {
             h,
             time,
             floor: 13.5,
+            touch: ui.ctx().data(|d| d.get_temp::<bool>(Id::new(TOUCH_MODE))).unwrap_or(false),
         }
+    }
+    /// The smallest control side on a touchscreen, in this canvas's design
+    /// units; `None` when touch isn't the input in use.
+    fn thumb(&self) -> Option<f32> {
+        self.touch.then(|| (THUMB + 0.5) / self.s)
+    }
+    /// A control's rectangle grown about its centre to the touch minimum.
+    fn touch_rect(&self, x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+        match self.thumb() {
+            Some(m) => {
+                let (ww, hh) = (w.max(m), h.max(m));
+                (x - (ww - w) * 0.5, y - (hh - h) * 0.5, ww, hh)
+            }
+            None => (x, y, w, h),
+        }
+    }
+    /// The safe area (clear of a notch and the home indicator) in design
+    /// units: left, top, right, bottom.
+    fn safe(&self) -> (f32, f32, f32, f32) {
+        let [top, right, bottom, left] = self
+            .ui
+            .ctx()
+            .data(|d| d.get_temp::<[f32; 4]>(Id::new(SAFE_AREA)))
+            .unwrap_or_default();
+        let screen = self.ui.ctx().screen_rect();
+        let to = |p: Pos2| ((p.x - self.offset.x) / self.s, (p.y - self.offset.y) / self.s);
+        let (x0, y0) = to(screen.min + Vec2::new(left, top));
+        let (x1, y1) = to(screen.max - Vec2::new(right, bottom));
+        (x0, y0, x1, y1)
     }
     /// The same canvas scaled by `k` around the design point (`ax`, `ay`),
     /// so a HUD group grows or shrinks from its own corner. Below full size
@@ -194,6 +251,7 @@ impl<'a> Canvas<'a> {
             h: self.h,
             time: self.time,
             floor: self.floor * k.min(1.),
+            touch: self.touch,
         }
     }
     /// Note a HUD panel's rectangle so tests can check that none overlap.
@@ -207,11 +265,13 @@ impl<'a> Canvas<'a> {
         }
     }
     /// Let the D-pad reach a control drawn this frame.
-    fn target(&self, target: Target) {
+    fn target(&self, name: &str, target: Target) {
         if self.ui.ctx().screen_rect().intersects(target.rect) {
             self.ui.ctx().data_mut(|d| {
                 d.get_temp_mut_or_default::<Vec<Target>>(Id::new(PAD_TARGETS))
-                    .push(target)
+                    .push(target);
+                d.get_temp_mut_or_default::<Vec<(String, Rect)>>(Id::new(CONTROLS))
+                    .push((name.to_owned(), target.rect));
             });
         }
     }
@@ -395,10 +455,11 @@ impl<'a> Canvas<'a> {
         }
     }
     fn button(&self, id: &str, x: f32, y: f32, w: f32, h: f32, label: &str, primary: bool) -> bool {
+        let (x, y, w, h) = self.touch_rect(x, y, w, h);
         let r = self
             .ui
             .interact(self.rect(x, y, w, h), Id::new(id), Sense::click());
-        self.target(Target::button(r.rect));
+        self.target(label, Target::button(r.rect));
         // A tick when the pointer or the focus frame first lands on the
         // button, and a clack when it's pressed.
         let ctx = self.ui.ctx();
@@ -437,9 +498,13 @@ impl<'a> Canvas<'a> {
             .ctx()
             .data(|d| d.get_temp::<egui::TextureHandle>(Id::new("button_plate")))
         {
-            let cap = h * 0.63;
-            let yy = y - h * 0.17;
-            let hh = h * 1.34;
+            // On a touchscreen the plate fills the control and no more, so
+            // neighbouring controls can sit close without overlapping.
+            let (cap, yy, hh) = if self.touch {
+                ((h * 0.63).min(w * 0.22), y, h)
+            } else {
+                (h * 0.63, y - h * 0.17, h * 1.34)
+            };
             for (xx, ww, u0, u1) in [
                 (x, cap, 0., 0.18),
                 (x + cap, w - cap * 2., 0.18, 0.82),
@@ -455,13 +520,16 @@ impl<'a> Canvas<'a> {
         }
         // Measure the same house font on every control, preserving a readable
         // minimum rather than squeezing letters into the metal end caps.
-        let width = (w - h * 1.15).max(12.);
+        // A tall touch control keeps its end caps and inset in proportion
+        // to its width.
+        let inner = if self.touch { (h * 0.57).min(w * 0.2) } else { h * 0.57 };
+        let width = (w - inner * 2.02).max(12.);
         let role = TypeRole::Strong;
         let size = self.fit_type(label, role, 22., width);
         self.inset(
-            x + h * 0.57,
+            x + inner,
             y + h * 0.16,
-            w - h * 1.14,
+            w - inner * 2.,
             h * 0.69,
             C::from_black_alpha(100),
         );
@@ -476,8 +544,8 @@ impl<'a> Canvas<'a> {
         );
         if hover > 0.01 {
             self.line(
-                (x + h * 0.8, y + h * 0.80),
-                (x + w - h * 0.8, y + h * 0.80),
+                (x + inner * 1.4, y + h * 0.80),
+                (x + w - inner * 1.4, y + h * 0.80),
                 GOLD.gamma_multiply(hover * 0.7),
                 0.7,
             );
@@ -576,8 +644,9 @@ impl<'a> Canvas<'a> {
         max: f32,
         step: f32,
     ) {
+        let band = self.thumb().map_or(30., |m| m.max(30.));
         let r = self.ui.interact(
-            self.rect(x - 12., y - 15., w + 24., 30.),
+            self.rect(x - 12., y - band * 0.5, w + 24., band),
             Id::new(id),
             Sense::click_and_drag(),
         );
@@ -589,7 +658,7 @@ impl<'a> Canvas<'a> {
         }
         let t = (*value - min) / (max - min);
         // The D-pad rests on the knob, so A there keeps the value.
-        self.target(Target {
+        self.target(id, Target {
             rect: r.rect,
             point: self.pt(x + w * t, y),
             track: Some((self.pt(x, y).x, self.pt(x + w, y).x)),
@@ -895,6 +964,26 @@ fn title(c: &Canvas, g: &mut Game) {
         shade.add_triangle(k + 1, k + 3, k + 2);
     }
     c.p.add(Shape::mesh(shade));
+    // On a touchscreen the menu's rows are a thumb high, stacked up from
+    // the bottom of the safe area, and the wordmark shrinks into the space
+    // above them.
+    let rows = 3 + g.has_save as usize;
+    let menu = c.thumb().map(|m| {
+        let gap = m * 0.12;
+        let bottom = c.safe().3.min(c.h) - 10.;
+        let top = bottom - rows as f32 * m - (rows - 1) as f32 * gap;
+        (top, m, gap)
+    });
+    let brand = match menu {
+        Some((top, ..)) if top < 530. => {
+            let mut b = c.anchored(((top - 84.) / 440.).max(0.3), 98., 60.);
+            b.floor = c.floor;
+            b
+        }
+        _ => c.shifted(0., 0.),
+    };
+    let c_menu = c;
+    let c = &brand;
     // Keep the bell and wordmark on the same axis as the main menu.
     let brand_center = 98. + 355. * 0.5;
     c.texture(
@@ -934,7 +1023,14 @@ fn title(c: &Canvas, g: &mut Game) {
         true,
         Align2::LEFT_CENTER,
     );
-    if c.button("new", 98., 548., 355., 55., "ANSWER THE BELL  >", true) {
+    let c = c_menu;
+    // Each row's top and height: the desktop's, or the touch stack's.
+    let row = |i: usize, y: f32, h: f32| match menu {
+        Some((top, m, gap)) => (top + i as f32 * (m + gap), m),
+        None => (y, h),
+    };
+    let (y, h) = row(0, 548., 55.);
+    if c.button("new", 98., y, 355., h, "ANSWER THE BELL  >", true) {
         if g.has_save {
             g.confirm_new_run = true;
         } else {
@@ -942,18 +1038,11 @@ fn title(c: &Canvas, g: &mut Game) {
         }
     }
     if g.has_save {
-        if c.button(
-            "continue",
-            98.,
-            615.,
-            355.,
-            44.,
-            "CONTINUE YOUR DESCENT",
-            false,
-        ) {
+        let (y, h) = row(1, 615., 44.);
+        if c.button("continue", 98., y, 355., h, "CONTINUE YOUR DESCENT", false) {
             g.resume_save();
         }
-    } else {
+    } else if menu.is_none() {
         c.text(
             98.,
             633.,
@@ -964,25 +1053,20 @@ fn title(c: &Canvas, g: &mut Game) {
             Align2::LEFT_CENTER,
         );
     }
-    if c.button("collection", 98., 680., 168., 41., "ARMORY", false) {
+    let books = 1 + g.has_save as usize;
+    let (y, h) = row(books, 680., 41.);
+    if c.button("collection", 98., y, 168., h, "ARMORY", false) {
         g.open_book(Mode::Collection);
     }
-    if c.button("bestiary", 280., 680., 173., 41., "BESTIARY", false) {
+    if c.button("bestiary", 280., y, 173., h, "BESTIARY", false) {
         g.open_book(Mode::Bestiary);
     }
-    if c.button(
-        "settings",
-        98.,
-        734.,
-        355.,
-        41.,
-        "SETTINGS & CONTROLS",
-        false,
-    ) {
+    let (y, h) = row(books + 1, 734., 41.);
+    if c.button("settings", 98., y, 355., h, "SETTINGS & CONTROLS", false) {
         g.settings = true;
     }
     // A browser tab is closed, not quit; the web build has no Quit.
-    if !WEB && c.button("quit_title", 98., 789., 355., 41., "QUIT GAME", false) {
+    if !(WEB || c.touch) && c.button("quit_title", 98., 789., 355., 41., "QUIT GAME", false) {
         g.quit_requested = true;
     }
     let r = &g.records;
@@ -1080,6 +1164,35 @@ fn chronicle(c: &Canvas, history: &[PastRun]) {
         }
     }
 }
+/// The Collector's rows on a touchscreen, in design units: the offers'
+/// top and scale, their buttons' row, the pack's row and the deck strip.
+struct ShopTouch {
+    m: f32,
+    card_top: f32,
+    k: f32,
+    buttons: f32,
+    pack: f32,
+    strip: f32,
+}
+impl ShopTouch {
+    fn new(c: &Canvas) -> Option<Self> {
+        let m = c.thumb()?;
+        let gap = m * 0.12;
+        // The strip holds the equipped card (103 high) as well as a row.
+        let strip = c.safe().3.min(c.h) - m.max(110.) - 24.;
+        let card_top = 168.;
+        let k = ((strip - 14. - card_top - 2. * m - 3. * gap) / 425.).min(1.);
+        let buttons = card_top + 425. * k + gap;
+        Some(Self {
+            m,
+            card_top,
+            k,
+            buttons,
+            pack: buttons + m + gap * 2.,
+            strip,
+        })
+    }
+}
 fn house(c: &Canvas, g: &mut Game) {
     backdrop(c, true);
     header(
@@ -1094,6 +1207,29 @@ fn house(c: &Canvas, g: &mut Game) {
     let y = 205.;
     let h = 425.;
     let w = 280.;
+    // On a touchscreen the three offers shrink to fit above their buttons,
+    // which become a row of their own under them, then the pack's row and
+    // the deck strip, each a thumb high (`ShopTouch`).
+    let touch = ShopTouch::new(c);
+    // Each offer's canvas: on a touchscreen scaled about its own centre and
+    // spread 420 apart, so the buttons under them can be wide.
+    let spread = |x: f32| {
+        let centre = x + w * 0.5;
+        touch.as_ref().map(|t| {
+            let to = 720. + (centre - 720.) / 340. * 420.;
+            c.shifted(to - centre, t.card_top - y).anchored(t.k, centre, y)
+        })
+    };
+    let card_button = |x: f32, id: &str, label: &str, short: &str| match &touch {
+        Some(t) => {
+            let to = 720. + (x + w * 0.5 - 720.) / 340. * 420.;
+            c.button(id, to - 200., t.buttons, 400., t.m, short, true)
+        }
+        None => c.button(id, x + 22., y + h - 61., 236., 36., label, true),
+    };
+    let c_full = c;
+    let draw_canvas = spread(240.);
+    let c = draw_canvas.as_ref().unwrap_or(c_full);
     card_base(c, 240., y, w, h, 0, true);
     c.text(
         380.,
@@ -1106,31 +1242,28 @@ fn house(c: &Canvas, g: &mut Game) {
     );
     c.center(380., y + 317., "ONE WEAPON. ANOTHER CHANCE.", 10., GOLD);
     c.center(380., y + 340., "58% COMMON  /  2% LEGENDARY", 10., GOLD);
-    if c.button(
+    let draw_cost = 45 + g.run.draws * 10;
+    if card_button(
+        240.,
         "draw",
-        262.,
-        y + h - 61.,
-        236.,
-        36.,
-        &format!("DRAW    {} GOLD", 45 + g.run.draws * 10),
-        true,
+        &format!("DRAW    {draw_cost} GOLD"),
+        &format!("DRAW  {draw_cost} G"),
     ) {
         g.draw();
     }
     let offer = g.run.offer.clone();
-    if weapon_card(
-        c,
-        "offer",
-        580.,
-        y,
-        w,
-        h,
-        &offer,
-        &format!("EQUIP    {} GOLD", 35 + offer.rarity as u32 * 20),
-        Some(&g.run.weapon),
-    ) {
+    let offer_cost = 35 + offer.rarity as u32 * 20;
+    let equip = format!("EQUIP    {offer_cost} GOLD");
+    let action = if touch.is_some() { "" } else { equip.as_str() };
+    let offer_canvas = spread(580.);
+    let c = offer_canvas.as_ref().unwrap_or(c_full);
+    let bought = weapon_card(c, "offer", 580., y, w, h, &offer, action, Some(&g.run.weapon));
+    if bought || (touch.is_some() && card_button(580., "offer", &equip, &format!("EQUIP  {offer_cost} G")))
+    {
         g.buy_offer();
     }
+    let chalice_canvas = spread(920.);
+    let c = chalice_canvas.as_ref().unwrap_or(c_full);
     card_base(c, 920., y, w, h, 0, false);
     c.center(1060., y + 35., "A R T I F A C T", 11., INK);
     chalice_art(c, 1060., y + 125., 1.05);
@@ -1153,18 +1286,15 @@ fn house(c: &Canvas, g: &mut Game) {
     );
     c.center(1060., y + 314., "UNLOCK EMBER BOLT", 12., INK);
     c.center(1060., y + 337., "95 DAMAGE  /  12 MANA", 11., INK);
-    if c.button(
+    if card_button(
+        920.,
         "chalice",
-        942.,
-        y + h - 61.,
-        236.,
-        36.,
         if g.run.chalice {
             "BOUND TO YOUR SOUL"
         } else {
             "BIND    65 GOLD"
         },
-        true,
+        if g.run.chalice { "BOUND" } else { "BIND  65 G" },
     ) && !g.run.chalice
         && g.spend(65)
     {
@@ -1173,6 +1303,15 @@ fn house(c: &Canvas, g: &mut Game) {
         g.notify(&format!("Ember Bolt awakened. Press {key} in the arena."));
         g.save();
     }
+    // The odds and the pack, moved to the pack's row on a touchscreen.
+    let moved;
+    let c = match &touch {
+        Some(t) => {
+            moved = c_full.shifted(0., t.pack - 648.);
+            &moved
+        }
+        None => c_full,
+    };
     c.text(
         244.,
         665.,
@@ -1224,17 +1363,19 @@ fn house(c: &Canvas, g: &mut Game) {
         false,
         Align2::LEFT_CENTER,
     );
+    let (px, py, pw, ph) = touch.as_ref().map_or((1036., 674., 164., 53.), |t| (1180., 648., 200., t.m));
     if c.button(
         "pack",
-        1036.,
-        674.,
-        164.,
-        53.,
+        px,
+        py,
+        pw,
+        ph,
         &format!("OPEN  /  {} G", 30 + g.run.pack_buys * 15),
         true,
     ) {
         g.open_pack();
     }
+    let c = c_full;
     deck(c, g);
     // Over the Collector's robe, between the title and the purse.
     if let Some(active) = g.tip.filter(|t| t.tip.in_shop()) {
@@ -1242,12 +1383,15 @@ fn house(c: &Canvas, g: &mut Game) {
     }
 }
 fn deck(c: &Canvas, g: &mut Game) {
-    let y = c.h - 135.;
+    // On a touchscreen the strip rises to hold one row a thumb high inside
+    // the safe area: the card, Upgrade, Armory, Armor and the descent.
+    let touch = ShopTouch::new(c);
+    let y = touch.as_ref().map_or(c.h - 135., |t| t.strip);
     c.fill(
         -100.,
         y,
         1640.,
-        135.,
+        c.h - y,
         C::from_rgba_unmultiplied(6, 9, 8, 248),
     );
     c.line((42., y), (1398., y), GOLD.gamma_multiply(0.6), 1.);
@@ -1281,35 +1425,47 @@ fn deck(c: &Canvas, g: &mut Game) {
     let card = g.run.weapon.clone();
     card_base(c, 280., y + 16., 70., 103., card.rarity, false);
     weapon_art(c, 311., y + 69., 54., &card, 0.);
+    let (ex, ey, ew, eh) = c.touch_rect(280., y + 16., 70., 103.);
     let equipped = c.ui.interact(
-        c.rect(280., y + 16., 70., 103.),
+        c.rect(ex, ey, ew, eh),
         Id::new("equipped"),
         Sense::click(),
     );
-    c.target(Target::button(equipped.rect));
+    c.target("equipped card", Target::button(equipped.rect));
     if equipped.clicked() {
         g.mode = Mode::Tree;
     }
-    c.paragraph_role(
-        380.,
-        y + 15.,
-        &card.name(),
-        373.,
-        18.,
-        IVORY,
-        false,
-        TypeRole::Strong,
-    );
-    if c.button("upgrade", 380., y + 76., 164., 35., "UPGRADE CARD", false) {
+    // Each button's place: the desktop's, or the touch row's.
+    let place = |x: f32, dy: f32, w: f32, h: f32, tx: f32, tw: f32| match &touch {
+        Some(t) => (tx, y + 10., tw, t.m),
+        None => (x, y + dy, w, h),
+    };
+    if touch.is_none() {
+        c.paragraph_role(
+            380.,
+            y + 15.,
+            &card.name(),
+            373.,
+            18.,
+            IVORY,
+            false,
+            TypeRole::Strong,
+        );
+    }
+    let (bx, by, bw, bh) = place(380., 76., 164., 35., 395., 165.);
+    if c.button("upgrade", bx, by, bw, bh, "UPGRADE CARD", false) {
         g.mode = Mode::Tree;
     }
-    if c.button("armor", 795., y + 81., 230., 35., "ARMOR +30: 40G", false) && g.spend(40) {
+    let (bx, by, bw, bh) = place(795., 81., 230., 35., 738., 215.);
+    if c.button("armor", bx, by, bw, bh, "ARMOR +30: 40G", false) && g.spend(40) {
         g.run.armor += 30.;
         g.save();
     }
-    if c.button("codex", 578., y + 76., 175., 35., "ARMORY", false) {
+    let (bx, by, bw, bh) = place(578., 76., 175., 35., 574., 150.);
+    if c.button("codex", bx, by, bw, bh, "ARMORY", false) {
         g.open_book(Mode::Collection);
     }
+    if touch.is_none() {
     c.text(
         795.,
         y + 26.,
@@ -1332,12 +1488,14 @@ fn deck(c: &Canvas, g: &mut Game) {
         false,
         Align2::LEFT_CENTER,
     );
+    }
+    let (bx, by, bw, bh) = place(1080., 14., 292., 56., 967., 300.);
     if c.button(
         "next",
-        1080.,
-        y + 14.,
-        292.,
-        56.,
+        bx,
+        by,
+        bw,
+        bh,
         &format!("ENTER DESCENT {:02}  >", g.run.wave + 1),
         true,
     ) {
@@ -1353,7 +1511,7 @@ fn deck(c: &Canvas, g: &mut Game) {
             "  /  THE TITHEKEEPER WAITS"
         };
     }
-    c.center(1226., y + 88., stakes, 11., if next.boss { BLOOD } else { GOLD });
+    let color = if next.boss { BLOOD } else { GOLD };
     let names: Vec<&str> = next
         .new
         .iter()
@@ -1364,6 +1522,12 @@ fn deck(c: &Canvas, g: &mut Game) {
     } else {
         format!("NEW: {}", names.join(", "))
     };
+    // On a touchscreen the strip has no room: one line under the header.
+    if touch.is_some() {
+        c.center(720., 136., format!("{stakes}  /  {new}"), 11., color);
+        return;
+    }
+    c.center(1226., y + 88., stakes, 11., color);
     c.center(1226., y + 110., new, 9., MUTED);
 }
 #[derive(Clone)]
@@ -1837,13 +2001,20 @@ fn tree(c: &Canvas, g: &mut Game) {
                     1.5,
                 );
             }
-            let r = c.ui.interact(
-                c.rect(x - 28., y - 25., 56., 50.),
-                Id::new(("node", path, level)),
-                Sense::click(),
-            );
-            c.target(Target::button(r.rect));
-            c.medallion(x, y, 23., bought || available || r.hovered());
+            // On a touchscreen the nodes are the picture, and each path's
+            // button (below) binds its next level.
+            let r = (!c.touch).then(|| {
+                c.ui.interact(
+                    c.rect(x - 28., y - 25., 56., 50.),
+                    Id::new(("node", path, level)),
+                    Sense::click(),
+                )
+            });
+            if let Some(r) = &r {
+                c.target(&format!("node {path} {level}"), Target::button(r.rect));
+            }
+            let hovered = r.as_ref().is_some_and(|r| r.hovered());
+            c.medallion(x, y, 23., bought || available || hovered);
             match path {
                 0 => {
                     c.line((x - 6., y + 9.), (x + 7., y - 9.), col, 2.);
@@ -1878,6 +2049,7 @@ fn tree(c: &Canvas, g: &mut Game) {
                     GOLD,
                 );
             }
+            let Some(r) = r else { continue };
             if r.hovered() {
                 c.ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 r.clone().on_hover_text(if bought {
@@ -1899,28 +2071,52 @@ fn tree(c: &Canvas, g: &mut Game) {
         c.line((x, 668.), (821., 721.), GOLD.gamma_multiply(0.35), 1.);
     }
     c.seal(821., 754., 31., if card.major { IVORY } else { GOLD });
+    // On a touchscreen the column of buttons takes the right-hand side, so
+    // the Soul Siphon's note moves to the seal's left.
+    let (note_x, align) = if c.touch {
+        (775., Align2::RIGHT_CENTER)
+    } else {
+        (903., Align2::LEFT_CENTER)
+    };
+    c.text(note_x, 746., "SOUL SIPHON", 19., IVORY, true, align);
     c.text(
-        903.,
-        746.,
-        "SOUL SIPHON",
-        19.,
-        IVORY,
-        true,
-        Align2::LEFT_CENTER,
-    );
-    c.text(
-        903.,
+        note_x,
         773.,
         "Complete a path. Damage restores life.",
         10.,
         MUTED,
         false,
-        Align2::LEFT_CENTER,
+        align,
     );
-    if card.paths.contains(&5)
-        && !card.major
-        && c.button("ascend", 708., 809., 226., 39., "BIND  /  120 GOLD", true)
-    {
+    let ascend = card.paths.contains(&5) && !card.major;
+    if let Some(m) = c.thumb() {
+        let rows = 4 + ascend as usize;
+        let gap = m * 0.12;
+        let bottom = c.safe().3.min(c.h) - 10.;
+        let top = bottom - rows as f32 * m - (rows - 1) as f32 * gap;
+        let row = |i: usize| top + i as f32 * (m + gap);
+        for path in 0..3 {
+            let level = card.paths[path];
+            let label = if level >= 5 {
+                format!("{}  /  BOUND", names[path])
+            } else {
+                format!("{}  /  {} G", names[path], 15 + level as u32 * 12)
+            };
+            if c.button(&format!("path{path}"), 1205., row(path), 200., m, &label, level < 5)
+                && level < 5
+            {
+                g.upgrade(path);
+            }
+        }
+        if ascend && c.button("ascend", 1205., row(3), 200., m, "BIND  /  120 G", true) {
+            g.ascend();
+        }
+        if c.button("treeback", 1205., row(rows - 1), 200., m, "BACK TO SHOP", false) {
+            g.mode = Mode::Shop;
+        }
+        return;
+    }
+    if ascend && c.button("ascend", 708., 809., 226., 39., "BIND  /  120 GOLD", true) {
         g.ascend();
     }
     if c.button(
@@ -1964,20 +2160,53 @@ fn collection(c: &Canvas, g: &mut Game) {
     }
     let kind = WeaponKind::ALL[g.collection_kind.min(32)];
     let spec = kind.spec();
-    c.text(
-        75.,
-        231.,
-        "Choose an implement",
-        21.,
-        IVORY,
-        true,
-        Align2::LEFT_CENTER,
-    );
-    for (row, k) in WeaponKind::ALL
+    let family: Vec<WeaponKind> = WeaponKind::ALL
         .iter()
+        .copied()
         .filter(|k| k.spec().group == g.collection_group)
-        .enumerate()
-    {
+        .collect();
+    // On a touchscreen the left column holds rows a thumb high: a pager
+    // through the family's weapons, the four rarities and Close.
+    let rows = c.thumb().map(|m| {
+        let top = 144. + m.max(48.) + 55.;
+        move |i: f32| (top + i * m * 1.12, m)
+    });
+    if let Some(row) = rows {
+        let at = family.iter().position(|k| *k == kind).unwrap_or(0);
+        let count = family.len();
+        c.text(
+            75.,
+            row(0.).0 - 28.,
+            format!("{} / {count}  IN THE FAMILY", at + 1),
+            16.,
+            MUTED,
+            false,
+            Align2::LEFT_CENTER,
+        );
+        let (y, h) = row(0.);
+        let mut pick = None;
+        if c.button("armory_prev", 66., y, 171., h, "<  PREVIOUS", false) {
+            pick = Some(family[(at + count - 1) % count]);
+        }
+        if c.button("armory_next", 251., y, 171., h, "NEXT  >", false) {
+            pick = Some(family[(at + 1) % count]);
+        }
+        if let Some(k) = pick {
+            g.collection_kind = k as usize;
+            g.sound_events.push("card_deal");
+        }
+    } else {
+        c.text(
+            75.,
+            231.,
+            "Choose an implement",
+            21.,
+            IVORY,
+            true,
+            Align2::LEFT_CENTER,
+        );
+    }
+    for (row, k) in family.iter().enumerate().filter(|_| rows.is_none()) {
         let y = 269. + row as f32 * 61.;
         let selected = *k == kind;
         if c.button(
@@ -2066,20 +2295,21 @@ fn collection(c: &Canvas, g: &mut Game) {
     ) {
         g.practice(card.clone());
     }
-    c.center(1125., 718., "Your current run stays untouched.", 11., INK);
+    if !c.touch {
+        c.center(1125., 718., "Your current run stays untouched.", 11., INK);
+    }
     for (i, label) in ["Common", "Uncommon", "Rare", "Legendary"]
         .iter()
         .enumerate()
     {
-        if c.button(
-            &format!("rarity{i}"),
-            676. + i as f32 * 128.,
-            780.,
-            125.,
-            32.,
-            label,
-            g.collection_rarity == i,
-        ) {
+        let (x, y, w, h) = match rows {
+            Some(row) => {
+                let (y, h) = row(1. + (i / 2) as f32);
+                (66. + (i % 2) as f32 * 185., y, 171., h)
+            }
+            None => (676. + i as f32 * 128., 780., 125., 32.),
+        };
+        if c.button(&format!("rarity{i}"), x, y, w, h, label, g.collection_rarity == i) {
             g.collection_rarity = i;
         }
     }
@@ -2092,15 +2322,14 @@ fn collection(c: &Canvas, g: &mut Game) {
         true,
         Align2::LEFT_CENTER,
     );
-    if c.button(
-        "bookback",
-        1170.,
-        c.h - 79.,
-        195.,
-        44.,
-        "Close the armory",
-        false,
-    ) {
+    let (x, y, w, h) = match rows {
+        Some(row) => {
+            let (y, h) = row(3.);
+            (66., y, 356., h)
+        }
+        None => (1170., c.h - 79., 195., 44.),
+    };
+    if c.button("bookback", x, y, w, h, "Close the armory", false) {
         g.back();
     }
 }
@@ -2122,17 +2351,43 @@ fn bestiary(c: &Canvas, g: &mut Game) {
     c.folio(1022., 188., 386., 533.);
     header(c, "THE BESTIARY", "THE UNQUIET OF MOURNHOLLOW", None);
     let names: Vec<_> = crate::encounters::ROSTER.iter().map(|s| s.name).collect();
-    for (i, n) in names.iter().enumerate() {
-        if c.button(
-            &format!("beast{i}"),
-            45.,
-            168. + i as f32 * 43.,
-            365.,
-            37.,
-            n,
-            g.bestiary_index == i,
-        ) {
-            g.bestiary_index = i;
+    // A touchscreen pages through the roster a thumb's height at a time;
+    // the desktop lists it.
+    let touch = c.thumb().map(|m| {
+        let bottom = c.safe().3.min(c.h) - 10.;
+        (bottom - m, bottom - m * 2.12, m)
+    });
+    if let Some((_, pager, m)) = touch {
+        let count = names.len();
+        c.text(
+            227.,
+            220.,
+            format!("{:02}  /  {count:02}", g.bestiary_index + 1),
+            16.,
+            MUTED,
+            false,
+            Align2::CENTER_CENTER,
+        );
+        c.text(227., 290., names[g.bestiary_index], 30., IVORY, true, Align2::CENTER_CENTER);
+        if c.button("beast_prev", 45., pager, 175., m, "<  PREVIOUS", false) {
+            g.bestiary_index = (g.bestiary_index + count - 1) % count;
+        }
+        if c.button("beast_next", 235., pager, 175., m, "NEXT  >", false) {
+            g.bestiary_index = (g.bestiary_index + 1) % count;
+        }
+    } else {
+        for (i, n) in names.iter().enumerate() {
+            if c.button(
+                &format!("beast{i}"),
+                45.,
+                168. + i as f32 * 43.,
+                365.,
+                37.,
+                n,
+                g.bestiary_index == i,
+            ) {
+                g.bestiary_index = i;
+            }
         }
     }
     c.text(
@@ -2167,7 +2422,8 @@ fn bestiary(c: &Canvas, g: &mut Game) {
         false,
         Align2::LEFT_CENTER,
     );
-    if c.button("bestiaryback", 65., c.h - 105., 323., 45., "BACK", false) {
+    let (back_y, back_h) = touch.map_or((c.h - 105., 45.), |(y, _, m)| (y, m));
+    if c.button("bestiaryback", 65., back_y, 323., back_h, "BACK", false) {
         g.back();
     }
 }
@@ -3120,9 +3376,21 @@ fn pause(c: &Canvas, g: &mut Game) {
         pause_ledger(c, g);
     }
     let x = 464.;
-    let y = 215.;
-    c.layout("pause_folio", x, y, 512., 515.);
-    c.folio(x, y, 512., 515.);
+    // On a touchscreen the folio grows to hold three rows a thumb high.
+    let rows = c.thumb().map(|m| (m, m * 0.12));
+    let (y, height) = match rows {
+        Some((m, gap)) => {
+            let height = 163. + 3. * m + 2. * gap + 50.;
+            (((c.safe().3.min(c.h) - height) * 0.5).max(10.), height)
+        }
+        None => (215., 515.),
+    };
+    let row = |i: f32, desktop: f32, h: f32| match rows {
+        Some((m, gap)) => (y + 163. + i * (m + gap), m),
+        None => (y + desktop, h),
+    };
+    c.layout("pause_folio", x, y, 512., height);
+    c.folio(x, y, 512., height);
     c.flourish(720., y + 140., 330., INK);
     c.text(
         720.,
@@ -3134,42 +3402,21 @@ fn pause(c: &Canvas, g: &mut Game) {
         Align2::CENTER_CENTER,
     );
     c.center(720., y + 113., "THE FOREST CAN WAIT.", 11., INK);
-    if c.button(
-        "resume",
-        521.,
-        y + 163.,
-        398.,
-        47.,
-        "RETURN TO THE HUNT",
-        true,
-    ) {
+    let (by, bh) = row(0., 163., 47.);
+    if c.button("resume", 521., by, 398., bh, "RETURN TO THE HUNT", true) {
         g.mode = Mode::Arena;
     }
-    if c.button(
-        "pause_settings",
-        521.,
-        y + 225.,
-        398.,
-        43.,
-        "SETTINGS & CONTROLS",
-        false,
-    ) {
+    let (by, bh) = row(1., 225., 43.);
+    if c.button("pause_settings", 521., by, 398., bh, "SETTINGS & CONTROLS", false) {
         g.settings = true;
     }
-    if c.button(
-        "save_title",
-        521.,
-        y + 284.,
-        398.,
-        43.,
-        "SAVE & RETURN TO TITLE",
-        false,
-    ) {
+    let (by, bh) = row(2., 284., 43.);
+    if c.button("save_title", 521., by, 398., bh, "SAVE & RETURN TO TITLE", false) {
         if g.save() {
             g.mode = Mode::Title;
         }
     }
-    if !WEB
+    if !(WEB || c.touch)
         && c.button(
             "quit_pause",
             521.,
@@ -3185,6 +3432,9 @@ fn pause(c: &Canvas, g: &mut Game) {
         )
     {
         g.quit_requested = true;
+    }
+    if c.touch {
+        return;
     }
     c.center(
         720.,
@@ -3364,23 +3614,28 @@ fn ending(c: &Canvas, g: &mut Game) {
             GOLD,
         );
     }
-    if c.button("again", 542., 640., 356., 54., "BUILD AGAIN", true) {
+    // On a touchscreen the choices sit side by side in one row a thumb high,
+    // at the bottom of the safe area; on the desktop, stacked.
+    let count = if win { 3. } else { 2. };
+    let place = |i: f32, y: f32, h: f32| match c.thumb() {
+        // One row, where the desktop's first button is, or higher to fit.
+        Some(m) => (
+            720. - (count * 356. + (count - 1.) * 20.) * 0.5 + i * 376.,
+            640f32.min(c.safe().3.min(c.h) - m - 10.),
+            m,
+        ),
+        None => (542., y, h),
+    };
+    let (x, y, h) = place(0., 640., 54.);
+    if c.button("again", x, y, 356., h, "BUILD AGAIN", true) {
         g.new_run();
     }
-    if c.button("end_title", 542., 706., 356., 43., "RETURN TO TITLE", false) {
+    let (x, y, h) = place(1., 706., 43.);
+    if c.button("end_title", x, y, 356., h, "RETURN TO TITLE", false) {
         g.mode = Mode::Title;
     }
-    if win
-        && c.button(
-            "endless",
-            542.,
-            761.,
-            356.,
-            43.,
-            "THE TITHE NEVER ENDS",
-            true,
-        )
-    {
+    let (x, y, h) = place(2., 761., 43.);
+    if win && c.button("endless", x, y, 356., h, "THE TITHE NEVER ENDS", true) {
         g.run.survival.endless = true;
         g.next_wave();
     }
@@ -3515,6 +3770,7 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
         ctx.data_mut(|d| d.insert_temp(Id::new("mode_transition"), (g.mode, g.elapsed)));
     }
     clear_pad_targets(ctx);
+    ctx.data_mut(|d| d.insert_temp(Id::new(TOUCH_MODE), g.device == Device::Touch));
     if cfg!(test) {
         ctx.data_mut(|d| d.insert_temp(Id::new(HUD_LAYOUT), Vec::<(&'static str, Rect)>::new()));
     }
@@ -3626,8 +3882,52 @@ pub fn draw(ctx: &egui::Context, g: &mut Game, vp: Mat4) {
             .rect_filled(ctx.screen_rect(), 0., C::from_black_alpha((alpha * 255.) as u8));
     }
 }
+/// Where the journal's controls go: the desktop's constants, or on a
+/// touchscreen rows a thumb high across the page, under one row of tabs:
+/// sliders two to a row, then switches three to a row.
+#[derive(Clone, Copy)]
+struct JournalLayout {
+    /// The touch rows' height, gap and first row's top, if touch.
+    touch: Option<(f32, f32, f32)>,
+}
+impl JournalLayout {
+    fn new(c: &Canvas) -> Self {
+        Self {
+            touch: c.thumb().map(|m| (m, m * 0.12, c.safe().1.max(0.) + 12.)),
+        }
+    }
+    fn row(&self, line: usize) -> f32 {
+        let (m, gap, top) = self.touch.unwrap();
+        top + line as f32 * (m + gap)
+    }
+    /// Slider `i`'s label x, track y, track x, track width and readout x.
+    fn slider(&self, i: usize, desktop_y: f32) -> (f32, f32, f32, f32, f32) {
+        match self.touch {
+            Some((m, ..)) => {
+                let x = 70. + (i % 2) as f32 * 670.;
+                (x, self.row(1 + i / 2) + m * 0.5, x + 270., 280., x + 600.)
+            }
+            None => (392., desktop_y, 615., 360., 1010.),
+        }
+    }
+    /// Switch `i`, after `sliders` sliders: its rectangle.
+    fn switch(&self, i: usize, sliders: usize, x: f32, y: f32) -> (f32, f32, f32, f32) {
+        match self.touch {
+            Some((m, ..)) => (
+                50. + (i % 3) as f32 * 455.,
+                self.row(1 + sliders.div_ceil(2) + i / 3),
+                430.,
+                m,
+            ),
+            None => (x, y, 310., 35.),
+        }
+    }
+}
 /// The Hunter's Journal: a Preferences page and a Controls page.
 fn journal(c: &Canvas, g: &mut Game) {
+    if c.touch {
+        return journal_touch(c, g);
+    }
     c.folio(325., 88., 790., 724.);
     c.text(
         720.,
@@ -3675,7 +3975,39 @@ fn journal(c: &Canvas, g: &mut Game) {
         g.settings = false;
     }
 }
+/// The journal on a touchscreen: its pages for touch (Preferences and
+/// Display; the Keyboard and Controller pages return with a key or a
+/// controller) across the whole page, with rows a thumb high.
+fn journal_touch(c: &Canvas, g: &mut Game) {
+    let layout = JournalLayout::new(c);
+    let Some((m, _, top)) = layout.touch else { return };
+    if matches!(g.journal_page, JournalPage::Keyboard | JournalPage::Controller) {
+        g.journal_page = JournalPage::Preferences;
+        g.rebinding = None;
+        g.pad_rebinding = None;
+    }
+    // The folio reaches the foot of the screen, over the pause menu.
+    c.folio(20., top - 10., 1400., c.h.max(900.) - top + 20.);
+    for (id, x, label, page) in [
+        ("journal_preferences", 50., "PREFERENCES", JournalPage::Preferences),
+        ("journal_display", 365., "DISPLAY", JournalPage::Display),
+    ] {
+        if c.button(id, x, top, 300., m, label, g.journal_page == page) {
+            g.journal_page = page;
+        }
+    }
+    c.text(840., top + m * 0.5, "The Hunter's Journal", 26., INK, true, Align2::CENTER_CENTER);
+    if c.button("notes_back", 1010., top, 380., m, "Close the journal", true) {
+        g.save_preferences();
+        g.settings = false;
+    }
+    match g.journal_page {
+        JournalPage::Display => journal_display(c, g),
+        _ => journal_preferences(c, g),
+    }
+}
 fn journal_preferences(c: &Canvas, g: &mut Game) {
+    let layout = JournalLayout::new(c);
     let (min_fov, max_fov) = Preferences::FOV_RANGE;
     let (min_sens, max_sens) = Preferences::SENSITIVITY_RANGE;
     let prefs = &mut g.prefs;
@@ -3717,9 +4049,10 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             Some("°"),
         ),
     ] {
-        let y = JOURNAL_SLIDER_Y + row as f32 * JOURNAL_SLIDER_STEP;
-        c.text(392., y, label, 17., INK, true, Align2::LEFT_CENTER);
-        c.slider(id, 615., y + 1., 360., value, min, max);
+        let (lx, y, tx, tw, rx) =
+            layout.slider(row, JOURNAL_SLIDER_Y + row as f32 * JOURNAL_SLIDER_STEP);
+        c.text(lx, y, label, 17., INK, true, Align2::LEFT_CENTER);
+        c.slider(id, tx, y + 1., tw, value, min, max);
         if let Some(unit) = readout {
             // Sensitivity reads as a share of the default.
             let shown = match (id, unit) {
@@ -3727,10 +4060,11 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
                 (_, "%") => *value * 100.,
                 _ => *value,
             };
-            c.center(1010., y + 1., format!("{}{unit}", shown.round()), 12., INK);
+            c.center(rx, y + 1., format!("{}{unit}", shown.round()), 12., INK);
         }
     }
-    for (id, x, y, label, on) in [
+    let switch = |i: usize, x: f32, y: f32| layout.switch(i, 4, x, y);
+    for (i, (id, x, y, label, on)) in [
         ("invert_y", 392., JOURNAL_TOGGLES_Y, "INVERT LOOK", g.prefs.invert_y),
         (
             "reduce_flashes",
@@ -3739,9 +4073,13 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
             "REDUCE FLASHES",
             g.prefs.reduce_flashes,
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let text = format!("{label} {}", if on { "ON" } else { "OFF" });
-        if c.button(id, x, y, 310., 35., &text, false) {
+        let (x, y, w, h) = switch(i, x, y);
+        if c.button(id, x, y, w, h, &text, false) {
             match id {
                 "invert_y" => g.prefs.invert_y = !on,
                 _ => g.prefs.reduce_flashes = !on,
@@ -3749,12 +4087,13 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         }
     }
     let tips = g.prefs.field_tips;
+    let (x, y, w, h) = switch(2, 392., JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP);
     if c.button(
         "field_tips",
-        392.,
-        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
-        310.,
-        35.,
+        x,
+        y,
+        w,
+        h,
         if tips {
             "FIELD TIPS ON"
         } else {
@@ -3765,12 +4104,13 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
         g.set_field_tips(!tips);
     }
     let toggle = g.prefs.toggle_sprint;
+    let (x, y, w, h) = switch(3, 734., JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP);
     if c.button(
         "toggle_sprint",
-        734.,
-        JOURNAL_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
-        310.,
-        35.,
+        x,
+        y,
+        w,
+        h,
         if toggle {
             "SPRINT / TOGGLE"
         } else {
@@ -3782,11 +4122,13 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
     }
     let y = JOURNAL_TOGGLES_Y + 2. * JOURNAL_TOGGLE_STEP;
     let size = format!("RETICLE SIZE {:.0}%", g.prefs.reticle_size * 100.);
-    if c.button("reticle_size", 392., y, 310., 35., &size, false) {
+    let (bx, by, bw, bh) = switch(4, 392., y);
+    if c.button("reticle_size", bx, by, bw, bh, &size, false) {
         g.prefs.reticle_size = g.prefs.next_reticle_size();
     }
     let color = format!("RETICLE / {}", g.prefs.reticle_color.name());
-    if c.button("reticle_color", 734., y, 310., 35., &color, false) {
+    let (bx, by, bw, bh) = switch(5, 734., y);
+    if c.button("reticle_color", bx, by, bw, bh, &color, false) {
         g.prefs.reticle_color = g.prefs.reticle_color.next();
     }
 }
@@ -3794,16 +4136,17 @@ fn journal_preferences(c: &Canvas, g: &mut Game) {
 /// Hollowlight treatment, and how the window and HUD are presented.
 fn journal_display(c: &Canvas, g: &mut Game) {
     use crate::fidelity::Fidelity;
-    let y = DISPLAY_FIDELITY_Y;
+    let layout = JournalLayout::new(c);
+    let (lx, y, tx, tw, _) = layout.slider(0, DISPLAY_FIDELITY_Y);
     let last = (Fidelity::ALL.len() - 1) as f32;
     let mut stop = g.prefs.fidelity.index() as f32;
-    c.text(392., y, "Graphics fidelity", 17., INK, true, Align2::LEFT_CENTER);
-    c.stepped_slider("fidelity", 615., y + 1., 360., &mut stop, 0., last, 1. / last);
+    c.text(lx, y, "Graphics fidelity", 17., INK, true, Align2::LEFT_CENTER);
+    c.stepped_slider("fidelity", tx, y + 1., tw, &mut stop, 0., last, 1. / last);
     g.prefs.fidelity = Fidelity::ALL[stop.round() as usize];
     // Each stop is named under the track; the chosen one is inked and
     // underlined, so the slider needs no readout of its own.
     for (i, step) in Fidelity::ALL.into_iter().enumerate() {
-        let x = 615. + 360. * i as f32 / last;
+        let x = tx + tw * i as f32 / last;
         if step == g.prefs.fidelity {
             c.center(x, y + 35., step.name(), 12., INK);
             c.line((x - 22., y + 46.), (x + 22., y + 46.), INK, 1.2);
@@ -3811,12 +4154,14 @@ fn journal_display(c: &Canvas, g: &mut Game) {
             c.center(x, y + 35., step.name(), 11., INK.gamma_multiply(0.72));
         }
     }
-    c.center(720., y + 68., g.prefs.fidelity.summary(), 12., INK);
-    let y = DISPLAY_HOLLOWLIGHT_Y;
-    c.text(392., y, "Hollowlight / F6", 17., INK, true, Align2::LEFT_CENTER);
-    c.slider("hollowlight_effects", 615., y + 1., 360., &mut g.shader_intensity, 0., 1.);
+    if !c.touch {
+        c.center(720., y + 68., g.prefs.fidelity.summary(), 12., INK);
+    }
+    let (lx, y, tx, tw, rx) = layout.slider(1, DISPLAY_HOLLOWLIGHT_Y);
+    c.text(lx, y, "Hollowlight / F6", 17., INK, true, Align2::LEFT_CENTER);
+    c.slider("hollowlight_effects", tx, y + 1., tw, &mut g.shader_intensity, 0., 1.);
     c.center(
-        1010.,
+        rx,
         y + 1.,
         format!("{}%", (g.shader_intensity * 100.).round()),
         12.,
@@ -3824,17 +4169,17 @@ fn journal_display(c: &Canvas, g: &mut Game) {
     );
     // The frame limit steps through its listed rates.
     let limits = crate::pacing::FRAME_LIMITS;
-    let y = DISPLAY_FRAME_LIMIT_Y;
+    let (lx, y, tx, tw, rx) = layout.slider(2, DISPLAY_FRAME_LIMIT_Y);
     let mut stop = limits
         .iter()
         .position(|&l| l == g.prefs.frame_limit)
         .unwrap_or(0) as f32;
-    c.text(392., y, "Frame limit", 17., INK, true, Align2::LEFT_CENTER);
+    c.text(lx, y, "Frame limit", 17., INK, true, Align2::LEFT_CENTER);
     let last = (limits.len() - 1) as f32;
-    c.stepped_slider("frame_limit", 615., y + 1., 360., &mut stop, 0., last, 1. / last);
+    c.stepped_slider("frame_limit", tx, y + 1., tw, &mut stop, 0., last, 1. / last);
     g.prefs.frame_limit = limits[stop.round() as usize];
     c.center(
-        1010.,
+        rx,
         y + 1.,
         match g.prefs.frame_limit {
             0 => "OFF".to_string(),
@@ -3844,7 +4189,7 @@ fn journal_display(c: &Canvas, g: &mut Game) {
         INK,
     );
     // Browsers always draw in step with the display.
-    if !WEB
+    if !(WEB || c.touch)
         && c.button(
             "vsync",
             392.,
@@ -3862,12 +4207,13 @@ fn journal_display(c: &Canvas, g: &mut Game) {
         g.vsync = !g.vsync;
         g.save_performance();
     }
+    let (x, y, w, h) = layout.switch(0, 3, 734., DISPLAY_TOGGLES_Y);
     if c.button(
         "fpscounter",
-        734.,
-        DISPLAY_TOGGLES_Y,
-        310.,
-        35.,
+        x,
+        y,
+        w,
+        h,
         if g.show_fps {
             "F8 / FPS COUNTER ON"
         } else {
@@ -3879,12 +4225,13 @@ fn journal_display(c: &Canvas, g: &mut Game) {
         g.save_performance();
     }
     let fullscreen = g.prefs.fullscreen;
+    let (x, y, w, h) = layout.switch(1, 3, 392., DISPLAY_TOGGLES_Y + JOURNAL_TOGGLE_STEP);
     if c.button(
         "fullscreen",
-        392.,
-        DISPLAY_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
-        310.,
-        35.,
+        x,
+        y,
+        w,
+        h,
         if fullscreen {
             "F11 / FULLSCREEN ON"
         } else {
@@ -3895,12 +4242,13 @@ fn journal_display(c: &Canvas, g: &mut Game) {
         g.prefs.fullscreen = !fullscreen;
         g.fullscreen_changed = true;
     }
+    let (x, y, w, h) = layout.switch(2, 3, 734., DISPLAY_TOGGLES_Y + JOURNAL_TOGGLE_STEP);
     if c.button(
         "hud_scale",
-        734.,
-        DISPLAY_TOGGLES_Y + JOURNAL_TOGGLE_STEP,
-        310.,
-        35.,
+        x,
+        y,
+        w,
+        h,
         &format!("HUD SIZE {:.0}%", g.prefs.hud_scale * 100.),
         false,
     ) {
@@ -4137,6 +4485,61 @@ mod tests {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| (f.take().unwrap())(&Canvas::new(ui, 0.)));
         });
+    }
+    #[test]
+    fn every_menu_control_is_a_thumb_sized_target_inside_the_safe_area() {
+        use crate::text_review::{Review, menu_fixtures};
+        // Screens in CSS pixels, with their safe-area insets (top, right,
+        // bottom, left): Safari on an iPhone 15 held sideways, the same with
+        // the page under the notch, an iPhone SE, and an 11-inch iPad.
+        let devices = [
+            ("iPhone 15", 734., 343., [0., 0., 21., 0.]),
+            ("iPhone 15 under the notch", 852., 393., [0., 59., 21., 59.]),
+            ("iPhone SE", 667., 375., [0.; 4]),
+            ("iPad Pro 11", 1194., 834., [0., 0., 20., 0.]),
+        ];
+        let ctx = egui::Context::default();
+        configure(&ctx);
+        let mut failures = vec![];
+        for (device, w, h, insets) in devices {
+            set_safe_area(&ctx, insets);
+            let [top, right, bottom, left] = insets;
+            let safe = Rect::from_min_max(Pos2::new(left, top), Pos2::new(w - right, h - bottom));
+            for (name, screen) in menu_fixtures() {
+                let mut g = Game::new(false);
+                Review::setup(&mut g, screen);
+                g.device = Device::Touch;
+                for _ in 0..2 {
+                    let input = egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(w, h))),
+                        ..Default::default()
+                    };
+                    let _ = ctx.run(input, |ctx| draw(ctx, &mut g, Mat4::IDENTITY));
+                }
+                let controls = controls(&ctx);
+                if controls.is_empty() {
+                    failures.push(format!("{device} / {name}: no controls"));
+                }
+                for (i, (label, r)) in controls.iter().enumerate() {
+                    if r.width() < THUMB - 0.01 || r.height() < THUMB - 0.01 {
+                        failures.push(format!(
+                            "{device} / {name}: {label} is {:.0}×{:.0}",
+                            r.width(),
+                            r.height()
+                        ));
+                    }
+                    if !safe.expand(0.5).contains_rect(*r) {
+                        failures.push(format!("{device} / {name}: {label} leaves the safe area ({r:?})"));
+                    }
+                    for (other, o) in &controls[i + 1..] {
+                        if r.shrink(0.5).intersects(o.shrink(0.5)) {
+                            failures.push(format!("{device} / {name}: {label} overlaps {other}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{} problems:\n{}", failures.len(), failures.join("\n"));
     }
     #[test]
     fn screens_fade_in_but_the_fight_resumes_at_once() {
