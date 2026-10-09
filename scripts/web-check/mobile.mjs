@@ -5,7 +5,7 @@
 //
 //   node scripts/web-check/mobile.mjs <url> [--browser chromium|webkit] \
 //     [--device "iPhone 15 landscape"|desktop] [--input touch|desktop] [--play] \
-//     [--load-anyway] [--timeout 300] [--out captures/mobile/chromium]
+//     [--load-anyway] [--gpu software|hardware] [--timeout 300] [--out captures/mobile/chromium]
 //
 // `--input touch` (the default) has a touchscreen and no mouse; the game
 // should start with its touch controls (and, held upright, ask to be turned
@@ -189,20 +189,21 @@ async function playByTouch(page, cdp) {
     log(`tap ${what} at ${x.toFixed(0)},${y.toFixed(0)}`);
     await page.touchscreen.tap(x, y);
   };
-  await tapAt(await designPoint(page, 275, 575), "ANSWER THE BELL");
-  let g = await until(page, (s) => s.mode === "Arena");
-  check(g?.mode === "Arena", `a tap on the title starts a run (${g?.mode})`);
-  await sleep(1500);
-  g = await until(page, (s) => s.controls);
-  check(g?.controls === true, "the touch controls show in the arena");
-  await page.screenshot({ path: `${out}-2-arena.png` });
   const fps = await page.evaluate(() => new Promise((resolve) => {
     let frames = 0;
     const start = performance.now();
     const tick = () => (++frames, performance.now() - start < 2000 ? requestAnimationFrame(tick) : resolve(frames / 2));
     requestAnimationFrame(tick);
   }));
-  log(`arena frame rate: ${fps.toFixed(1)} fps (software rendering on a shared machine)`);
+  log(`title frame rate: ${fps.toFixed(1)} fps`);
+  // The pack reaches a hunter who stands still in about 20 seconds of play,
+  // so the checks in the arena are kept short.
+  await tapAt(await designPoint(page, 275, 575), "ANSWER THE BELL");
+  let g = await until(page, (s) => s.mode === "Arena");
+  check(g?.mode === "Arena", `a tap on the title starts a run (${g?.mode})`);
+  g = await until(page, (s) => s.controls);
+  check(g?.controls === true, "the touch controls show in the arena");
+  await page.screenshot({ path: `${out}-2-arena.png` });
   const button = (name) => g.buttons[name];
   // Fire: a tap fires once.
   const ammo0 = (await gameState(page)).ammo;
@@ -210,7 +211,7 @@ async function playByTouch(page, cdp) {
   g = await until(page, (s) => s.ammo < ammo0, 10000);
   check(g.ammo < ammo0, `tapping FIRE fires (ammo ${ammo0} → ${g.ammo})`);
   // Reload.
-  await sleep(700);
+  await sleep(300);
   const ammo1 = (await gameState(page)).ammo;
   await tapAt(button("Reload"), "RELOAD");
   g = await until(page, (s) => s.ammo > ammo1, 12000);
@@ -218,20 +219,9 @@ async function playByTouch(page, cdp) {
   const f = fingers(page, cdp);
   const vw = await page.evaluate(() => innerWidth);
   const vh = await page.evaluate(() => innerHeight);
-  // The stick: thumb down on the left, pushed up, held.
-  let before = await gameState(page);
-  await f.down(0, vw * 0.18, vh * 0.7);
-  for (let i = 1; i <= 5; i++) {
-    await f.move(0, vw * 0.18, vh * 0.7 - i * 10);
-    await sleep(40);
-  }
-  await sleep(1200);
-  let after = await gameState(page);
-  await f.up(0);
-  const walked = Math.hypot(after.x - before.x, after.z - before.z);
-  check(walked > 0.5, `the left stick (${how}) moves the hunter (${walked.toFixed(2)} m)`);
   // Look: a drag on the right half turns.
-  before = await gameState(page);
+  let before = await gameState(page);
+  let after;
   await f.down(1, vw * 0.55, vh * 0.35);
   for (let i = 1; i <= 6; i++) {
     await f.move(1, vw * 0.55 + i * 15, vh * 0.35);
@@ -240,14 +230,27 @@ async function playByTouch(page, cdp) {
   await f.up(1);
   after = await until(page, (s) => s.yaw - before.yaw > 0.1, 4000);
   check(after.yaw - before.yaw > 0.1, `a drag on the right (${how}) turns right (yaw ${before.yaw.toFixed(2)} → ${after.yaw.toFixed(2)})`);
+  // The stick: thumb down on the left, pulled back (away from the pack,
+  // which otherwise kills the hunter before the checks end), held.
+  before = await gameState(page);
+  await f.down(0, vw * 0.18, vh * 0.6);
+  for (let i = 1; i <= 5; i++) {
+    await f.move(0, vw * 0.18, vh * 0.6 + i * 10);
+    await sleep(40);
+  }
+  await sleep(1200);
+  after = await gameState(page);
+  await f.up(0);
+  const walked = Math.hypot(after.x - before.x, after.z - before.z);
+  check(walked > 0.5, `the left stick (${how}) moves the hunter (${walked.toFixed(2)} m)`);
   // Several fingers at once: move, look and hold fire together.
   before = await gameState(page);
   const [fx, fy] = button("Fire");
-  await f.down(0, vw * 0.18, vh * 0.7);
+  await f.down(0, vw * 0.18, vh * 0.6);
   await f.down(1, vw * 0.55, vh * 0.35);
   await f.down(2, fx, fy);
   for (let i = 1; i <= 6; i++) {
-    await f.move(0, vw * 0.18 - i * 10, vh * 0.7);
+    await f.move(0, vw * 0.18 - i * 7, vh * 0.6 + i * 7);
     await f.move(1, vw * 0.55, vh * 0.35 + i * 6);
     await sleep(50);
   }
@@ -263,7 +266,7 @@ async function playByTouch(page, cdp) {
   // The other buttons don't break anything.
   for (const name of ["Dodge", "Melee", "Bolt"]) {
     await tapAt(button(name), name.toUpperCase());
-    await sleep(500);
+    await sleep(150);
   }
   // A key hides the controls; a touch brings them back.
   await page.keyboard.press("KeyW");
@@ -309,7 +312,10 @@ try {
     browser = await chromium.launch({
       executablePath: chromiumPath(),
       headless: true,
-      args: ["--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--mute-audio", "--enable-precise-memory-info"],
+      // Software rendering by default; `--gpu hardware` draws on the real GPU
+      // through ANGLE's Vulkan backend, for play on a busy machine.
+      args: ["--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--mute-audio", "--enable-precise-memory-info",
+        ...(option("gpu", "software") === "hardware" ? ["--use-angle=vulkan", "--enable-features=Vulkan", "--enable-gpu"] : [])],
     });
   } else if (browserName === "webkit") {
     // Playwright's WebKit needs libraries this system may lack; a wrapper
