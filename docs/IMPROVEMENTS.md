@@ -2042,3 +2042,28 @@ Not verified: a real iPhone, iPad or Android phone (memory limits, the
 notch insets, touch feel, frame rate, sound), real Safari, and WebKit
 drags with real touches (its driver can only tap, so its drags are
 dispatched pointer events; Chromium's are real touch events).
+
+### Follow-up: menus a thumb can use
+
+On the live site the menus' buttons on an iPhone held sideways were 11 to
+21 CSS px tall (ANSWER THE BELL 135×21, ARMORY 64×16, the journal's
+sliders 11), against Apple's 44 pt. The interface is laid out on a
+1440×900 page scaled to fit, which on a 734×343 screen is 0.38 px per
+design unit, so a 44 px target is about 116 units: no desktop menu could
+simply grow that much.
+
+While touch is the input in use, every control is now at least 44×44
+points, inside the safe area and clear of the others, and each menu is
+arranged for it (see DEVELOPMENT.md, *Touch controls*); the desktop
+layouts are unchanged. A unit test draws all 27 menu fixtures in touch
+mode on four screens (an iPhone 15 in Safari, the same under its notch, an
+iPhone SE and an 11-inch iPad): before the change it found 1,041
+problems, now none. `mobile.mjs --menus` checks 20 of the menus in the
+browser, and `--play` the title, pause menu, new-run question and journal
+on the way. WebAssembly memory (447 MB), WebGL objects (267 MB) and
+WebKit's web process (1,541 MB measured back to back with the previous
+build, which also measured 1,541 MB) are unchanged on the iPhone profile.
+
+Not verified: on a real phone or tablet, how the larger menus feel under
+a thumb, and the real notch and home-indicator insets (the checks stand
+in for them with `?safe=`).
