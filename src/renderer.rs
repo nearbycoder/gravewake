@@ -1391,6 +1391,7 @@ impl Renderer {
         // One vertex buffer, refilled for each card and grown when needed:
         // 136 buffers of their own came to 250 MB of GPU memory at once.
         let mut vb: Option<wgpu::Buffer> = None;
+        let mut depth: Option<wgpu::TextureView> = None;
         for kind in 0..=crate::weapons::WeaponKind::ALL.len() {
             for rarity in 0..4 {
                 let mut mesh = scene::Mesh::new();
@@ -1500,19 +1501,21 @@ impl Renderer {
                     view_formats: &[],
                 });
                 let view = tex.create_view(&Default::default());
-                let depth = self
-                    .device
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: None,
-                        size,
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: wgpu::TextureFormat::Depth32Float,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                        view_formats: &[],
-                    })
-                    .create_view(&Default::default());
+                // One depth buffer serves every card.
+                let depth = depth.get_or_insert_with(|| {
+                    self.device
+                        .create_texture(&wgpu::TextureDescriptor {
+                            label: Some("Card weapon depth"),
+                            size,
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: wgpu::TextureFormat::Depth32Float,
+                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                            view_formats: &[],
+                        })
+                        .create_view(&Default::default())
+                });
                 let mut encoder = self.device.create_command_encoder(&Default::default());
                 {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
