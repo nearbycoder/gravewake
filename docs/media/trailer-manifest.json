@@ -1,93 +1,152 @@
 {
   "fps": 30,
   "frame_size": [
-    1280,
-    720
+    1920,
+    1080
   ],
-  "source": "Native Gravewake Metal renderer; staged disposable review runs",
-  "audio": "In-game audio only; no external music",
+  "fidelity": "ULTRA",
+  "source": "Native Gravewake renderer (wgpu, Vulkan on Linux) in a private virtual KWin; staged disposable review runs",
+  "audio": "In-game sound effects, menu cues, ambience and the game's adaptive score; no narration or external music",
+  "loudness": {
+    "gain_to_lufs": -16,
+    "limiter_dbfs": -4.4,
+    "measured_input_lufs": -21.0
+  },
   "shots": [
     {
-      "source": "captures/trailer-edit/opening.png",
+      "source": "captures/trailer/edit/opening.png",
       "in_seconds": 0,
-      "duration_seconds": 2.7,
+      "duration_seconds": 2.2,
+      "captions": [],
       "description": "Identity",
       "still": true
     },
     {
-      "source": "captures/survival-review.mp4",
-      "in_seconds": 1.1,
-      "duration_seconds": 7.0,
-      "description": "Mixed-enemy combat and automatic powers",
+      "source": "captures/trailer/survival-review.mp4",
+      "in_seconds": 0.5,
+      "duration_seconds": 3.3,
+      "captions": [
+        "Hold the line against twelve kinds of dead"
+      ],
+      "description": "Mixed-enemy combat and automatic powers at Ultra",
       "still": false
     },
     {
-      "source": "captures/motion-review.mp4",
+      "source": "captures/trailer/survival-review.mp4",
+      "in_seconds": 4.8,
+      "duration_seconds": 3.1,
+      "captions": [
+        "Ultra fidelity: living fire and brazier shadows"
+      ],
+      "description": "The fight resumes past a brazier at Ultra",
+      "still": false
+    },
+    {
+      "source": "captures/trailer/motion-review.mp4",
       "in_seconds": 7.0,
-      "duration_seconds": 4.8,
+      "duration_seconds": 4.5,
+      "captions": [
+        "Break the breech. Eject. Reload."
+      ],
       "description": "Shotgun fire and mechanical reload",
       "still": false
     },
     {
-      "source": "captures/anatomy-review.mp4",
+      "source": "captures/trailer/anatomy-review.mp4",
       "in_seconds": 0.35,
-      "duration_seconds": 3.3,
-      "description": "Head hit and physical remains",
+      "duration_seconds": 3.0,
+      "captions": [],
+      "description": "Head hit and physical remains (the review names each scene in the game's notice bar)",
       "still": false
     },
     {
-      "source": "captures/anatomy-review.mp4",
+      "source": "captures/trailer/anatomy-review.mp4",
       "in_seconds": 16.35,
-      "duration_seconds": 3.3,
+      "duration_seconds": 3.0,
+      "captions": [],
       "description": "Heavy impact and mesh fracture",
       "still": false
     },
     {
-      "source": "captures/trailer-edit/arsenal.png",
+      "source": "captures/trailer/edit/arsenal.png",
       "in_seconds": 0,
-      "duration_seconds": 1.5,
+      "duration_seconds": 1.4,
+      "captions": [],
       "description": "Arsenal chapter",
       "still": true
     },
     {
-      "source": "docs/media/melee.jpg",
-      "in_seconds": 0,
-      "duration_seconds": 1.7,
-      "description": "Butcher Cleaver",
-      "still": true
-    },
-    {
-      "source": "docs/media/occult.jpg",
-      "in_seconds": 0,
-      "duration_seconds": 1.7,
-      "description": "Ember Staff",
-      "still": true
-    },
-    {
-      "source": "docs/media/shotgun.jpg",
-      "in_seconds": 0,
-      "duration_seconds": 1.7,
-      "description": "Double shotgun",
-      "still": true
-    },
-    {
-      "source": "captures/motion-review.mp4",
+      "source": "captures/trailer/motion-review.mp4",
       "in_seconds": 0.0,
-      "duration_seconds": 6.55,
-      "description": "Pack tear, reveal and equip through actual UI",
+      "duration_seconds": 6.2,
+      "captions": [
+        "Tear a pack. Three cards. Keep one.",
+        "Every card shows its reach and damage against yours"
+      ],
+      "description": "Pack tear, reveal and equip through the real UI, with menu sounds",
       "still": false
     },
     {
-      "source": "captures/survival-review.mp4",
-      "in_seconds": 11.7,
-      "duration_seconds": 4.4,
-      "description": "Soul collection and power selection",
+      "source": "captures/trailer/edit/still-collector-next-descent-08.png",
+      "in_seconds": 0,
+      "duration_seconds": 2.0,
+      "captions": [],
+      "description": "The Collector previewing the next descent",
+      "still": true
+    },
+    {
+      "source": "captures/trailer/survival-review.mp4",
+      "in_seconds": 12.4,
+      "duration_seconds": 3.8,
+      "captions": [],
+      "description": "Soul collection and power selection over the blurred arena",
       "still": false
     },
     {
-      "source": "captures/trailer-edit/ending.png",
+      "source": "captures/trailer/edit/still-hud-creature-note.png",
+      "in_seconds": 0,
+      "duration_seconds": 1.8,
+      "captions": [],
+      "description": "First-sighting creature note",
+      "still": true
+    },
+    {
+      "source": "captures/trailer/edit/still-pause-ledger-full.png",
+      "in_seconds": 0,
+      "duration_seconds": 1.8,
+      "captions": [],
+      "description": "Pause ledger over the blurred arena",
+      "still": true
+    },
+    {
+      "source": "captures/trailer/edit/still-display-ultra.png",
+      "in_seconds": 0,
+      "duration_seconds": 2.0,
+      "captions": [],
+      "description": "Journal Display page at Ultra",
+      "still": true
+    },
+    {
+      "source": "captures/trailer/edit/still-death.png",
+      "in_seconds": 0,
+      "duration_seconds": 1.8,
+      "captions": [],
+      "description": "Death recap",
+      "still": true
+    },
+    {
+      "source": "captures/trailer/edit/still-title-chronicle.png",
+      "in_seconds": 0,
+      "duration_seconds": 1.8,
+      "captions": [],
+      "description": "Title with records and the chronicle",
+      "still": true
+    },
+    {
+      "source": "captures/trailer/edit/ending.png",
       "in_seconds": 0,
       "duration_seconds": 3.0,
+      "captions": [],
       "description": "End card",
       "still": true
     }
